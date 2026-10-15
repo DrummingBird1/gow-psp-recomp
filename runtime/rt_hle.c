@@ -1,182 +1,242 @@
-/* Minimal HLE (PSP OS) layer for the prototype.
- * Implements just enough of the kernel to follow the boot path and logs every call.
- * Threads are run synchronously when started; this is a stand-in until a real
- * fiber-based scheduler exists (Phase 2). */
+/* HLE dispatcher plus the smaller PSP modules: display, GE (no rendering yet), controller,
+ * audio (timing only), power, RTC, impose, utility dialogs, modules, NpDrm.
+ * Unimplemented functions return 0 and are logged the first time they are called. */
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
-#include "rt_internal.h"
+#include "rt_kernel.h"
 
-#define USER_END 0x09F00000u  /* user RAM ends at 0x0A000000; the top 1MB holds the boot stack */
-#define MAX_UIDS 256
-
-typedef struct { int kind; uint32_t addr, size, entry, stack; char name[32]; } Uid;
-
+int rt_hle_verbose;
 static RtHleMode g_mode;
-static uint32_t g_heap_lo, g_heap_hi;
-static uint32_t g_calls, g_max_calls;
-static Uid g_uids[MAX_UIDS];
-static int g_next_uid = 1;
-static uint32_t g_current_thread;
-static char g_unimplemented[64][48];
-static int g_unimplemented_count;
+static uint64_t g_calls;
+static uint64_t g_max_calls;
 
-enum { UID_BLOCK = 1, UID_THREAD, UID_SEMA, UID_EVENT, UID_CALLBACK, UID_FPL };
+void rt_log(const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    if (k_cur) printf("[%9.3f %-12.12s] ", (double)k_now / 1e6, k_cur->name);
+    else printf("[%9.3f %-12s] ", (double)k_now / 1e6, "-");
+    vprintf(fmt, ap);
+    va_end(ap);
+}
+
+/* --- dispatcher ------------------------------------------------------------- */
+typedef struct { uint32_t nid; int resolved; HleFn fn; const char *lib, *name; uint64_t count; } Slot;
+static Slot g_slots[2048];
+
+static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc };
+
+static Slot *slot_for(uint32_t nid, const char *lib, const char *name) {
+    uint32_t h = (nid * 2654435761u) & 2047;
+    while (g_slots[h].resolved && g_slots[h].nid != nid) h = (h + 1) & 2047;
+    Slot *s = &g_slots[h];
+    if (!s->resolved) {
+        s->nid = nid; s->lib = lib; s->name = name; s->resolved = 1;
+        for (size_t t = 0; t < sizeof(g_tables) / sizeof(g_tables[0]) && !s->fn; t++)
+            for (const HleEntry *e = g_tables[t]; e->name; e++)
+                if (!strcmp(e->name, name)) { s->fn = e->fn; break; }
+    }
+    return s;
+}
 
 void rt_hle_init(RtHleMode mode, uint32_t heap_start, uint32_t max_calls) {
     g_mode = mode;
-    g_heap_lo = (heap_start + 0xFFF) & ~0xFFFu;
-    g_heap_hi = USER_END;
     g_max_calls = max_calls;
-}
-
-static uint32_t new_uid(int kind, const char *name) {
-    if (g_next_uid >= MAX_UIDS) return 0x80020001u;
-    Uid *u = &g_uids[g_next_uid];
-    memset(u, 0, sizeof(*u));
-    u->kind = kind;
-    if (name) strncpy(u->name, name, sizeof(u->name) - 1);
-    return (uint32_t)g_next_uid++;
-}
-
-static Uid *get_uid(uint32_t id, int kind) {
-    return (id > 0 && id < (uint32_t)g_next_uid && g_uids[id].kind == kind) ? &g_uids[id] : NULL;
-}
-
-static uint32_t alloc(uint32_t size, int high, uint32_t align) {
-    size = (size + 0xFF) & ~0xFFu;
-    if (align < 0x100) align = 0x100;
-    if (high) {
-        uint32_t a = (g_heap_hi - size) & ~(align - 1);
-        if (a < g_heap_lo) return 0;
-        g_heap_hi = a;
-        return a;
-    }
-    uint32_t a = (g_heap_lo + align - 1) & ~(align - 1);
-    if (a + size > g_heap_hi) return 0;
-    g_heap_lo = a + size;
-    return a;
-}
-
-static const char *guest_str(uint32_t a) { return a ? (const char *)rt_ptr(a) : "(null)"; }
-
-static void note_unimplemented(const char *name) {
-    for (int i = 0; i < g_unimplemented_count; i++)
-        if (!strcmp(g_unimplemented[i], name)) return;
-    if (g_unimplemented_count < 64) strncpy(g_unimplemented[g_unimplemented_count++], name, 47);
-}
-
-static uint32_t start_thread(Uid *t, uint32_t argsize, uint32_t argp) {
-    RtCtx tc;
-    memset(&tc, 0, sizeof(tc));
-    uint32_t sp = t->stack + t->size - 0x40;
-    if (argsize && argp) {
-        sp = (sp - argsize) & ~0xFu;
-        memmove(rt_ptr(sp), rt_ptr(argp), argsize);
-        tc.r[5] = sp;
-    }
-    tc.r[4] = argsize;
-    tc.r[28] = RT_GP;
-    tc.r[29] = sp - 0x10;
-    tc.r[31] = 0;
-    uint32_t prev = g_current_thread;
-    g_current_thread = (uint32_t)(t - g_uids);
-    printf("[hle] -> running thread '%s' entry %08X synchronously\n", t->name, t->entry);
-    rt_call(&tc, t->entry);
-    printf("[hle] <- thread '%s' returned v0=%08X\n", t->name, tc.r[2]);
-    g_current_thread = prev;
-    return 0;
+    if (heap_start) k_mem_init(heap_start, 0x0A000000u);
 }
 
 void rt_hle(RtCtx *c, uint32_t nid, const char *lib, const char *name) {
-    uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6], a3 = c->r[7], t0 = c->r[8];
-    uint32_t v0 = 0;
-    int known = 1;
     if (g_mode == RT_HLE_ABORT) rt_abort(RT_ABORT_HLE, nid, c->r[31], name);
-    if (++g_calls > g_max_calls) rt_abort(RT_ABORT_BUDGET, nid, g_calls, "HLE call budget exhausted");
-
-    if (!strncmp(name, "sceKernelSetCompiledSdkVersion", 30) || !strcmp(name, "sceKernelSetCompilerVersion")) {
-        v0 = 0;
-    } else if (!strcmp(name, "sceKernelAllocPartitionMemory")) {
-        uint32_t addr = alloc(a3, a2 == 1, 0x100);
-        if (!addr) v0 = 0x800200D9u; /* SCE_KERNEL_ERROR_MEMBLOCK_ALLOC_FAILED */
-        else { v0 = new_uid(UID_BLOCK, guest_str(a1)); g_uids[v0].addr = addr; g_uids[v0].size = a3; }
-    } else if (!strcmp(name, "sceKernelGetBlockHeadAddr")) {
-        Uid *u = get_uid(a0, UID_BLOCK); v0 = u ? u->addr : 0;
-    } else if (!strcmp(name, "sceKernelFreePartitionMemory")) {
-        v0 = 0;
-    } else if (!strcmp(name, "sceKernelMaxFreeMemSize")) {
-        v0 = g_heap_hi - g_heap_lo;
-    } else if (!strcmp(name, "sceKernelCreateThread")) {
-        uint32_t stack = alloc(a3 ? a3 : 0x4000, 1, 0x100);
-        v0 = new_uid(UID_THREAD, guest_str(a0));
-        g_uids[v0].entry = a1; g_uids[v0].stack = stack; g_uids[v0].size = a3;
-    } else if (!strcmp(name, "sceKernelStartThread")) {
-        Uid *t = get_uid(a0, UID_THREAD);
-        v0 = t ? start_thread(t, a1, a2) : 0x80020198u;
-    } else if (!strcmp(name, "sceKernelGetThreadId")) {
-        v0 = g_current_thread;
-    } else if (!strcmp(name, "sceKernelCreateSema")) {
-        v0 = new_uid(UID_SEMA, guest_str(a0));
-    } else if (!strcmp(name, "sceKernelCreateEventFlag")) {
-        v0 = new_uid(UID_EVENT, guest_str(a0));
-    } else if (!strcmp(name, "sceKernelCreateCallback")) {
-        v0 = new_uid(UID_CALLBACK, guest_str(a0));
-    } else if (!strcmp(name, "sceKernelCreateFpl")) {
-        v0 = new_uid(UID_FPL, guest_str(a0));
-    } else if (!strcmp(name, "sceKernelStdin") || !strcmp(name, "sceKernelStdout") || !strcmp(name, "sceKernelStderr")) {
-        v0 = !strcmp(name, "sceKernelStdin") ? 0 : !strcmp(name, "sceKernelStdout") ? 1 : 2;
-    } else if (!strcmp(name, "sceKernelPrintf")) {
-        printf("[guest printf] %s\n", guest_str(a0));
-    } else if (!strcmp(name, "sceKernelRegisterExitCallback") || !strcmp(name, "sceKernelDelayThread")
-               || !strcmp(name, "sceKernelSignalSema") || !strcmp(name, "sceKernelWaitSema")
-               || !strcmp(name, "sceKernelChangeThreadPriority") || !strcmp(name, "scePowerSetClockFrequency350")) {
-        v0 = 0;
-    } else if (!strcmp(name, "sceKernelAllocateFpl") || !strcmp(name, "sceKernelTryAllocateFpl")) {
-        /* Prototype: every allocation is a fresh block; FPL block size is not tracked */
-        uint32_t addr = alloc(0x1000, 0, 0x40);
-        if (a1) rt_w32(a1, addr);
-        v0 = addr ? 0 : 0x80020190u;
-    } else if (!strcmp(name, "sceKernelGetSystemTimeWide")) {
-        static uint64_t fake_us;
-        fake_us += 1000;
-        c->r[2] = (uint32_t)fake_us;
-        c->r[3] = (uint32_t)(fake_us >> 32);
-        printf("[hle %4u] %s::%s() -> %llu us\n", g_calls, lib, name, (unsigned long long)fake_us);
-        return;
-    } else if (!strcmp(name, "sceKernelGetSystemTimeLow")) {
-        static uint32_t fake_low;
-        v0 = fake_low += 1000;
-    } else if (!strcmp(name, "sceUmdCheckMedium")) {
-        v0 = 1; /* disc present */
-    } else if (!strcmp(name, "sceUmdActivate") || !strcmp(name, "sceUmdWaitDriveStatWithTimer")
-               || !strcmp(name, "sceKernelPowerLock") || !strcmp(name, "sceKernelPowerUnlock")
-               || !strcmp(name, "scePowerRegisterCallback") || !strcmp(name, "scePowerUnregisterCallback")
-               || !strcmp(name, "sceKernelDeleteCallback") || !strcmp(name, "sceKernelSleepThreadCB")) {
-        v0 = 0;
-    } else if (!strcmp(name, "sceIoOpen") || !strcmp(name, "sceIoOpenAsync") || !strcmp(name, "sceIoDopen")
-               || !strcmp(name, "sceIoGetstat") || !strcmp(name, "sceIoChdir")) {
-        /* No file system yet (Phase 2): log the path and report "not found" */
-        printf("[hle %4u] %s::%s(\"%s\") -> not found (no file system in the prototype)\n", g_calls, lib, name, guest_str(a0));
-        c->r[2] = 0x80010002u;
-        c->r[3] = 0;
-        return;
-    } else if (!strcmp(name, "sceKernelExitThread") || !strcmp(name, "sceKernelExitDeleteThread")
-               || !strcmp(name, "sceKernelExitGame")) {
-        rt_abort(RT_ABORT_HLE, nid, c->r[31], name);
+    if (++g_calls > g_max_calls && g_max_calls) rt_abort(RT_ABORT_BUDGET, nid, (uint32_t)g_calls, "HLE call budget exhausted");
+    Slot *s = slot_for(nid, lib, name);
+    s->count++;
+    uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6], a3 = c->r[7];
+    if (s->fn) {
+        s->fn(c);
+        if (rt_hle_verbose)
+            rt_log("[hle] %s::%s(%08X, %08X, %08X, %08X) -> %08X\n", lib, name, a0, a1, a2, a3, c->r[2]);
     } else {
-        known = 0;
-        note_unimplemented(name);
-        v0 = 0;
+        c->r[2] = 0;
+        c->r[3] = 0;
+        if (s->count == 1 || rt_hle_verbose)
+            rt_log("[hle] UNIMPLEMENTED %s::%s(%08X, %08X, %08X, %08X) -> 0%s\n", lib, name, a0, a1, a2, a3,
+                   rt_hle_verbose ? "" : "  (logged once)");
     }
-    printf("[hle %4u] %s::%s(%08X, %08X, %08X, %08X, %08X) -> %08X%s\n", g_calls, lib, name, a0, a1, a2, a3, t0, v0,
-           known ? "" : "  [unimplemented]");
-    c->r[2] = v0;
-    c->r[3] = 0;
 }
 
 void rt_hle_report(void) {
-    printf("[hle] %u calls; %d unimplemented functions called:", g_calls, g_unimplemented_count);
-    for (int i = 0; i < g_unimplemented_count; i++) printf(" %s", g_unimplemented[i]);
-    printf("\n");
+    Slot *top[2048];
+    int n = 0, unimpl = 0;
+    for (int i = 0; i < 2048; i++) if (g_slots[i].resolved) top[n++] = &g_slots[i];
+    for (int i = 1; i < n; i++)
+        for (int j = i; j > 0 && top[j]->count > top[j - 1]->count; j--) { Slot *t = top[j]; top[j] = top[j - 1]; top[j - 1] = t; }
+    printf("[hle] %llu calls to %d distinct functions. Most called:\n", (unsigned long long)g_calls, n);
+    for (int i = 0; i < n && i < 15; i++)
+        printf("  %8llu  %s::%s%s\n", (unsigned long long)top[i]->count, top[i]->lib, top[i]->name, top[i]->fn ? "" : "  [unimplemented]");
+    printf("[hle] unimplemented functions that were called:");
+    for (int i = 0; i < n; i++) if (!top[i]->fn) { printf(" %s", top[i]->name); unimpl++; }
+    printf("%s\n", unimpl ? "" : " none");
 }
+
+/* --- display ---------------------------------------------------------------- */
+#define VBLANK_US 16683u  /* 59.94 Hz */
+static uint64_t g_frames;
+static uint32_t g_fb_addr, g_fb_width, g_fb_format;
+
+static void hle_DisplaySetMode(RtCtx *c) { RET(0); }
+static void hle_DisplaySetFrameBuf(RtCtx *c) {
+    g_frames++;
+    g_fb_addr = A0; g_fb_width = A1; g_fb_format = A2;
+    if (g_frames == 1 || g_frames % 600 == 0)
+        rt_log("[display] frame %llu: framebuffer %08X width %u format %u\n", (unsigned long long)g_frames, A0, A1, A2);
+    RET(0);
+}
+static void hle_DisplayWaitVblankStart(RtCtx *c) {
+    uint64_t next = (k_now / VBLANK_US + 1) * VBLANK_US;
+    k_wait(WT_VBLANK, 0, next - k_now);
+    RET(0);
+}
+static void hle_DisplayGetVcount(RtCtx *c) { RET((uint32_t)(k_now / VBLANK_US)); }
+static void hle_DisplayGetFramePerSec(RtCtx *c) { c->fpr[0].f = 59.9400599f; RET(0); }
+
+/* --- GE (graphics engine): lists are accepted and counted, nothing is drawn yet -- */
+static uint32_t g_ge_lists;
+static void hle_GeEdramGetAddr(RtCtx *c) { RET(0x04000000u); }
+static void hle_GeEdramGetSize(RtCtx *c) { RET(0x00200000u); }
+static void hle_GeEdramSetAddrTranslation(RtCtx *c) { RET(0x400u); }
+static void hle_GeListEnQueue(RtCtx *c) {
+    g_ge_lists++;
+    if (g_ge_lists <= 3 || (g_ge_lists & (g_ge_lists - 1)) == 0)
+        rt_log("[ge] display list #%u enqueued: list %08X stall %08X cb %d\n", g_ge_lists, A0, A1, (int)A2);
+    RET(g_ge_lists);
+}
+static void hle_GeListSync(RtCtx *c) { RET(0); }  /* PSP_GE_LIST_COMPLETED */
+
+/* --- controller --------------------------------------------------------------- */
+static void hle_CtrlPeekBufferPositive(RtCtx *c) {
+    uint32_t n = A1 ? A1 : 1;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t p = A0 + i * 16;
+        rt_w32(p, (uint32_t)k_now);
+        rt_w32(p + 4, 0);           /* no buttons */
+        rt_w8(p + 8, 0x80); rt_w8(p + 9, 0x80);
+        memset(rt_ptr(p + 10), 0, 6);
+    }
+    RET(n);
+}
+
+/* --- audio: output only advances time ----------------------------------------- */
+static uint32_t g_ch_samples[8], g_ch_used[8], g_out2_samples = 1024;
+static void audio_wait(uint32_t samples) { k_wait(WT_AUDIO, 0, (uint64_t)samples * 1000000u / 44100u); }
+static void hle_AudioChReserve(RtCtx *c) {
+    int ch = (int)A0;
+    if (ch < 0) for (ch = 0; ch < 8 && g_ch_used[ch]; ch++) {}
+    if (ch >= 8) RET(0x80260002u);
+    g_ch_used[ch] = 1;
+    g_ch_samples[ch] = A1;
+    RET(ch);
+}
+static void hle_AudioChRelease(RtCtx *c) { if (A0 < 8) g_ch_used[A0] = 0; RET(0); }
+static void hle_AudioOutputBlocking(RtCtx *c) { uint32_t n = A0 < 8 ? g_ch_samples[A0] : 0; audio_wait(n); RET(n); }
+static void hle_AudioSetChannelDataLen(RtCtx *c) { if (A0 < 8) g_ch_samples[A0] = A1; RET(0); }
+static void hle_AudioOutput2Reserve(RtCtx *c) { g_out2_samples = A0; RET(0); }
+static void hle_AudioOutput2OutputBlocking(RtCtx *c) { audio_wait(g_out2_samples); RET(g_out2_samples); }
+static void hle_AudioOutput2ChangeLength(RtCtx *c) { g_out2_samples = A0; RET(0); }
+
+/* --- power / volatile memory ----------------------------------------------------- */
+static void hle_VolatileMemLock(RtCtx *c) {
+    if (A1) rt_w32(A1, 0x08400000u);
+    if (A2) rt_w32(A2, 0x00400000u);
+    RET(0);
+}
+
+/* --- RTC / impose ------------------------------------------------------------- */
+static void hle_RtcGetCurrentClockLocalTime(RtCtx *c) {
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
+    uint16_t v[6] = { (uint16_t)(tm->tm_year + 1900), (uint16_t)(tm->tm_mon + 1), (uint16_t)tm->tm_mday,
+                      (uint16_t)tm->tm_hour, (uint16_t)tm->tm_min, (uint16_t)tm->tm_sec };
+    memcpy(rt_ptr(A0), v, sizeof(v));
+    rt_w32(A0 + 12, (uint32_t)(k_now % 1000000u));
+    RET(0);
+}
+static void hle_ImposeGetLanguageMode(RtCtx *c) {
+    if (A0) rt_w32(A0, 1);  /* English */
+    if (A1) rt_w32(A1, 1);  /* cross confirms */
+    RET(0);
+}
+
+/* --- utility dialogs: complete immediately (message: OK, savedata: no data) ------- */
+static int g_msg_status, g_save_status;
+static int dialog_status(int *st) {
+    int s = *st;
+    if (s == 1) *st = 2;
+    else if (s == 4) *st = 0;
+    return s;
+}
+static void hle_MsgDialogInitStart(RtCtx *c) { g_msg_status = 1; rt_log("[utility] message dialog\n"); RET(0); }
+static void hle_MsgDialogGetStatus(RtCtx *c) { RET(dialog_status(&g_msg_status)); }
+static void hle_MsgDialogUpdate(RtCtx *c) { if (g_msg_status == 2) g_msg_status = 3; RET(0); }
+static void hle_MsgDialogShutdownStart(RtCtx *c) { g_msg_status = 4; RET(0); }
+static void hle_SavedataInitStart(RtCtx *c) {
+    uint32_t mode = rt_r32(A0 + 0x30);
+    int load = mode == 0 || mode == 2 || mode == 4;
+    rt_w32(A0 + 0x1C, load ? 0x80110307u : 0);  /* LOAD_NO_DATA / success */
+    rt_log("[utility] savedata mode %u -> %s\n", mode, load ? "no data" : "ok (not written yet)");
+    g_save_status = 1;
+    RET(0);
+}
+static void hle_SavedataGetStatus(RtCtx *c) { RET(dialog_status(&g_save_status)); }
+static void hle_SavedataUpdate(RtCtx *c) { if (g_save_status == 2) g_save_status = 3; RET(0); }
+static void hle_SavedataShutdownStart(RtCtx *c) { g_save_status = 4; RET(0); }
+
+/* --- modules / process ------------------------------------------------------------ */
+static void hle_LoadModule(RtCtx *c) {
+    rt_log("[module] load \"%s\" (system module: emulated by HLE)\n", A0 ? (const char *)rt_ptr(A0) : "");
+    RET(k_obj_new(OBJ_MODULE, NULL));
+}
+static void hle_GetModuleId(RtCtx *c) { RET(1); }
+static void hle_ExitGame(RtCtx *c) { k_stop(RT_ABORT_HLE, 0, 0, "game called sceKernelExitGame"); }
+static void hle_StopUnloadSelf(RtCtx *c) { k_stop(RT_ABORT_HLE, 0, 0, "module unloaded itself"); }
+static void hle_Zero(RtCtx *c) { RET(0); }
+static void hle_Stdin(RtCtx *c) { RET(3); }
+static void hle_Stdout(RtCtx *c) { RET(1); }
+static void hle_Stderr(RtCtx *c) { RET(2); }
+
+const HleEntry rt_hle_misc[] = {
+    {"sceDisplaySetMode", hle_DisplaySetMode}, {"sceDisplaySetFrameBuf", hle_DisplaySetFrameBuf},
+    {"sceDisplayWaitVblankStart", hle_DisplayWaitVblankStart}, {"sceDisplayWaitVblankStartCB", hle_DisplayWaitVblankStart},
+    {"sceDisplayGetVcount", hle_DisplayGetVcount}, {"sceDisplayGetFramePerSec", hle_DisplayGetFramePerSec},
+    {"sceGeEdramGetAddr", hle_GeEdramGetAddr}, {"sceGeEdramGetSize", hle_GeEdramGetSize},
+    {"sceGeEdramSetAddrTranslation", hle_GeEdramSetAddrTranslation}, {"sceGeListEnQueue", hle_GeListEnQueue},
+    {"sceGeListSync", hle_GeListSync}, {"sceGeContinue", hle_Zero},
+    {"sceCtrlSetSamplingCycle", hle_Zero}, {"sceCtrlSetSamplingMode", hle_Zero},
+    {"sceCtrlSetIdleCancelThreshold", hle_Zero}, {"sceCtrlPeekBufferPositive", hle_CtrlPeekBufferPositive},
+    {"sceAudioChReserve", hle_AudioChReserve}, {"sceAudioChRelease", hle_AudioChRelease},
+    {"sceAudioOutputBlocking", hle_AudioOutputBlocking}, {"sceAudioOutputPannedBlocking", hle_AudioOutputBlocking},
+    {"sceAudioOutputPanned", hle_AudioOutputBlocking}, {"sceAudioSetChannelDataLen", hle_AudioSetChannelDataLen},
+    {"sceAudioChangeChannelConfig", hle_Zero}, {"sceAudioChangeChannelVolume", hle_Zero},
+    {"sceAudioGetChannelRestLength", hle_Zero},
+    {"sceAudioOutput2Reserve", hle_AudioOutput2Reserve}, {"sceAudioOutput2OutputBlocking", hle_AudioOutput2OutputBlocking},
+    {"sceAudioOutput2ChangeLength", hle_AudioOutput2ChangeLength}, {"sceAudioOutput2Release", hle_Zero},
+    {"scePowerSetClockFrequency350", hle_Zero}, {"scePower_469989ad", hle_Zero},
+    {"scePowerRegisterCallback", hle_Zero}, {"scePowerUnregisterCallback", hle_Zero},
+    {"sceKernelPowerLock", hle_Zero}, {"sceKernelPowerUnlock", hle_Zero}, {"sceKernelPowerTick", hle_Zero},
+    {"sceKernelVolatileMemLock", hle_VolatileMemLock}, {"sceKernelVolatileMemUnlock", hle_Zero},
+    {"sceRtcGetCurrentClockLocalTime", hle_RtcGetCurrentClockLocalTime},
+    {"sceImposeGetLanguageMode", hle_ImposeGetLanguageMode}, {"sceImposeSetLanguageMode", hle_Zero},
+    {"sceUtilityMsgDialogInitStart", hle_MsgDialogInitStart}, {"sceUtilityMsgDialogGetStatus", hle_MsgDialogGetStatus},
+    {"sceUtilityMsgDialogUpdate", hle_MsgDialogUpdate}, {"sceUtilityMsgDialogShutdownStart", hle_MsgDialogShutdownStart},
+    {"sceUtilitySavedataInitStart", hle_SavedataInitStart}, {"sceUtilitySavedataGetStatus", hle_SavedataGetStatus},
+    {"sceUtilitySavedataUpdate", hle_SavedataUpdate}, {"sceUtilitySavedataShutdownStart", hle_SavedataShutdownStart},
+    {"sceUtilityLoadModule", hle_Zero}, {"sceUtilityUnloadModule", hle_Zero},
+    {"sceKernelLoadModule", hle_LoadModule}, {"sceKernelStartModule", hle_Zero}, {"sceKernelStopModule", hle_Zero},
+    {"sceKernelUnloadModule", hle_Zero}, {"sceKernelGetModuleId", hle_GetModuleId},
+    {"sceKernelGetModuleIdByAddress", hle_GetModuleId}, {"sceKernelStopUnloadSelfModuleWithStatus", hle_StopUnloadSelf},
+    {"sceKernelRegisterExitCallback", hle_Zero}, {"sceKernelExitGame", hle_ExitGame}, {"sceKernelLoadExec", hle_ExitGame},
+    {"sceKernelStdin", hle_Stdin}, {"sceKernelStdout", hle_Stdout}, {"sceKernelStderr", hle_Stderr},
+    {"sceNpDrmSetLicenseeKey", hle_Zero}, {"sceNpDrmEdataSetupKey", hle_Zero},
+    {NULL, NULL},
+};

@@ -11,11 +11,14 @@ enum {
     RT_ABORT_BAD_JUMP = 4,
     RT_ABORT_HLE = 5,
     RT_ABORT_BUDGET = 6,
+    RT_ABORT_DEADLOCK = 7,
 };
 
 typedef struct { int kind; uint32_t addr, extra; const char *what; } RtAbort;
 
 extern jmp_buf *rt_abort_jmp;  /* set by drivers; NULL = abort the process */
+/* When set (the thread scheduler), aborts are routed here instead of longjmp/exit. */
+extern void (*rt_abort_hook)(int kind, uint32_t addr, uint32_t extra, const char *what);
 extern RtAbort rt_last_abort;
 extern uint64_t rt_call_count;
 
@@ -30,3 +33,8 @@ uint32_t rt_crc32(const uint8_t *p, size_t n);
 typedef enum { RT_HLE_ABORT, RT_HLE_BOOT } RtHleMode;
 void rt_hle_init(RtHleMode mode, uint32_t heap_start, uint32_t max_calls);
 void rt_hle_report(void);
+
+/* File I/O layer */
+int rt_io_open_disc(const char *path);
+void rt_io_set_ms0(const char *dir);
+void rt_io_report(void);

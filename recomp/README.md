@@ -73,8 +73,11 @@ cmake --build build/cmake_full --config Release
 ```
 
 ```bash
-build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_full/image.bin --boot --max-hle 400
+build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_full/image.bin --boot --disc "God of War - Chains of Olympus (USA).chd" --ms0 build/ms0
 ```
+
+The boot runs under the thread scheduler (`runtime/rt_thread.c`) and reads the disc
+through libchdr (`runtime/rt_io.c`); see `docs/phase2-threads-fs.md`.
 
 When Ghidra functions change, re-export with `ExportRecompInput.java` and re-run
 `code_pointers.py` to check for code pointers that still lack a function.

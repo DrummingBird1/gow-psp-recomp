@@ -16,9 +16,7 @@
 #include <unistd.h>
 #endif
 
-#include "rt_internal.h"
-
-#define BOOT_STACK_TOP 0x09FFF000u
+#include "rt_kernel.h"
 #define CASE_TIMEOUT_MS 3000
 #define EXIT_CASE_HUNG 3
 
@@ -141,55 +139,66 @@ static int run_difftest(const char *image, const char *cases_path, const char *r
     return 0;
 }
 
-static int run_boot(const char *image, uint32_t max_hle) {
-    if (!rt_load_image(image, NULL)) return 1;
-    rt_hle_init(RT_HLE_BOOT, RT_IMAGE_BASE + RT_IMAGE_SIZE, max_hle);
-    static const char path[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
-    uint32_t argp = BOOT_STACK_TOP - 0x100;
-    memcpy(rt_ptr(argp), path, sizeof(path));
-    RtCtx c;
-    memset(&c, 0, sizeof(c));
-    c.r[4] = sizeof(path);
-    c.r[5] = argp;
-    c.r[28] = RT_GP;
-    c.r[29] = argp - 0x40;
+typedef struct {
+    const char *image, *disc, *ms0;
+    uint32_t max_hle, cpu_ms, wall_ms;
+} BootOptions;
+
+static void boot_report(void) {
+    printf("[boot] %llu calls through rt_call (indirect or cross-build)\n", (unsigned long long)rt_call_count);
+    rt_hle_report();
+    rt_io_report();
+}
+
+/* Runs the game under the thread scheduler: module_start starts in a kernel-style
+ * thread (as the PSP module manager does) and the scheduler runs until every thread
+ * is blocked on something the runtime cannot provide yet, or a limit is reached. */
+static int run_boot(const BootOptions *o) {
+    if (!rt_load_image(o->image, NULL)) return 1;
+    rt_hle_init(RT_HLE_BOOT, RT_IMAGE_BASE + RT_IMAGE_SIZE, o->max_hle);
+    if (o->ms0) rt_io_set_ms0(o->ms0);
+    if (o->disc && !rt_io_open_disc(o->disc)) return 1;
     printf("[boot] %s (%s): image %08X+%X, entry %08X, %zu functions in this build\n", RT_GAME_ID, RT_MODULE_NAME,
            RT_IMAGE_BASE, RT_IMAGE_SIZE, RT_ENTRY, rt_funcs_count);
-    jmp_buf jb;
-    rt_abort_jmp = &jb;
+    static const char path[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
+    uint32_t argp = k_alloc(0x100, 0, 0x100);
+    memcpy(rt_ptr(argp), path, sizeof(path));
+    KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
+    k_thread_start(t, sizeof(path), argp);
     g_boot_mode = 1;
-    g_timeout_ms = 20000;
+    g_timeout_ms = o->wall_ms;
     g_case_started = now_ms();
     g_case_running = 1;
     start_watchdog();
-    int st = setjmp(jb);
-    if (st == 0) {
-        rt_call(&c, RT_ENTRY);
-        printf("[boot] module_start returned v0=%08X\n", c.r[2]);
-    } else {
-        printf("[boot] stopped (%d): %s at %08X (extra %08X)\n", st, rt_last_abort.what, rt_last_abort.addr, rt_last_abort.extra);
-    }
-    rt_abort_jmp = NULL;
-    printf("[boot] %llu recompiled calls made\n", (unsigned long long)rt_call_count);
-    rt_hle_report();
+    k_run_scheduler(o->cpu_ms);
+    g_case_running = 0;
+    boot_report();
     return 0;
 }
 
 int main(int argc, char **argv) {
     const char *image = NULL, *cases = NULL, *results = NULL;
     int boot = 0;
-    uint32_t max_hle = 2000;
+    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000 };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--image") && i + 1 < argc) image = argv[++i];
         else if (!strcmp(argv[i], "--difftest") && i + 2 < argc) { cases = argv[++i]; results = argv[++i]; }
         else if (!strcmp(argv[i], "--boot")) boot = 1;
-        else if (!strcmp(argv[i], "--max-hle") && i + 1 < argc) max_hle = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--disc") && i + 1 < argc) o.disc = argv[++i];
+        else if (!strcmp(argv[i], "--ms0") && i + 1 < argc) o.ms0 = argv[++i];
+        else if (!strcmp(argv[i], "--max-hle") && i + 1 < argc) o.max_hle = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--cpu-ms") && i + 1 < argc) o.cpu_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--wall-ms") && i + 1 < argc) o.wall_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--trace-hle")) rt_hle_verbose = 1;
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     if (!image || (!cases && !boot)) {
-        fprintf(stderr, "usage: %s --image image.bin (--difftest cases.bin results.bin | --boot [--max-hle N])\n", argv[0]);
+        fprintf(stderr, "usage: %s --image image.bin (--difftest cases.bin results.bin |\n"
+                        "       --boot [--disc game.chd|.iso] [--ms0 dir] [--max-hle N] [--cpu-ms N] [--wall-ms N] [--trace-hle])\n",
+                argv[0]);
         return 2;
     }
     rt_mem_init();
-    return cases ? run_difftest(image, cases, results) : run_boot(image, max_hle);
+    o.image = image;
+    return cases ? run_difftest(image, cases, results) : run_boot(&o);
 }

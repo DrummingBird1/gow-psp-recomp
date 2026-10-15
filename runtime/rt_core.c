@@ -12,6 +12,7 @@
 
 uint8_t *rt_mem;
 jmp_buf *rt_abort_jmp;
+void (*rt_abort_hook)(int kind, uint32_t addr, uint32_t extra, const char *what);
 RtAbort rt_last_abort;
 uint64_t rt_call_count;
 
@@ -57,6 +58,7 @@ void rt_abort(int kind, uint32_t addr, uint32_t extra, const char *what) {
     rt_last_abort.addr = addr;
     rt_last_abort.extra = extra;
     rt_last_abort.what = what;
+    if (rt_abort_hook) rt_abort_hook(kind, addr, extra, what);
     if (rt_abort_jmp) longjmp(*rt_abort_jmp, kind);
     fprintf(stderr, "rt: fatal %s at %08X (%08X)\n", what ? what : "abort", addr, extra);
     exit(2);

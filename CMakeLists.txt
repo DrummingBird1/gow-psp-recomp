@@ -9,13 +9,27 @@ if(NOT GEN_SOURCES)
   message(FATAL_ERROR "No generated sources in ${GEN_DIR}; run recomp/recomp.py first")
 endif()
 
+# libchdr (BSD-3-Clause) reads the user's CHD disc images; pinned to a reviewed commit
+include(FetchContent)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CHDR_WANT_TESTS OFF CACHE BOOL "" FORCE)
+set(INSTALL_STATIC_LIBS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(libchdr
+  GIT_REPOSITORY https://github.com/rtissera/libchdr.git
+  GIT_TAG 47d794151b2b64f6aba60304e6480f4f5a2bc24b)
+FetchContent_MakeAvailable(libchdr)
+
 add_executable(gow_rt
   runtime/rt_core.c
+  runtime/rt_fiber.c
   runtime/rt_hle.c
+  runtime/rt_io.c
   runtime/rt_main.c
+  runtime/rt_thread.c
   ${GEN_SOURCES})
 set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 11)
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")
+target_link_libraries(gow_rt PRIVATE chdr-static)
 
 if(MSVC)
   # /bigobj: generated files are large; /fp:precise keeps IEEE single-precision semantics
