@@ -1,0 +1,24 @@
+# --- Game data, and anything that contains the game's code: never commit ---
+*.chd
+*.iso
+*.cso
+*.pbp
+re/dumps/
+re/out/recomp/*.bin
+build/
+
+# Ghidra project (holds the complete analyzed programs)
+re/ghidra/
+
+# Third-party reference sources (PPSSPP, GPL); fetch again with the commands in README.md
+re/ppsspp-hle/
+re/ppsspp-mips/
+
+# Tooling
+.venv/
+__pycache__/
+*.pyc
+
+# Analysis logs
+re/out/*.log
+re/out/*.console.txt
