@@ -58,6 +58,10 @@ class Insn:
     def has_delay_slot(self) -> bool:
         return self.flow in (BRANCH, JUMP, CALL, JR, JALR)
 
+    @property
+    def is_vfpu(self) -> bool:
+        return (self.word >> 26) in VFPU_OPCODES
+
 
 def decode(word: int, pc: int) -> Insn:
     opc = word >> 26
@@ -101,6 +105,9 @@ def decode(word: int, pc: int) -> Insn:
             return Insn(op=name or "invalid", **base)
         if rs == 20 and fn == 32: return Insn(op="cvt.s.w", **base)
         return Insn(op="invalid", **base)
+    if opc == 18 and rs == 8:  # COP2 BC2: VFPU condition branches, cc index in bits 18-20
+        name = ["bvf", "bvt", "bvfl", "bvtl"][(word >> 16) & 3]
+        return Insn(op=name, target=btarget, flow=BRANCH, likely=name in LIKELY, **base)
     if opc in VFPU_OPCODES:
         return Insn(op="vfpu", **base)
     if opc == 28:  # SPECIAL2

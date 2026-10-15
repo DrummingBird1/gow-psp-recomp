@@ -80,7 +80,7 @@ def main() -> int:
         for pc in fi.addrs:
             i = decode(mod.u32(pc), pc)
             fi.insns[pc] = i
-            if i.op == "vfpu":
+            if i.is_vfpu:
                 fi.has_vfpu = True
             if i.flow == JALR:
                 fi.has_jalr = True
@@ -124,7 +124,7 @@ def main() -> int:
             for pc in body - set(fi.addrs):
                 i = decode(mod.u32(pc), pc)
                 fi.insns[pc] = i
-                fi.has_vfpu |= i.op == "vfpu"
+                fi.has_vfpu |= i.is_vfpu
                 fi.has_jalr |= i.flow == JALR
                 fi.has_indirect_jr |= i.flow == JR and i.rs != 31
             fi.addrs = sorted(body)
@@ -153,7 +153,8 @@ def main() -> int:
     # Selection A: leaf closures for differential testing (no HLE, no indirect flow, no VFPU)
     def clean(e: int) -> bool:
         f = funcs.get(e)
-        return f is not None and e in ok and not f.has_jalr and not f.has_indirect_jr
+        # Unicorn has no VFPU, so VFPU functions cannot be differential-tested against it
+        return f is not None and e in ok and not f.has_jalr and not f.has_indirect_jr and not f.has_vfpu
 
     def closure(root: int, limit: int = 12) -> set[int] | None:
         seen, todo = {root}, [root]

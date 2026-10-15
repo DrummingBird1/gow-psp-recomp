@@ -238,7 +238,7 @@ KThread *k_thread_create(const char *name, uint32_t entry, int prio, uint32_t st
 }
 
 void k_thread_start(KThread *t, uint32_t argsize, uint32_t argp) {
-    memset(&t->ctx, 0, sizeof(t->ctx));
+    rt_ctx_init(&t->ctx);
     uint32_t sp = t->stack_addr + t->stack_size - 0x100;
     if (argsize && argp) {
         sp = (sp - argsize) & ~0xFu;

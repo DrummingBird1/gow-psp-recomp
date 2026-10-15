@@ -141,11 +141,16 @@ def simple(i: Insn) -> str:
         return f"if ({cmp}) rt_trap(c, 0x{i.pc:08X}u, 0x{i.word:08X}u, \"{op}\");"
     if op in ("break", "syscall", "halt", "cop0"):
         return f"rt_trap(c, 0x{i.pc:08X}u, 0x{i.word:08X}u, \"{op}\");"
+    if op == "vfpu":  # executed by the runtime's VFPU interpreter (rt_vfpu.c)
+        return f"rt_vfpu(c, 0x{i.word:08X}u, 0x{i.pc:08X}u);"
     raise Untranslatable(f"{op} at {i.pc:#x} ({i.word:08x})")
 
 
 def branch_cond(i: Insn) -> str:
     rs, rt = i.rs, i.rt
+    if i.op in ("bvf", "bvt", "bvfl", "bvtl"):
+        cc = (i.word >> 18) & 7
+        return f"RT_VFPU_CC(c, {cc})" if i.op.startswith("bvt") else f"!RT_VFPU_CC(c, {cc})"
     base = i.op.rstrip("l") if i.op not in ("bltzal", "bgezal") else i.op
     base = {"bltzal": "bltz", "bgezal": "bgez", "bltzall": "bltz", "bgezall": "bgez"}.get(i.op, base)
     return {

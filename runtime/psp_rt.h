@@ -14,7 +14,17 @@ typedef struct RtCtx {
     RtFpr fpr[32];
     uint32_t fcr31, fpcond;
     uint32_t ic;
+    /* VFPU: 128 registers, physical index = matrix*16 + column*4 + row (PPSSPP layout),
+     * and control registers (S/T/D prefix, CC, INF4, RSV, REV, RCX0-7). */
+    RtFpr v[128];
+    uint32_t vctrl[16];
 } RtCtx;
+
+/* Resets a CPU context, including the VFPU prefix/control defaults. */
+void rt_ctx_init(RtCtx *c);
+/* Executes one VFPU instruction (rt_vfpu.c). Branches (bvf/bvt) are emitted as C. */
+void rt_vfpu(RtCtx *c, uint32_t op, uint32_t pc);
+#define RT_VFPU_CC(c, i) (((c)->vctrl[3] >> (i)) & 1)
 
 typedef void (*RtFunc)(RtCtx *c);
 typedef struct { uint32_t addr; RtFunc fn; } RtFuncEntry;

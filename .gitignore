@@ -5,6 +5,7 @@
 *.pbp
 re/dumps/
 re/out/recomp/*.bin
+re/out/*.vfpu.tsv
 build/
 
 # Ghidra project (holds the complete analyzed programs)

@@ -103,7 +103,7 @@ static int run_difftest(const char *image, const char *cases_path, const char *r
         RtCtx c;
         uint32_t w[1 + 32 + 2 + 32 + 2];
         memcpy(w, p, regs);
-        memset(&c, 0, sizeof(c));
+        rt_ctx_init(&c);
         memcpy(c.r, &w[1], 32 * 4);
         c.hi = w[33]; c.lo = w[34];
         for (int i = 0; i < 32; i++) c.fpr[i].i = w[35 + i];
@@ -190,6 +190,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--cpu-ms") && i + 1 < argc) o.cpu_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--wall-ms") && i + 1 < argc) o.wall_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--trace-hle")) rt_hle_verbose = 1;
+        else if (!strcmp(argv[i], "--vfpu-selftest")) { rt_mem_init(); return rt_vfpu_selftest(); }
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     if (!image || (!cases && !boot)) {

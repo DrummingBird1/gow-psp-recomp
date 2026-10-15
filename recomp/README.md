@@ -27,6 +27,7 @@ runtime/ (psp_rt.h, rt_core.c, rt_hle.c, rt_main.c) ─────────�
 | `emitc.py` | Per-function C generation: delay slots, branch-likely, jump tables, tail calls, HLE calls |
 | `recomp.py` | Driver: translates every function in memory (coverage), writes the selected subset |
 | `difftest.py` | Differential test vs Unicorn (MIPS32 24Kf) on random inputs |
+| `vfpu_check.py` | Checks VFPU operand decoding against Ghidra's disassembly (`re/scripts/ListVfpu.java` output) |
 
 ## Translation model
 
@@ -38,7 +39,9 @@ runtime/ (psp_rt.h, rt_core.c, rt_hle.c, rt_main.c) ─────────�
 * Jump tables recovered by Ghidra become `switch` statements; other `jr`/`jalr` go through `rt_call` (address → function lookup).
 * Calls to import stubs go to generated `f_<stub>` functions that call `rt_hle(nid, name)`.
 * Instruction semantics (div by zero, float→int conversion, FCR31, lwl/lwr, Allegrex extensions) follow PPSSPP's interpreter.
-* VFPU is not translated yet (81 / 109 functions); calling one ends the run with "function not in this build".
+* VFPU instructions become calls to the runtime's VFPU interpreter (`rt_vfpu(c, word, pc)`, semantics from
+  PPSSPP incl. prefixes); `bvf/bvt` are emitted as C branches. `vfpu_check.py` checks the operand decoding
+  against Ghidra; `gow_rt --vfpu-selftest` checks the semantics (see `docs/phase3-vfpu.md`).
 
 ## Rebuild
 

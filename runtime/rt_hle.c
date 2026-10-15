@@ -86,11 +86,21 @@ static uint64_t g_frames;
 static uint32_t g_fb_addr, g_fb_width, g_fb_format;
 
 static void hle_DisplaySetMode(RtCtx *c) { RET(0); }
+/* God of War flips faster than 60 Hz and relies on the real GE's rendering time to pace
+ * itself; like PPSSPP's ForceMax60FPS compat flag (set for these games), a flip to a new
+ * framebuffer that comes early delays the calling thread until the next frame slot. */
+static uint64_t g_next_flip;
 static void hle_DisplaySetFrameBuf(RtCtx *c) {
+    uint32_t prev = g_fb_addr;
     g_frames++;
     g_fb_addr = A0; g_fb_width = A1; g_fb_format = A2;
     if (g_frames == 1 || g_frames % 600 == 0)
         rt_log("[display] frame %llu: framebuffer %08X width %u format %u\n", (unsigned long long)g_frames, A0, A1, A2);
+    if (A0 && prev && A0 != prev) {
+        uint64_t now = k_now, wait = g_next_flip > now ? g_next_flip - now : 0;
+        g_next_flip = (g_next_flip > now ? g_next_flip : now) + VBLANK_US - 10;
+        if (wait > 1000) k_wait(WT_VBLANK, 0, wait);
+    }
     RET(0);
 }
 static void hle_DisplayWaitVblankStart(RtCtx *c) {

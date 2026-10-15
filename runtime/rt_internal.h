@@ -34,6 +34,8 @@ typedef enum { RT_HLE_ABORT, RT_HLE_BOOT } RtHleMode;
 void rt_hle_init(RtHleMode mode, uint32_t heap_start, uint32_t max_calls);
 void rt_hle_report(void);
 
+int rt_vfpu_selftest(void);
+
 /* File I/O layer */
 int rt_io_open_disc(const char *path);
 void rt_io_set_ms0(const char *dir);
