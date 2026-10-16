@@ -21,6 +21,7 @@
 | 2026-10-16 | צמצום flushes (v4) | פי 37 פחות flushes, ‏29–35 FPS במשחק ([פירוט](renderer-decision.md)) |
 | 2026-10-16 | שלב 6, ‏P1: renderer חומרה על SDL3 GPU (v5) | התפריטים והשלב הראשון מה-GPU, ‏77.5 FPS במשחק (headless); render-to-texture נשאר ל-P2 ([פירוט](phase6-gpu-renderer.md)) |
 | 2026-10-16 | שלב 6, ‏P2: ניהול framebuffers, ‏render-to-texture, ‏stencil (v6) | כל האפקטים מה-GPU, בלי רעש; 60 FPS יציב בחלון, ‏116 FPS במשחק (headless) ([פירוט](phase6-gpu-renderer.md#p2-ניהול-framebuffers)) |
+| 2026-10-16 | שלב 7: סאונד (sceAudio, ‏SAS, ‏ATRAC3+) | מוזיקת התפריט והשלב ואפקטי הקרב; 60 FPS בחלון בלי underruns; ה-decoder זהה ל-FFmpeg ([פירוט](phase7-audio.md)) |
 
 ## 2026-10-16: ה-boot של Chains of Olympus, ובדיקות האימות
 
@@ -218,3 +219,29 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).
 
 **השוואה בווידאו:** `media/videos/2026-10-16_coo_gameplay_v5_vs_v6_gpu_p2_hostclock.mp4` מציג את P1 ואת P2 זה לצד זה, לפי שעון המחשב, עם מונה FPS חי.
+
+## 2026-10-16: סאונד (שלב 7)
+
+נעשה על commit `8909f7f` ועוד השינויים שעדיין לא נכנסו ל-commit. הפירוט ב-[phase7-audio.md](phase7-audio.md).
+
+**מה נבנה:**
+- **sceAudio** (`rt_audio.c`): הערוצים מעורבבים על השעון הווירטואלי. בחלון הם מתנגנים דרך SDL3, ו-`--wav` כותב את כל המיקס בזמן המשחק.
+- **ATRAC3+** (`rt_atrac.c`): המוזיקה. זה port של מכונת המצבים של PPSSPP, עם ה-decoder של FFmpeg בגרסה של PPSSPP ‏(`at3_standalone`, ‏LGPL). ‏CMake מוריד אותו, והוא לא נכנס לגיט.
+- **SAS** (`rt_sas.c`): האפקטים. ‏VAG, ‏ADSR, ‏pitch, ווליום, רעש ו-reverb.
+
+**התוצאות:**
+- **מה שומעים:** מוזיקת התפריט, הקטע של New Game ומוזיקת השלב הראשון. בשלב יש גם את הסביבה והקרב: 1,098 key-ons של קולות SAS בריצת התסריט.
+- **דיוק:** הפענוח של ATRAC3+ זהה ל-FFmpeg עד 1–2 LSB ‏(83–85 dB), והלולאה של מוזיקת התפריט חלקה עד הדגימה הבודדת. ה-VAG מתאים ל-`adpcm_psx` של FFmpeg ב-58–64 dB, וההפרש הוא עיגול.
+- **בחלון:** ‏60 FPS במשחק (ממוצע 59.97, ‏p99 ‏18.7 ms), ‏0 underruns ב-85 שניות, ותור של ‏~51 ms.
+- **דטרמיניזם:** ה-WAV זהה בית-לבית בין שתי ריצות headless, ובין headless לחלון. גם הפריימים של שתי ריצות ה-headless זהים.
+- **פריימי ייחוס חדשים:** ה-threads של הסאונד ממתינים עכשיו כמו בחומרה, ולכן התזמון של המשחק השתנה. במשחק, המצב בפריים נתון שונה מ-v3. הייחוס להשוואות הוא עכשיו `build/rec_v7`.
+
+![קרב בחלון, עם סאונד](../media/screenshots/2026-10-16_21_window_combat_with_sound.png)
+
+![המיקס של ריצת התסריט](../media/screenshots/2026-10-16_22_audio_spectrogram_gameplay.png)
+
+![סיכום ריצת החלון](../media/screenshots/2026-10-16_23_window_audio_summary.png)
+
+הספקטרוגרמה נוצרה מה-WAV של הריצה עם `tools/audio_report.py`. צילום החלון נלקח מהחלון של ה-port בלבד (`tools/capture_window.ps1`).
+
+**הקלטה עם סאונד:** `media/videos/2026-10-16_coo_gameplay_with_sound_gameclock.mp4` היא ריצת התסריט במהירות המשחק, 85 שניות. הווידאו (`--record`) וה-WAV (`--wav`) נכתבו באותה ריצה, ושניהם מתחילים בזמן וירטואלי 0, ולכן הם מסונכרנים.

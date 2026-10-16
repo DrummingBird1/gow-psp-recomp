@@ -39,4 +39,5 @@ int rt_vfpu_selftest(void);
 /* File I/O layer */
 int rt_io_open_disc(const char *path);
 void rt_io_set_ms0(const char *dir);
+int rt_io_extract(const char *disc_path, const char *out);
 void rt_io_report(void);

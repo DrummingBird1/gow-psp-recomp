@@ -13,6 +13,9 @@ extern const HleEntry rt_hle_kernel[];   /* rt_thread.c: ThreadMan, SysMem, Kern
 extern const HleEntry rt_hle_io[];       /* rt_io.c: IoFileMgr, Umd */
 extern const HleEntry rt_hle_misc[];     /* rt_hle.c: display, ge, ctrl, audio, utility, power, ... */
 extern const HleEntry rt_hle_mpeg[];     /* rt_mpeg.c: sceMpeg without a video decoder */
+extern const HleEntry rt_hle_audio[];    /* rt_audio.c: sceAudio channels and Output2 */
+extern const HleEntry rt_hle_sas[];      /* rt_sas.c: sceSasCore mixer */
+extern const HleEntry rt_hle_atrac[];    /* rt_atrac.c: sceAtrac3plus */
 
 #define A0 (c->r[4])
 #define A1 (c->r[5])

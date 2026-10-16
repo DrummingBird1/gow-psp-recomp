@@ -189,6 +189,25 @@ static int parse_lbn(const char *path, uint32_t *lba, uint32_t *size) {
     return 1;
 }
 
+/* Copies a file from the disc to the host (--extract, for checking decoders against other tools). */
+int rt_io_extract(const char *disc_path, const char *out) {
+    char rel[512];
+    IsoEntry e;
+    if (resolve(disc_path, rel, sizeof(rel)) != DEV_DISC || !iso_lookup(rel, &e) || e.is_dir) {
+        fprintf(stderr, "rt: %s not found on the disc\n", disc_path);
+        return 0;
+    }
+    uint8_t *buf = (uint8_t *)malloc(e.size ? e.size : 1);
+    uint32_t got = disc_read((uint64_t)e.lba * SECTOR, buf, e.size);
+    FILE *f = fopen(out, "wb");
+    int ok = f && got == e.size && fwrite(buf, 1, got, f) == got;
+    if (f) fclose(f);
+    free(buf);
+    if (ok) printf("[io] extracted %s (%u bytes) to %s\n", disc_path, got, out);
+    else fprintf(stderr, "rt: cannot extract %s to %s\n", disc_path, out);
+    return ok;
+}
+
 /* --- file descriptors ----------------------------------------------------------- */
 typedef struct {
     int used, is_dir, close_pending;

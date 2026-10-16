@@ -111,6 +111,19 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 Without `--window` the run stays headless and deterministic (virtual time as fast as the host allows).
 `tools\play.cmd` starts Chains of Olympus in a window (extra arguments are passed on, e.g. `--fullscreen`).
 
+Sound (`runtime/rt_audio.c`, `rt_sas.c`, `rt_atrac.c`; see `docs/phase7-audio.md`): sceAudio channels are mixed on
+the virtual clock; sceSasCore (sound effects) and sceAtrac3plus (music) are implemented in the runtime.
+
+| Option | Effect |
+|---|---|
+| (with `--window`) | Plays through the default audio device (SDL3), ~50 ms latency |
+| `--mute` | No sound in the window |
+| `--wav out.wav` | Writes the whole mix in game time, from virtual time 0 (headless or windowed; deterministic headless) |
+| `--disc game.chd --extract disc0:/PSP_GAME/USRDIR/music/MAINMENU.AT3 out.at3` | Copies a file off the disc (to check decoders against ffmpeg) |
+
+The ATRAC3/ATRAC3+ decoder (PPSSPP's `ext/at3_standalone`, FFmpeg's decoder, LGPL-2.1+) is downloaded by CMake at
+configure time from PPSSPP tag v1.20.4 and checked against SHA-256 hashes; it is not part of this repository.
+
 The renderer draws on all logical processors (`RT_GE_THREADS=N` overrides); `RT_GE_TRACE_LIST=N`
 prints every primitive of display list N with the pixels it shaded.
 
@@ -121,7 +134,8 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 Documentation tools (`tools/`): `render_terminal.py` turns a command's real output into a terminal-style PNG;
 `run_logged.sh` records several commands with their output for it; `check_frames.py` compares the frames of
 two runs (renderer changes must keep them identical) and summarizes frame times; `perf_report.py` draws a
-frame-time chart and a side-by-side host-clock video with a live fps overlay. Results go to `docs/progress.md`.
+frame-time chart and a side-by-side host-clock video with a live fps overlay; `audio_report.py` prints sound levels
+of a `--wav`, matches it against a reference decode (dB) and draws a labelled spectrogram. Results go to `docs/progress.md`.
 `capture_window.ps1` captures one window by process id (for when the port has a window of its own).
 
 When Ghidra functions change, re-export with `ExportRecompInput.java` and re-run

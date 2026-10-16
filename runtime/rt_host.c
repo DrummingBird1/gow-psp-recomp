@@ -6,6 +6,9 @@
  * falls behind, the game slows down instead of skipping), and the keyboard and gamepads
  * drive sceCtrl.
  *
+ * Sound is mixed in rt_audio.c; in the window it is handed to the audio device from
+ * rt_host_idle, right before the runtime sleeps until the wall clock catches up.
+ *
  * Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R,
  * Space or Enter = start, V = select, I/J/K/L = analog stick; F11 or Alt+Enter = fullscreen,
  * F12 = screenshot, Esc = quit. Gamepads use the PSP layout (south button = cross). */
@@ -14,6 +17,7 @@
 #include <string.h>
 
 #include "psp_rt.h"
+#include "rt_audio.h"
 #include "rt_frames.h"
 #include "rt_gpu.h"
 #include "rt_host.h"
@@ -247,6 +251,9 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
 
 int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
     if (!g_win) return 0;
+    /* every thread waits until next_virt, so nothing can still be queued before it: hand that
+     * audio to the device now, before sleeping until the wall clock gets there */
+    rt_audio_advance(next_virt);
     uint64_t wall = now_us();
     if (!g_anchored) { g_wall0 = wall; g_virt0 = now_virt; g_anchored = 1; }
     int64_t ahead = (int64_t)(g_wall0 + (next_virt - g_virt0)) - (int64_t)wall;
@@ -263,6 +270,7 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
         g_wall0 = wall;
         g_virt0 = next_virt;
     }
+    rt_audio_host_sync();
     if (now_us() - g_last_pump > 16000) pump();
     return g_quit;
 }

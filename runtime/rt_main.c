@@ -16,6 +16,7 @@
 #include <unistd.h>
 #endif
 
+#include "rt_audio.h"
 #include "rt_frames.h"
 #include "rt_ge.h"
 #include "rt_gpu.h"
@@ -150,6 +151,8 @@ typedef struct {
     FrameOptions frames;
     HostOptions host;
     int profile, cpu_set, wall_set;
+    const char *wav;
+    int mute;
 } BootOptions;
 
 static void boot_report(void) {
@@ -158,6 +161,9 @@ static void boot_report(void) {
     rt_io_report();
     rt_ge_report();
     rt_co_report();
+    rt_audio_report();
+    rt_sas_report();
+    rt_atrac_report();
 }
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
@@ -176,6 +182,8 @@ static int run_boot(const BootOptions *o) {
     KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
     k_thread_start(t, sizeof(path), argp);
     if (!rt_host_init(&o->host)) return 1;
+    AudioOptions ao = { o->wav, o->host.window && !o->mute };
+    if (!rt_audio_init(&ao)) return 1;
     /* An interactive window runs until it is closed, unless limits were given explicitly. */
     uint32_t cpu_ms = o->host.window && !o->cpu_set ? 0xFFFFFFFFu : o->cpu_ms;
     g_boot_mode = 1;
@@ -189,6 +197,7 @@ static int run_boot(const BootOptions *o) {
     k_run_scheduler(cpu_ms);
     g_case_running = 0;
     rt_frames_close(k_now);
+    rt_audio_shutdown(k_now);
     rt_gpu_report();  /* before the host shuts the device down */
     rt_host_shutdown();
     boot_report();
@@ -197,9 +206,9 @@ static int run_boot(const BootOptions *o) {
 }
 
 int main(int argc, char **argv) {
-    const char *image = NULL, *cases = NULL, *results = NULL, *renderer = "soft";
+    const char *image = NULL, *cases = NULL, *results = NULL, *renderer = "soft", *extract = NULL, *extract_to = NULL;
     int boot = 0;
-    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, { 0, 2, 0, 0, NULL, "." }, 0, 0, 0 };
+    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, { 0, 2, 0, 0, NULL, "." }, 0, 0, 0, NULL, 0 };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--image") && i + 1 < argc) image = argv[++i];
         else if (!strcmp(argv[i], "--difftest") && i + 2 < argc) { cases = argv[++i]; results = argv[++i]; }
@@ -228,8 +237,15 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--perf-csv") && i + 1 < argc) o.frames.perf_csv = argv[++i];
         else if (!strcmp(argv[i], "--profile")) o.profile = 1;
         else if (!strcmp(argv[i], "--max-frames") && i + 1 < argc) rt_max_frames = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--wav") && i + 1 < argc) o.wav = argv[++i];
+        else if (!strcmp(argv[i], "--mute")) o.mute = 1;
+        else if (!strcmp(argv[i], "--extract") && i + 2 < argc) { extract = argv[++i]; extract_to = argv[++i]; }
         else if (!strcmp(argv[i], "--vfpu-selftest")) { rt_mem_init(); return rt_vfpu_selftest(); }
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
+    }
+    if (extract) {
+        rt_mem_init();
+        return o.disc && rt_io_open_disc(o.disc) && rt_io_extract(extract, extract_to) ? 0 : 1;
     }
     if (!image || (!cases && !boot)) {
         fprintf(stderr, "usage: %s --image image.bin (--difftest cases.bin results.bin |\n"
@@ -237,8 +253,10 @@ int main(int argc, char **argv) {
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
                         "              [--perf-csv frames.csv] [--profile] [--max-frames N]\n"
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...]\n"
-                        "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...])\n",
-                argv[0]);
+                        "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
+                        "              [--wav out.wav] [--mute])\n"
+                        "       %s --disc game.chd|.iso --extract disc0:/path out.file\n",
+                argv[0], argv[0]);
         return 2;
     }
     if (strcmp(renderer, "soft") && strcmp(renderer, "gpu") && strcmp(renderer, "both")) {

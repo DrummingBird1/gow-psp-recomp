@@ -3,6 +3,7 @@ rem Plays Chains of Olympus in a window with the native port (build/cmake_full).
 rem Extra arguments are passed on, e.g.:  tools\play.cmd --fullscreen   or   tools\play.cmd --scale 3
 rem Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R,
 rem       Space/Enter = Start, V = Select, I/J/K/L = analog stick, F11 = fullscreen, F12 = screenshot, Esc = quit.
+rem Sound plays through the default audio device; --mute turns it off.
 setlocal
 cd /d "%~dp0.."
 set EXE=build\cmake_full\Release\gow_rt_UCUS98653_full.exe

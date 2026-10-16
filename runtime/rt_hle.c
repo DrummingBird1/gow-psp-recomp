@@ -1,5 +1,5 @@
-/* HLE dispatcher plus the smaller PSP modules: display, GE (no rendering yet), controller,
- * audio (timing only), power, RTC, impose, utility dialogs, modules, NpDrm.
+/* HLE dispatcher plus the smaller PSP modules: display, GE, controller, power, RTC, impose,
+ * utility dialogs, modules, NpDrm. Audio lives in rt_audio.c, rt_sas.c and rt_atrac.c.
  * Unimplemented functions return 0 and are logged the first time they are called. */
 #include <stdarg.h>
 #include <stdio.h>
@@ -29,7 +29,7 @@ void rt_log(const char *fmt, ...) {
 typedef struct { uint32_t nid; int resolved; HleFn fn; const char *lib, *name; uint64_t count; } Slot;
 static Slot g_slots[2048];
 
-static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc, rt_hle_mpeg };
+static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc, rt_hle_mpeg, rt_hle_audio, rt_hle_sas, rt_hle_atrac };
 
 static Slot *slot_for(uint32_t nid, const char *lib, const char *name) {
     uint32_t h = (nid * 2654435761u) & 2047;
@@ -151,24 +151,6 @@ static void hle_CtrlPeekBufferPositive(RtCtx *c) {
     RET(n);
 }
 
-/* --- audio: output only advances time ----------------------------------------- */
-static uint32_t g_ch_samples[8], g_ch_used[8], g_out2_samples = 1024;
-static void audio_wait(uint32_t samples) { k_wait(WT_AUDIO, 0, (uint64_t)samples * 1000000u / 44100u); }
-static void hle_AudioChReserve(RtCtx *c) {
-    int ch = (int)A0;
-    if (ch < 0) for (ch = 0; ch < 8 && g_ch_used[ch]; ch++) {}
-    if (ch >= 8) RET(0x80260002u);
-    g_ch_used[ch] = 1;
-    g_ch_samples[ch] = A1;
-    RET(ch);
-}
-static void hle_AudioChRelease(RtCtx *c) { if (A0 < 8) g_ch_used[A0] = 0; RET(0); }
-static void hle_AudioOutputBlocking(RtCtx *c) { uint32_t n = A0 < 8 ? g_ch_samples[A0] : 0; audio_wait(n); RET(n); }
-static void hle_AudioSetChannelDataLen(RtCtx *c) { if (A0 < 8) g_ch_samples[A0] = A1; RET(0); }
-static void hle_AudioOutput2Reserve(RtCtx *c) { g_out2_samples = A0; RET(0); }
-static void hle_AudioOutput2OutputBlocking(RtCtx *c) { audio_wait(g_out2_samples); RET(g_out2_samples); }
-static void hle_AudioOutput2ChangeLength(RtCtx *c) { g_out2_samples = A0; RET(0); }
-
 /* --- power / volatile memory ----------------------------------------------------- */
 static void hle_VolatileMemLock(RtCtx *c) {
     if (A1) rt_w32(A1, 0x08400000u);
@@ -238,13 +220,6 @@ const HleEntry rt_hle_misc[] = {
     {"sceGeListSync", hle_GeListSync}, {"sceGeContinue", hle_Zero},
     {"sceCtrlSetSamplingCycle", hle_Zero}, {"sceCtrlSetSamplingMode", hle_Zero},
     {"sceCtrlSetIdleCancelThreshold", hle_Zero}, {"sceCtrlPeekBufferPositive", hle_CtrlPeekBufferPositive},
-    {"sceAudioChReserve", hle_AudioChReserve}, {"sceAudioChRelease", hle_AudioChRelease},
-    {"sceAudioOutputBlocking", hle_AudioOutputBlocking}, {"sceAudioOutputPannedBlocking", hle_AudioOutputBlocking},
-    {"sceAudioOutputPanned", hle_AudioOutputBlocking}, {"sceAudioSetChannelDataLen", hle_AudioSetChannelDataLen},
-    {"sceAudioChangeChannelConfig", hle_Zero}, {"sceAudioChangeChannelVolume", hle_Zero},
-    {"sceAudioGetChannelRestLength", hle_Zero},
-    {"sceAudioOutput2Reserve", hle_AudioOutput2Reserve}, {"sceAudioOutput2OutputBlocking", hle_AudioOutput2OutputBlocking},
-    {"sceAudioOutput2ChangeLength", hle_AudioOutput2ChangeLength}, {"sceAudioOutput2Release", hle_Zero},
     {"scePowerSetClockFrequency350", hle_Zero}, {"scePower_469989ad", hle_Zero},
     {"scePowerRegisterCallback", hle_Zero}, {"scePowerUnregisterCallback", hle_Zero},
     {"sceKernelPowerLock", hle_Zero}, {"sceKernelPowerUnlock", hle_Zero}, {"sceKernelPowerTick", hle_Zero},
