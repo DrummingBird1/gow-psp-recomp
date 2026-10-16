@@ -18,6 +18,7 @@
 
 #include "rt_frames.h"
 #include "rt_ge.h"
+#include "rt_gpu.h"
 #include "rt_host.h"
 #include "rt_kernel.h"
 #include "rt_prof.h"
@@ -188,6 +189,7 @@ static int run_boot(const BootOptions *o) {
     k_run_scheduler(cpu_ms);
     g_case_running = 0;
     rt_frames_close(k_now);
+    rt_gpu_report();  /* before the host shuts the device down */
     rt_host_shutdown();
     boot_report();
     if (o->profile) rt_prof_report(40);
@@ -195,7 +197,7 @@ static int run_boot(const BootOptions *o) {
 }
 
 int main(int argc, char **argv) {
-    const char *image = NULL, *cases = NULL, *results = NULL;
+    const char *image = NULL, *cases = NULL, *results = NULL, *renderer = "soft";
     int boot = 0;
     BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, { 0, 2, 0, 0, NULL, "." }, 0, 0, 0 };
     for (int i = 1; i < argc; i++) {
@@ -213,6 +215,9 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--nearest")) o.host.nearest = 1;
         else if (!strcmp(argv[i], "--input") && i + 1 < argc) o.host.input = argv[++i];
         else if (!strcmp(argv[i], "--shots") && i + 1 < argc) o.host.shot_dir = argv[++i];
+        else if (!strcmp(argv[i], "--renderer") && i + 1 < argc) renderer = argv[++i];
+        else if (!strcmp(argv[i], "--gpu-driver") && i + 1 < argc) o.host.gpu_driver = argv[++i];
+        else if (!strcmp(argv[i], "--gpu-compare-at") && i + 1 < argc) o.frames.gpu_compare_at = argv[++i];
         else if (!strcmp(argv[i], "--trace-hle")) rt_hle_verbose = 1;
         else if (!strcmp(argv[i], "--frames-dir") && i + 1 < argc) o.frames.png_dir = argv[++i];
         else if (!strcmp(argv[i], "--frames-every") && i + 1 < argc) o.frames.png_every = (uint32_t)strtoul(argv[++i], NULL, 0);
@@ -231,10 +236,18 @@ int main(int argc, char **argv) {
                         "       --boot [--disc game.chd|.iso] [--ms0 dir] [--max-hle N] [--cpu-ms N] [--wall-ms N] [--trace-hle]\n"
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
                         "              [--perf-csv frames.csv] [--profile] [--max-frames N]\n"
-                        "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...])\n",
+                        "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...]\n"
+                        "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...])\n",
                 argv[0]);
         return 2;
     }
+    if (strcmp(renderer, "soft") && strcmp(renderer, "gpu") && strcmp(renderer, "both")) {
+        fprintf(stderr, "--renderer must be soft, gpu or both\n");
+        return 2;
+    }
+    rt_ge_set_renderer(strcmp(renderer, "gpu") != 0, strcmp(renderer, "soft") != 0);
+    o.host.gpu = strcmp(renderer, "soft") != 0;
+    o.frames.from_gpu = !strcmp(renderer, "gpu");
     rt_mem_init();
     o.image = image;
     return cases ? run_difftest(image, cases, results) : run_boot(&o);

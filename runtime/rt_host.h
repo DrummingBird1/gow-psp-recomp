@@ -10,6 +10,8 @@ typedef struct {
     int nearest;             /* nearest-neighbour scaling instead of linear */
     const char *input;       /* --input: scripted presses "frame:buttons[:frames]" or "tSEC:buttons[:sec]", comma-separated */
     const char *shot_dir;    /* F12 screenshots go here */
+    int gpu;                 /* draw with the SDL GPU renderer (rt_gpu.c) */
+    const char *gpu_driver;  /* "vulkan", "direct3d12" or NULL (SDL's choice) */
 } HostOptions;
 
 /* PSP controller buttons (SceCtrlData.Buttons) */

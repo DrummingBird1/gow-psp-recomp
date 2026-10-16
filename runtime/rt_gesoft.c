@@ -13,6 +13,7 @@
 #endif
 
 #include "rt_ge_internal.h"
+#include "rt_gpu.h"
 
 #ifdef _MSC_VER
 #define HOT_INLINE static __forceinline
@@ -1090,6 +1091,7 @@ enum { JOB_TRI, JOB_RECT, JOB_POINT };
 typedef struct { uint32_t kind, state; int y0, y1; Vtx v[3]; } Job;  /* y0..y1: rows it may touch */
 
 static Raster g_cur;                 /* state of the draw being queued */
+static uint32_t g_mem_gen = 1;       /* bumped whenever PSP memory may have changed (GPU texture cache) */
 static Raster *g_states;             /* snapshots referenced by queued jobs */
 static Job *g_jobs;
 static uint8_t (*g_cluts)[1024];     /* CLUT contents referenced by the snapshots */
@@ -1449,9 +1451,12 @@ static void track_draw(const int *bbox, const float *srange) {
 }
 
 /* Called before something reads [addr, addr+size) directly (e.g. LOADCLUT). */
+static int g_soft = 1, g_gpu;           /* which renderers draw */
+
 void ge_sync_read(uint32_t addr, uint32_t size, int why) {
     Region g = region_span(addr, addr + size);
     if (list_overlaps(&g_pw, &g)) ge_flush(why);
+    if (g_gpu && !g_soft) rt_gpu_sync_span(addr, size);  /* only the GPU has what was drawn there */
 }
 
 /* Draws everything queued. Called at the end of each display list and before anything
@@ -1469,6 +1474,7 @@ void ge_flush(int why) {
     }
     g_next_band = 0;
     ge_stats.flushes++;
+    g_mem_gen++;  /* software drawing changes memory textures may come from */
     ge_stats.jobs += g_njobs;
     if (g_ymin <= g_ymax) run_parallel();
     for (int i = 0; i < g_nthreads; i++) {
@@ -1487,6 +1493,271 @@ void ge_flush(int why) {
 #define R g_cur
 
 /* --- primitive assembly (main thread) ------------------------------------------------- */
+/* --- GPU path (rt_gpu.c) -------------------------------------------------------------
+ * In "gpu" and "both" modes the same assembled primitives also become GPU vertices; textures
+ * are decoded to RGBA once per content (keyed by address, format, palette and a content hash
+ * computed at most once per memory generation). */
+static GpuVertex *g_gv;
+static size_t g_ngv, g_gvcap;
+
+void rt_ge_set_renderer(int soft, int gpu) { g_soft = soft; g_gpu = gpu; }
+
+/* RT_GPU_TRACE_RTT=1: prints each new combination of render target and texture in VRAM, and
+ * each new block transfer touching VRAM, with the frame it first appears in. */
+static int g_rtt_trace = -1;
+static uint64_t g_flip;
+static uint64_t g_tk[4096];
+static int trace_new(uint64_t key) {
+    key |= 1;
+    size_t i = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 52) & 4095;
+    for (int k = 0; k < 4096; k++, i = (i + 1) & 4095) {
+        if (g_tk[i] == key) return 0;
+        if (!g_tk[i]) { g_tk[i] = key; return 1; }
+    }
+    return 0;
+}
+static int rtt_tracing(void) {
+    if (g_rtt_trace < 0) { const char *e = getenv("RT_GPU_TRACE_RTT"); g_rtt_trace = e ? atoi(e) : 0; }
+    return g_rtt_trace;
+}
+
+void ge_memory_changed(void) { g_mem_gen++; g_flip++; }
+
+static uint64_t hash_bytes(const uint8_t *p, size_t n, uint64_t h) {
+    h ^= (uint64_t)n * 0x9E3779B97F4A7C15ull;
+    size_t i = 0;
+    for (; i + 8 <= n; i += 8) {
+        uint64_t v;
+        memcpy(&v, p + i, 8);
+        h = (h ^ v) * 0x100000001B3ull;
+        h ^= h >> 29;
+    }
+    for (; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
+    return h ^ (h >> 32);
+}
+
+/* The same kind of hash over four independent lanes (no serial dependency): texture contents. */
+static uint64_t hash_wide(const uint8_t *p, size_t n, uint64_t seed) {
+    uint64_t a = seed ^ 0x9E3779B97F4A7C15ull, b = seed + 0xC2B2AE3D27D4EB4Full, c = ~seed, d = seed * 0x165667B19E3779F9ull;
+    size_t i = 0;
+    for (; i + 32 <= n; i += 32) {
+        uint64_t v[4];
+        memcpy(v, p + i, 32);
+        a = (a ^ v[0]) * 0x100000001B3ull; a ^= a >> 29;
+        b = (b ^ v[1]) * 0x100000001B3ull; b ^= b >> 29;
+        c = (c ^ v[2]) * 0x100000001B3ull; c ^= c >> 29;
+        d = (d ^ v[3]) * 0x100000001B3ull; d ^= d >> 29;
+    }
+    uint64_t h = hash_bytes(p + i, n - i, a ^ (b * 31) ^ (c * 1009) ^ (d * 65537));
+    return h;
+}
+
+typedef struct { uint64_t id, content; uint32_t gen, stamp; } TexMemo;
+static TexMemo g_tmemo[4096];
+
+/* Write stamps of 4 KB memory pages, for block transfers: a transfer (the games make over a
+ * hundred per frame, uploading textures into VRAM) only invalidates the textures on its pages. */
+#define PAGE_SHIFT 12
+#define NPAGES (0x0A000000u >> PAGE_SHIFT)
+static uint32_t g_page_stamp[NPAGES], g_write_stamp = 1;
+
+static void stamp_pages(uint32_t lo, uint32_t hi) {
+    lo &= 0x0FFFFFFF;
+    hi = lo + (hi - lo);
+    uint32_t s = ++g_write_stamp;
+    for (uint32_t p = lo >> PAGE_SHIFT; p <= (hi - 1) >> PAGE_SHIFT && p < NPAGES; p++) g_page_stamp[p] = s;
+}
+
+static int pages_written_since(uint32_t lo, uint32_t hi, uint32_t stamp) {
+    lo &= 0x0FFFFFFF;
+    hi = lo + (hi - lo);
+    for (uint32_t p = lo >> PAGE_SHIFT; p <= (hi - 1) >> PAGE_SHIFT && p < NPAGES; p++)
+        if (g_page_stamp[p] > stamp) return 1;
+    return 0;
+}
+static uint32_t *g_decode;
+static size_t g_decode_cap;
+
+/* Key of the current texture; decodes and uploads it when the GPU does not have it. The mip
+ * levels go along when they form a chain of halving sizes (*levels says how many). */
+static uint64_t gpu_texture(int *levels) {
+    Raster *rs = &g_cur;
+    int w = R.tw[0], h = R.th[0], bits = tex_bits[R.tfmt], nl = 1;
+    while (nl <= R.maxlevel && R.tptr[nl] && R.tw[nl] == imax(1, w >> nl) && R.th[nl] == imax(1, h >> nl)) nl++;
+    *levels = nl;
+    uint64_t id = (uint64_t)R.tfmt | (uint64_t)nl << 4 | (uint64_t)w << 8 | (uint64_t)h << 20 | (uint64_t)R.swz << 48;
+    for (int l = 0; l < nl; l++) {
+        uint32_t addr = (D(GE_CMD_TEXADDR0 + l) & 0xFFFFF0) | ((D(GE_CMD_TEXBUFWIDTH0 + l) << 8) & 0x0F000000);
+        id = hash_bytes((const uint8_t *)&addr, 4, id ^ (uint64_t)R.tbufw[l] << 32);
+    }
+    if (R.tfmt >= 4 && R.tfmt <= 7) {
+        /* the palette is the loaded CLUT read through the CLUT parameters; hashed once per load */
+        static uint32_t clut_hashed = 0xFFFFFFFFu;
+        static uint64_t clut_hash;
+        if (clut_hashed != g_clut_version) { clut_hash = hash_bytes(ge.clut, sizeof(ge.clut), 0x51D); clut_hashed = g_clut_version; }
+        id = hash_bytes((const uint8_t *)&clut_hash, 8, id ^ ((uint64_t)R.clutfmt | (uint64_t)R.clutshift << 2 |
+                                                               (uint64_t)R.clutmask << 8 | (uint64_t)R.clutoff << 16 |
+                                                               (uint64_t)R.clutshared << 24));
+    }
+    TexMemo *m = &g_tmemo[(id >> 7) & 4095];
+    int stale = m->id != id || m->gen != g_mem_gen;
+    for (int l = 0; l < nl && !stale; l++) {
+        uint32_t addr = (D(GE_CMD_TEXADDR0 + l) & 0xFFFFF0) | ((D(GE_CMD_TEXBUFWIDTH0 + l) << 8) & 0x0F000000);
+        uint32_t pitch = (uint32_t)R.tbufw[l] * (uint32_t)bits / 8, rows = (uint32_t)((R.th[l] + 7) & ~7);
+        stale = pages_written_since(addr, addr + pitch * rows, m->stamp);
+    }
+    if (stale) {
+        m->id = id;
+        m->gen = g_mem_gen;
+        m->stamp = g_write_stamp;
+        m->content = 0x12345;
+        for (int l = 0; l < nl; l++) {
+            uint32_t pitch = (uint32_t)R.tbufw[l] * (uint32_t)bits / 8, rows = (uint32_t)((R.th[l] + 7) & ~7);
+            m->content = hash_wide(R.tptr[l], (size_t)pitch * rows, m->content);
+        }
+    }
+    uint64_t key = id ^ (m->content * 0xC2B2AE3D27D4EB4Full);
+    if (!rt_gpu_texture_resident(key)) {
+        size_t total = 0;
+        for (int l = 0; l < nl; l++) total += (size_t)R.tw[l] * R.th[l];
+        grow((void **)&g_decode, &g_decode_cap, total, sizeof(uint32_t));
+        const uint8_t *saved = R.clut;
+        if (!R.use_pal) R.clut = ge.clut;
+        uint32_t *o = g_decode;
+        for (int l = 0; l < nl; l++)
+            for (int y = 0; y < R.th[l]; y++)
+                for (int x = 0; x < R.tw[l]; x++) *o++ = fetch(rs, l, x, y);
+        R.clut = saved;
+        rt_gpu_texture_upload(key, w, h, nl, g_decode);
+    }
+    return key;
+}
+
+static void gpu_setup(GpuDraw *d) {
+    const Raster *rs = &g_cur;
+    memset(d, 0, sizeof(*d));
+    d->fb_addr = VRAM | (D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0);
+    d->fb_stride = (uint32_t)R.fbstride;
+    d->fb_fmt = (uint32_t)R.fmt;
+    d->z_addr = VRAM | (D(GE_CMD_ZBUFPTR) & 0x1FFFF0);
+    d->z_stride = (uint32_t)R.zbstride;
+    d->sx1 = R.sx1; d->sy1 = R.sy1; d->sx2 = R.sx2; d->sy2 = R.sy2;
+    d->zfunc = R.clear ? CMP_ALWAYS : R.zfunc;
+    d->zwrite = R.clear ? R.clear_depth : R.zwrite;
+    d->blend = R.blend; d->bsrc = R.bsrc; d->bdst = R.bdst; d->beq = R.beq;
+    d->fixa = R.fixa; d->fixb = R.fixb;
+    d->mask_rgb = R.clear && !R.clear_color ? 0xFFFFFFu : (R.wmask & 0xFFFFFFu);
+    d->write_alpha = R.clear && R.clear_stencil && R.fmt != 0;
+    d->clear_stencil = d->write_alpha;
+    d->stest = R.stest;
+    d->sfunc = R.sfunc; d->sref = R.sref; d->smask = R.smask;
+    d->sfail = R.sfail; d->zfail = R.zfail; d->zpass = R.zpass;
+    d->skeep = R.wmask >> 24;
+    d->flags = (R.clear ? GPU_F_CLEAR : 0) | (R.fog ? GPU_F_FOG : 0) |
+               (R.depth_range && (R.minz > 0 || R.maxz < 65535) ? GPU_F_ZRANGE : 0);
+    d->texfunc = (uint32_t)R.func;
+    d->afunc = (uint32_t)R.afunc;
+    d->aref = (uint32_t)R.aref;
+    d->amask = (uint32_t)R.amask;
+    d->env = R.env;
+    d->fogcol = R.fogcol;
+    d->minz = R.minz;
+    d->maxz = R.maxz;
+    if (R.tex) {
+        d->flags |= GPU_F_TEX | (R.rgba ? GPU_F_RGBA : 0) | (R.dbl ? GPU_F_DOUBLE : 0) | (R.proj ? GPU_F_PROJ : 0);
+        d->textured = 1;
+        d->minf = R.minf;
+        d->magf = R.magf;
+        d->mipf = R.mipf;
+        d->clampS = R.clampS;
+        d->clampT = R.clampT;
+        d->lodmode = R.lodmode;
+        d->lodoff = R.lodoff;
+        /* render to texture: a plain texture in VRAM where the GPU drew comes from the GPU target */
+        uint32_t addr = (D(GE_CMD_TEXADDR0) & 0xFFFFF0) | ((D(GE_CMD_TEXBUFWIDTH0) << 8) & 0x0F000000);
+        int bpp = tex_bits[R.tfmt] / 8;
+        uint32_t pitch = (uint32_t)R.tbufw[0] * (uint32_t)bpp;
+        if (R.tfmt <= 3 && !R.swz && (addr & 0x0F000000) == VRAM && rt_gpu_texture_is_target(addr, pitch, bpp)) {
+            d->tex_target = 1;
+            d->tex_addr = addr;
+            d->tex_pitch = pitch;
+            d->tex_bpp = bpp;
+            d->tex_fmt = R.tfmt;
+            d->tex_w = R.tw[0];
+            d->tex_h = R.th[0];
+            d->levels = 1;
+        } else {
+            d->tex_key = gpu_texture(&d->levels);
+        }
+    }
+}
+
+/* RT_GPU_CHECK_FLIP=N ("both" mode): in frame N, every texture the GPU takes from a render
+ * target is compared with what the software renderer drew there (debugging). */
+static void gpu_check_rtt(const float *sr) {
+    static long check = -2;
+    if (check == -2) { const char *e = getenv("RT_GPU_CHECK_FLIP"); check = e ? atol(e) : -1; }
+    if ((long)g_flip != check || !R.tex || R.tfmt > 3 || R.swz) return;
+    uint32_t addr = (D(GE_CMD_TEXADDR0) & 0xFFFFF0) | ((D(GE_CMD_TEXBUFWIDTH0) << 8) & 0x0F000000);
+    int bpp = tex_bits[R.tfmt] / 8;
+    uint32_t pitch = (uint32_t)R.tbufw[0] * (uint32_t)bpp;
+    if ((addr & 0x0F000000) != VRAM || !rt_gpu_texture_is_target(addr, pitch, bpp)) return;
+    ge_flush(FLUSH_TRACE);  /* memory gets the software renderer's result */
+    printf("[gpu-check] list %u:\n", ge_stats.lists);
+    int x0 = 0, y0 = 0, x1 = R.tw[0], y1 = R.th[0];  /* the texels this draw samples */
+    if (sr) {
+        x0 = iclamp((int)floorf(sr[0] * R.tw[0]), 0, R.tw[0] - 1); x1 = iclamp((int)ceilf(sr[1] * R.tw[0]), x0 + 1, R.tw[0]);
+        y0 = iclamp((int)floorf(sr[2] * R.th[0]), 0, R.th[0] - 1); y1 = iclamp((int)ceilf(sr[3] * R.th[0]), y0 + 1, R.th[0]);
+    }
+    rt_gpu_debug_compare_texture(addr + (uint32_t)y0 * pitch + (uint32_t)x0 * (uint32_t)bpp, pitch, bpp, R.tfmt, x1 - x0, y1 - y0);
+}
+
+/* off: triangles sample pixel x at x + 7/16 (raster_tri), the GPU at x + 8/16, so their
+ * vertices move by 1/16; sprites already sample at the centre (raster_rect). */
+static void gpu_vertex(GpuVertex *o, const Vtx *v, float w, int off) {
+    o->x = (v->x + off) / 16.0f;
+    o->y = (v->y + off) / 16.0f;
+    o->z = (float)v->z;
+    o->w = w;
+    if (R.tex && R.through) { o->s = v->s / R.tw[0]; o->t = v->t / R.th[0]; }
+    else { o->s = v->s; o->t = v->t; }
+    o->q = R.proj ? v->q : 1.0f;
+    for (int i = 0; i < 4; i++) o->c0[i] = (uint8_t)iclamp(v->c0[i], 0, 255);
+    for (int i = 0; i < 3; i++) o->c1[i] = (uint8_t)iclamp(v->c1[i], 0, 255);
+    o->c1[3] = 0;
+    o->fog = v->fog;
+}
+
+static void gpu_tri(const Vtx *a, const Vtx *b, const Vtx *c) {
+    grow((void **)&g_gv, &g_gvcap, g_ngv + 3, sizeof(GpuVertex));
+    const Vtx *v[3] = { a, b, c };
+    for (int i = 0; i < 3; i++) gpu_vertex(&g_gv[g_ngv++], v[i], R.through ? 1.0f : v[i]->cw, 1);
+}
+
+/* sprite: two triangles; texture coordinates follow the corner cases of raster_rect */
+static void gpu_rect(const Vtx *v0, const Vtx *v1) {
+    float s0 = v0->s, t0 = v0->t, s1 = v1->s, t1 = v1->t, cs[4], ct[4];
+    if (v0->x < v1->x) {
+        if (v0->y < v1->y) { cs[0] = s0; ct[0] = t0; cs[1] = s1; ct[1] = t0; cs[2] = s0; ct[2] = t1; cs[3] = s1; ct[3] = t1; }
+        else { cs[0] = s1; ct[0] = t0; cs[1] = s1; ct[1] = t1; cs[2] = s0; ct[2] = t0; cs[3] = s0; ct[3] = t1; }
+    } else {
+        if (v0->y < v1->y) { cs[0] = s0; ct[0] = t1; cs[1] = s0; ct[1] = t0; cs[2] = s1; ct[2] = t1; cs[3] = s1; ct[3] = t0; }
+        else { cs[0] = s1; ct[0] = t1; cs[1] = s0; ct[1] = t1; cs[2] = s1; ct[2] = t0; cs[3] = s0; ct[3] = t0; }
+    }
+    int x1 = imin(v0->x, v1->x), x2 = imax(v0->x, v1->x), y1 = imin(v0->y, v1->y), y2 = imax(v0->y, v1->y);
+    Vtx c[4];
+    for (int i = 0; i < 4; i++) {
+        c[i] = *v1;
+        c[i].x = (i & 1) ? x2 : x1;
+        c[i].y = (i & 2) ? y2 : y1;
+        c[i].s = cs[i];
+        c[i].t = ct[i];
+    }
+    grow((void **)&g_gv, &g_gvcap, g_ngv + 6, sizeof(GpuVertex));
+    static const int order[6] = { 0, 1, 2, 2, 1, 3 };
+    for (int i = 0; i < 6; i++) gpu_vertex(&g_gv[g_ngv++], &c[order[i]], 1.0f, 0);
+}
+
 static int64_t area2(const Vtx *a, const Vtx *b, const Vtx *c) {
     return (int64_t)(b->x - a->x) * (c->y - a->y) - (int64_t)(c->x - a->x) * (b->y - a->y);
 }
@@ -1498,6 +1769,8 @@ static void draw_oriented(const Vtx *a, const Vtx *b, const Vtx *c, int cull) {
     int ymin = imin(a->y, imin(b->y, c->y)), ymax = imax(a->y, imax(b->y, c->y));
     int w16 = imax(a->x, imax(b->x, c->x)) - imin(a->x, imin(b->x, c->x));
     if (ar > 0 || (ar < 0 && cull == CULL_OFF)) ge_stats.tris_raster++;
+    if (g_gpu && (ar > 0 || (ar < 0 && cull == CULL_OFF))) gpu_tri(a, b, c);
+    if (!g_soft) return;
     if (ar > 0) { j = new_job(JOB_TRI, ymin, ymax, w16); j->v[0] = *a; j->v[1] = *b; j->v[2] = *c; }
     else if (ar < 0 && cull == CULL_OFF) { j = new_job(JOB_TRI, ymin, ymax, w16); j->v[0] = *c; j->v[1] = *b; j->v[2] = *a; }
 }
@@ -1558,15 +1831,30 @@ static void submit_rect(const Vtx *a, const Vtx *b) {
         if (pos + neg > 0 && !X.clamp) return;
         if (pos >= 2 || neg >= 2) return;
     }
+    if (g_gpu) gpu_rect(a, b);
+    if (!g_soft) return;
     Job *j = new_job(JOB_RECT, imin(a->y, b->y), imax(a->y, b->y), abs(a->x - b->x));
     j->v[0] = *a; j->v[1] = *b;
 }
 
+/* GPU: a point covers the pixel it falls in (as raster_point), drawn as a one-pixel sprite */
+static void gpu_point(const Vtx *v) {
+    Vtx a = *v, b = *v;
+    a.x = (v->x >> 4) << 4;
+    a.y = (v->y >> 4) << 4;
+    b.x = a.x + 16;
+    b.y = a.y + 16;
+    gpu_rect(&a, &b);
+}
+
 static void submit_point(const Vtx *v) {
     if (!R.through && v->outside) return;
+    if (g_gpu) gpu_point(v);
+    if (!g_soft) return;
     new_job(JOB_POINT, v->y, v->y, 0)->v[0] = *v;
 }
 
+/* lines are drawn pixel by pixel, the same pixels in both renderers */
 static void submit_line(const Vtx *a, const Vtx *b) {
     if (!R.through && (a->outside || b->outside)) return;
     int x0 = a->x >> 4, y0 = a->y >> 4, x1 = b->x >> 4, y1 = b->y >> 4;
@@ -1579,7 +1867,8 @@ static void submit_line(const Vtx *a, const Vtx *b) {
         p.s = a->s + (b->s - a->s) * f; p.t = a->t + (b->t - a->t) * f; p.fog = a->fog + (b->fog - a->fog) * f;
         for (int k = 0; k < 4; k++) p.c0[k] = R.gouraud ? (int)(a->c0[k] + (b->c0[k] - a->c0[k]) * f) : b->c0[k];
         p.outside = 0;
-        new_job(JOB_POINT, p.y, p.y, 0)->v[0] = p;
+        if (g_gpu) gpu_point(&p);
+        if (g_soft) new_job(JOB_POINT, p.y, p.y, 0)->v[0] = p;
     }
 }
 
@@ -1650,8 +1939,34 @@ void ge_draw_prim(uint32_t op) {
             if (t > sr[3]) sr[3] = t;
         }
     }
-    track_draw(bb_ok ? bbox : NULL, sr_ok ? sr : NULL);  /* flushes first if this draw depends on (or changes) memory the queue uses */
-    push_state();
+    if ((g_cur.stest || (g_cur.clear && g_cur.clear_stencil)) && rtt_tracing()) {
+        uint32_t fa = D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0;
+        if (trace_new((uint64_t)fa ^ (uint64_t)g_cur.sfunc << 22 ^ (uint64_t)g_cur.sref << 25 ^ (uint64_t)g_cur.smask << 33 ^
+                      (uint64_t)(g_cur.sfail | g_cur.zfail << 3 | g_cur.zpass << 6) << 41 ^ (uint64_t)(g_cur.wmask >> 24) << 50 ^
+                      (uint64_t)g_cur.clear << 58 ^ (uint64_t)g_cur.zfunc << 59 ^ 0x77))
+            printf("[stencil] flip %llu: fb %06X fmt %d %s func %d ref %02X mask %02X ops %d/%d/%d z %d/%d amask %02X tex %d blend %d %d,%d\n",
+                   (unsigned long long)g_flip, fa, g_cur.fmt, g_cur.clear ? "clear" : "draw", g_cur.sfunc, g_cur.sref, g_cur.smask,
+                   g_cur.sfail, g_cur.zfail, g_cur.zpass, g_cur.zfunc, g_cur.zwrite, g_cur.wmask >> 24, g_cur.tex, g_cur.blend, g_cur.bsrc, g_cur.bdst);
+    }
+    if (g_cur.tex && rtt_tracing()) {
+        uint32_t ta = (D(GE_CMD_TEXADDR0) & 0xFFFFF0) | ((D(GE_CMD_TEXBUFWIDTH0) << 8) & 0x0F000000);
+        uint32_t fa = D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0, za = D(GE_CMD_ZBUFPTR) & 0x1FFFF0;
+        if ((ta & 0x0F000000) == VRAM &&
+            trace_new((uint64_t)fa ^ (uint64_t)(ta & 0x1FFFFF) << 21 ^ (uint64_t)g_cur.tfmt << 42 ^ (uint64_t)g_cur.fmt << 46 ^
+                      (uint64_t)g_cur.tw[0] << 48 ^ (uint64_t)g_cur.th[0] << 54 ^ (uint64_t)g_cur.tbufw[0] << 30 ^ (uint64_t)prim << 60))
+            printf("[rtt] flip %llu: fb %06X/%d fmt %d z %06X <- tex %06X fmt %d %dx%d bufw %d swz %d clut %d/%d/%02X/%d through %d prim %u "
+                   "blend %d %d,%d func %d rgba %d atest %d/%02X uv %.3f..%.3f,%.3f..%.3f bbox %d..%d,%d..%d\n",
+                   (unsigned long long)g_flip, fa, g_cur.fbstride, g_cur.fmt, za, ta & 0x1FFFFF, g_cur.tfmt, g_cur.tw[0], g_cur.th[0],
+                   g_cur.tbufw[0], g_cur.swz, g_cur.clutfmt, g_cur.clutshift, g_cur.clutmask, g_cur.clutoff, f.through, prim, g_cur.blend,
+                   g_cur.bsrc, g_cur.bdst, g_cur.func, g_cur.rgba, g_cur.afunc, g_cur.aref, sr[0], sr[1], sr[2], sr[3], bbox[0], bbox[1], bbox[2], bbox[3]);
+    }
+    if (g_soft && g_gpu) gpu_check_rtt(sr_ok ? sr : NULL);
+    if (g_soft) {
+        track_draw(bb_ok ? bbox : NULL, sr_ok ? sr : NULL);  /* flushes first if this draw depends on (or changes) memory the queue uses */
+        push_state();
+    }
+    GpuDraw gd;
+    if (g_gpu) { gpu_setup(&gd); g_ngv = 0; }
 
     int cull = CULL_OFF;
     if ((D(GE_CMD_CULLFACEENABLE) & 1) && !R.clear) cull = (D(GE_CMD_CULL) & 1) ? CULL_CCW : CULL_CW;
@@ -1672,12 +1987,20 @@ void ge_draw_prim(uint32_t op) {
     default: break;
     }
 #undef V
+    if (g_gpu && g_ngv) rt_gpu_draw(&gd, g_gv, (uint32_t)g_ngv);
     if (tracing) {
         ge_flush(FLUSH_TRACE);
-        printf("[ge-trace] prim %u x%-5u vtype %06X fb %06X/%u fmt %u scissor %u,%u-%u,%u %s%s%s tex %u %ux%u -> %llu px\n",
+        printf("[ge-trace] prim %u x%-5u vtype %06X fb %06X/%u fmt %u scissor %u,%u-%u,%u %s%s%s%s tex %u %ux%u @%06X -> %llu px\n",
                prim, count, D(GE_CMD_VERTEXTYPE), D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0, R.fbstride, R.fmt, R.sx1, R.sy1, R.sx2, R.sy2,
-               R.clear ? "clear " : "", R.blend ? "blend " : "", R.zfunc != CMP_ALWAYS ? "ztest " : "", R.tex ? R.tfmt : 99,
-               R.tex ? R.tw[0] : 0, R.tex ? R.th[0] : 0, (unsigned long long)(ge_stats.px_shaded - px_before));
+               R.clear ? "clear " : "", R.blend ? "blend " : "", R.zfunc != CMP_ALWAYS ? "ztest " : "", R.stest ? "stencil " : "",
+               R.tex ? R.tfmt : 99, R.tex ? R.tw[0] : 0, R.tex ? R.th[0] : 0, D(GE_CMD_TEXADDR0) & 0xFFFFF0,
+               (unsigned long long)(ge_stats.px_shaded - px_before));
+        if (getenv("RT_GE_TRACE_DETAIL"))
+            printf("    func %d rgba %d dbl %d c0 %d,%d,%d,%d c1 %d,%d,%d | blend %d eq %d src %d dst %d fix %06X/%06X | atest %d/%02X mask %08X "
+                   "stencil %d func %d ref %02X ops %d/%d/%d | ctest %d logic %d fog %d mag %d min %d clamp %d%d\n",
+                   R.func, R.rgba, R.dbl, g_vtx[g_map[0] - (int)lo].c0[0], g_vtx[g_map[0] - (int)lo].c0[1], g_vtx[g_map[0] - (int)lo].c0[2], g_vtx[g_map[0] - (int)lo].c0[3], g_vtx[g_map[0] - (int)lo].c1[0], g_vtx[g_map[0] - (int)lo].c1[1], g_vtx[g_map[0] - (int)lo].c1[2],
+                   R.blend, R.beq, R.bsrc, R.bdst, R.fixa, R.fixb, R.afunc, R.aref, R.wmask, R.stest, R.sfunc, R.sref, R.sfail, R.zfail,
+                   R.zpass, R.ctest, R.logic, R.fog, R.magf, R.minf, R.clampS, R.clampT);
     }
 }
 
@@ -1698,8 +2021,16 @@ void ge_block_transfer(uint32_t op) {
                           : region_span(src + sx * bpp, src + (sx + w) * bpp);
     Region rdst = dstride ? region_rect(dst, dstride * bpp, (int)(dx * bpp), (int)((dx + w) * bpp), (int)dy, (int)(dy + h - 1))
                           : region_span(dst + dx * bpp, dst + (dx + w) * bpp);
-    if (list_overlaps(&g_pw, &rsrc) || list_overlaps(&g_pw, &rdst) || list_overlaps(&g_pr, &rdst) || list_overlaps(&g_pr_ram, &rdst))
+    if (g_soft && (list_overlaps(&g_pw, &rsrc) || list_overlaps(&g_pw, &rdst) || list_overlaps(&g_pr, &rdst) || list_overlaps(&g_pr_ram, &rdst)))
         ge_flush(FLUSH_TRANSFER);
+    if (g_gpu)
+        rt_gpu_transfer_begin(src, sstride * bpp, (int)sx, (int)sy, dst, dstride * bpp, (int)dx, (int)dy, (int)w, (int)h, (int)bpp, !g_soft);
+    if (rtt_tracing() && ((src & 0x0F000000) == VRAM || (dst & 0x0F000000) == VRAM) &&
+        trace_new((uint64_t)src ^ (uint64_t)dst << 28 ^ (uint64_t)(w | h << 10) << 40 ^ (uint64_t)bpp << 62 ^ 0x5A5A))
+        printf("[rtt] flip %llu: transfer %08X/%u (%u,%u) -> %08X/%u (%u,%u) %ux%u bpp %u\n", (unsigned long long)g_flip,
+               src, sstride, sx, sy, dst, dstride, dx, dy, w, h, bpp);
     for (uint32_t y = 0; y < h; y++)
         memmove(rt_ptr(dst + ((dy + y) * dstride + dx) * bpp), rt_ptr(src + ((sy + y) * sstride + sx) * bpp), w * bpp);
+    stamp_pages(dst + (dy * dstride + dx) * bpp, dst + ((dy + h - 1) * dstride + dx + w) * bpp);  /* textures there changed */
+    if (g_gpu) rt_gpu_transfer_end(dst, dstride * bpp, (int)dx, (int)dy, (int)w, (int)h, (int)bpp);
 }

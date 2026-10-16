@@ -18,6 +18,9 @@
 | 2026-10-16 | שלב 3: VFPU | הושלם (commit 9f3b497) |
 | 2026-10-16 | שלב 4: מפרש GE ו-renderer תוכנה | התפריט הראשי של CoO על המסך, ‏24–28 FPS ([פירוט](phase4-ge.md)) |
 | 2026-10-16 | שלב 5: חלון, קלט, sceMpeg, coroutines | נכנסים למשחק: השלב הראשון משוחק בחלון, ~19 FPS ([פירוט](phase5-window-input.md)) |
+| 2026-10-16 | צמצום flushes (v4) | פי 37 פחות flushes, ‏29–35 FPS במשחק ([פירוט](renderer-decision.md)) |
+| 2026-10-16 | שלב 6, ‏P1: renderer חומרה על SDL3 GPU (v5) | התפריטים והשלב הראשון מה-GPU, ‏77.5 FPS במשחק (headless); render-to-texture נשאר ל-P2 ([פירוט](phase6-gpu-renderer.md)) |
+| 2026-10-16 | שלב 6, ‏P2: ניהול framebuffers, ‏render-to-texture, ‏stencil (v6) | כל האפקטים מה-GPU, בלי רעש; 60 FPS יציב בחלון, ‏116 FPS במשחק (headless) ([פירוט](phase6-gpu-renderer.md#p2-ניהול-framebuffers)) |
 
 ## 2026-10-16: ה-boot של Chains of Olympus, ובדיקות האימות
 
@@ -159,3 +162,59 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 ![v3 מול v4](../media/screenshots/2026-10-16_12_perf_gameplay_v3_v4.png)
 
 **השוואה בווידאו:** `media/videos/2026-10-16_coo_gameplay_v3_vs_v4_hostclock.mp4` מציג את v3 ואת v4 זה לצד זה, לפי שעון המחשב, עם מונה FPS חי.
+
+## 2026-10-16: renderer חומרה על SDL3 GPU, שלב P1 (v5)
+
+הפירוט ב-[phase6-gpu-renderer.md](phase6-gpu-renderer.md).
+
+**מה נבנה:** renderer חומרה על SDL3 GPU. אותו קוד רץ על Direct3D 12 ועל Vulkan. ה-renderer התוכנה נשאר, ומשמש fallback ו"אורקל" לבדיקות. במצב `--renderer both` שניהם רצים יחד, ו-`--gpu-compare-at` משווה ביניהם פריים מול פריים.
+
+**התוצאות:**
+- **התאמה:** ‏44–49 dB בתפריטים, ‏34–36 dB במשחק.
+- **מהירות:** במשחק, headless, ה-GPU נותן 77.5 FPS לעומת 29.5 FPS בתוכנה. בזמן הקלטה: 62.4 לעומת 25.1.
+- **בחלון:** ‏57–60 FPS בזמן אמת.
+
+![השוואה במשחק: תוכנה | GPU | הבדל ×4](../media/screenshots/2026-10-16_14_gpu_compare_gameplay.png)
+
+![זמני פריים: תוכנה מול GPU](../media/screenshots/2026-10-16_16_perf_gameplay_v4_v5_gpu.png)
+
+![החלון עם ה-renderer החומרה](../media/screenshots/2026-10-16_15_window_gpu_renderer.png)
+
+**מה עוד חסר:** במצב GPU בלבד, המקומות שבהם המשחק דוגם את ה-framebuffer כטקסטורה מציגים רעש: החלק התחתון של מסך המשחק, ורקע התפריט. זה render-to-texture, היעד של P2.
+
+**השוואה בווידאו:** `media/videos/2026-10-16_coo_gameplay_v4_vs_v5_gpu_hostclock.mp4` מציג את v4 (תוכנה) ואת v5 (GPU) זה לצד זה, עם מונה FPS חי.
+
+## 2026-10-16: ניהול framebuffers ו-render-to-texture, שלב P2 (v6)
+
+הפירוט ב-[phase6-gpu-renderer.md](phase6-gpu-renderer.md#p2-ניהול-framebuffers).
+
+**מה נבנה:** ה-GPU מנהל render targets כאזורים ב-VRAM.
+- **draws בהיסט:** draw לכתובת בתוך target קיים נכנס אליו בהיסט המתאים.
+- **טקסטורה מ-target:** טקסטורה שנמצאת במה שה-GPU צייר מועתקת ל-snapshot באותה נקודה בפריים.
+- **stencil:** לכל target יש stencil אמיתי. לפני שה-target נקרא, ערכי ה-stencil מועתקים לערוץ האלפא, כמו ב-PSP.
+- **block transfers:** בין targets נעשית העתקה על ה-GPU, ויש העלאה מהזיכרון וקריאה חזרה אליו.
+- **נקודות וקווים:** מצוירים על ה-GPU.
+
+**איך זה התגלה:** המעקב הראה שה-glow מסנן פיקסלים לפי מזהה חומר שנכתב ב-stencil, ונקרא כאלפא של טקסטורה. הוא גם הראה שה-atlas של הצללים ב-565 מתנקה במילוי ב-8888 מעל אותו זיכרון. כלי ההשוואה החדש `RT_GPU_CHECK_FLIP` מצא את שני המקרים.
+
+**התוצאות:**
+- **בלי רעש:** אין יותר רעש במצב GPU בלבד. ה-glow, הצללים המוקרנים ורקע התפריט נוצרים על ה-GPU.
+- **התאמה מול התוכנה:** ‏41–49 dB בתפריטים, ‏34.1–34.8 dB במשחק, עכשיו בלי עזרה מהזיכרון של התוכנה. רק 0.03%–0.04% מהפיקסלים סוטים ביותר מ-32.
+- **התוכנה לא השתנתה:** ה-renderer התוכנה זהה פיקסל-אחר-פיקסל ל-v3.
+- **מהירות:**
+  - בחלון: **60.0 FPS יציב במשחק**, בדיוק בזמן אמת.
+  - headless: ‏116 FPS במשחק (ב-P1 77.5).
+  - בזמן הקלטה: 79.0 FPS (ב-P1 62.4).
+- **תיקון ביצועים בדרך:** block transfers פוסלים עכשיו רק את הטקסטורות שבדפים שהם כתבו. ה-hash של הטקסטורות ירד מ-15% מזמן ה-CPU לכמעט כלום.
+
+![P1 מול P2 במצב GPU בלבד](../media/screenshots/2026-10-16_17_gpu_p1_vs_p2_render_to_texture.png)
+
+![השוואה במשחק, P2: תוכנה | GPU | הבדל ×4](../media/screenshots/2026-10-16_18_gpu_p2_compare_gameplay.png)
+
+![זמני פריים: v4, ‏v5, ‏v6](../media/screenshots/2026-10-16_20_perf_gameplay_v4_v5_v6.png)
+
+![החלון עם P2, ‏60 FPS](../media/screenshots/2026-10-16_19_window_gpu_p2.png)
+
+צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).
+
+**השוואה בווידאו:** `media/videos/2026-10-16_coo_gameplay_v5_vs_v6_gpu_p2_hostclock.mp4` מציג את P1 ואת P2 זה לצד זה, לפי שעון המחשב, עם מונה FPS חי.

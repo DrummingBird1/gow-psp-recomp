@@ -100,7 +100,10 @@ static void hle_DisplaySetFrameBuf(RtCtx *c) {
     if (g_frames == 1 || g_frames % 600 == 0)
         rt_log("[display] frame %llu: framebuffer %08X width %u format %u\n", (unsigned long long)g_frames, A0, A1, A2);
     rt_frames_present(g_frames, k_now, A0, A1, A2);
-    if (rt_host_present(g_frames, A0, A1, A2)) k_stop(RT_ABORT_HLE, 0, (uint32_t)g_frames, "window closed");
+    int closed = rt_host_present(g_frames, A0, A1, A2);
+    rt_frames_after_present(g_frames, A0, A1, A2);
+    ge_memory_changed();  /* the CPU may change textures before the next frame */
+    if (closed) k_stop(RT_ABORT_HLE, 0, (uint32_t)g_frames, "window closed");
     if (rt_max_frames && g_frames >= rt_max_frames) k_stop(RT_ABORT_BUDGET, 0, (uint32_t)g_frames, "frame limit reached");
     if (A0 && prev && A0 != prev) {
         uint64_t now = k_now, wait = g_next_flip > now ? g_next_flip - now : 0;

@@ -6,5 +6,9 @@
  * stall = 0 means "run to the end of the list". */
 void rt_ge_run(uint32_t list, uint32_t stall);
 void rt_ge_report(void);
+/* which renderers draw: software (into PSP memory), GPU (rt_gpu.c), or both */
+void rt_ge_set_renderer(int soft, int gpu);
+/* PSP memory may have changed (e.g. a new frame): GPU texture contents are re-checked */
+void ge_memory_changed(void);
 
 /* Writes the 480x272 image shown by sceDisplaySetFrameBuf to a PNG file. */

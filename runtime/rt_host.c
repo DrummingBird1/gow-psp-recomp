@@ -15,6 +15,7 @@
 
 #include "psp_rt.h"
 #include "rt_frames.h"
+#include "rt_gpu.h"
 #include "rt_host.h"
 
 #define DISP_W 480
@@ -120,7 +121,14 @@ static void screenshot(void) {
     static int n;
     if (!g_shot_addr) return;
     snprintf(path, sizeof(path), "%s/window_frame_%06llu_%d.png", g_o.shot_dir ? g_o.shot_dir : ".", (unsigned long long)g_last_frame, n++);
-    if (rt_frames_write_png(path, g_shot_addr, g_shot_stride, g_shot_format)) printf("[host] screenshot %s\n", path);
+    int ok;
+    if (rt_gpu_active()) {
+        static uint8_t rgba[DISP_W * DISP_H * 4];
+        ok = rt_gpu_read_target(g_shot_addr, g_shot_stride, g_shot_format, rgba) && rt_frames_write_png_rgba(path, rgba);
+    } else {
+        ok = rt_frames_write_png(path, g_shot_addr, g_shot_stride, g_shot_format);
+    }
+    if (ok) printf("[host] screenshot %s\n", path);
 }
 
 static void pump(void) {
@@ -147,13 +155,23 @@ static void pump(void) {
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !parse_script(g_o.input)) return 0;
-    if (!g_o.window) return 1;
     SDL_SetMainReady();
+    if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { fprintf(stderr, "[host] SDL_Init: %s\n", SDL_GetError()); return 0; }
     int scale = g_o.scale > 0 ? g_o.scale : 2;
     g_win = SDL_CreateWindow("God of War (PSP native port)", DISP_W * scale, DISP_H * scale, SDL_WINDOW_RESIZABLE);
     if (!g_win) { fprintf(stderr, "[host] SDL_CreateWindow: %s\n", SDL_GetError()); return 0; }
+    if (g_o.gpu) {
+        /* the hardware renderer presents to the window itself */
+        if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
+        if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
+        printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
+               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit\n", DISP_W * scale, DISP_H * scale);
+        g_title_t = now_us();
+        pump();
+        return 1;
+    }
     g_ren = SDL_CreateRenderer(g_win, NULL);
     if (!g_ren) { fprintf(stderr, "[host] SDL_CreateRenderer: %s\n", SDL_GetError()); return 0; }
     SDL_SetRenderVSync(g_ren, 0);  /* pacing follows the game's own vblanks */
@@ -173,10 +191,11 @@ int rt_host_init(const HostOptions *o) {
 }
 
 void rt_host_shutdown(void) {
+    rt_gpu_shutdown();
     if (!g_win) return;
     for (int i = 0; i < 8; i++) if (g_pads[i]) SDL_CloseGamepad(g_pads[i]);
-    SDL_DestroyTexture(g_tex);
-    SDL_DestroyRenderer(g_ren);
+    if (g_tex) SDL_DestroyTexture(g_tex);
+    if (g_ren) SDL_DestroyRenderer(g_ren);
     SDL_DestroyWindow(g_win);
     SDL_Quit();
     g_win = NULL;
@@ -185,9 +204,12 @@ void rt_host_shutdown(void) {
 /* PSP framebuffer -> texture. 8888 is uploaded directly (red in the low byte = XBGR8888). */
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) {
     g_last_frame = frame;
+    if (rt_gpu_active()) rt_gpu_present(addr, stride, format);
     if (!g_win) return 0;
-    if (addr && stride) {
-        g_shot_addr = addr; g_shot_stride = stride; g_shot_format = format;
+    if (addr && stride) { g_shot_addr = addr; g_shot_stride = stride; g_shot_format = format; }
+    if (!g_ren) {
+        pump();
+    } else if (addr && stride) {
         if (format == 3) {
             SDL_UpdateTexture(g_tex, NULL, rt_ptr(addr), (int)stride * 4);
         } else {
@@ -205,10 +227,12 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
             SDL_UpdateTexture(g_tex, NULL, g_rgba, DISP_W * 4);
         }
     }
-    SDL_RenderClear(g_ren);
-    SDL_RenderTexture(g_ren, g_tex, NULL, NULL);
-    SDL_RenderPresent(g_ren);
-    pump();
+    if (g_ren) {
+        SDL_RenderClear(g_ren);
+        SDL_RenderTexture(g_ren, g_tex, NULL, NULL);
+        SDL_RenderPresent(g_ren);
+        pump();
+    }
     uint64_t t = now_us();
     if (t - g_title_t >= 1000000) {
         char title[160];
@@ -289,7 +313,7 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !parse_script(g_o.input)) return 0;
-    if (g_o.window) { fprintf(stderr, "[host] this build has no window support (SDL3 not linked)\n"); return 0; }
+    if (g_o.window || g_o.gpu) { fprintf(stderr, "[host] this build has no window or GPU support (SDL3 not linked)\n"); return 0; }
     return 1;
 }
 void rt_host_shutdown(void) {}

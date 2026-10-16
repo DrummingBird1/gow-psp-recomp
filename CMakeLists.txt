@@ -39,6 +39,7 @@ add_executable(gow_rt
   runtime/rt_frames.c
   runtime/rt_ge.c
   runtime/rt_gesoft.c
+  runtime/rt_gpu.c
   runtime/rt_hle.c
   runtime/rt_host.c
   runtime/rt_io.c

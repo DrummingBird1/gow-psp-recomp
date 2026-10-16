@@ -3,6 +3,7 @@
  * video plays at the game's own speed whatever the host speed) and on the host clock (the
  * frame on screen once per 1/59.94 s of real time, so the video shows how smoothly this
  * machine runs the game). The CSV records how long the host took for each frame. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,6 +18,7 @@
 
 #include "psp_rt.h"
 #include "rt_frames.h"
+#include "rt_gpu.h"
 
 #define DISP_W 480
 #define DISP_H 272
@@ -27,6 +29,9 @@ typedef struct { FILE *pipe; uint64_t out; int host_clock; } Stream;
 
 uint32_t rt_max_frames;
 static FrameOptions g_o;
+static int listed(const char *list, uint64_t frame);
+static void capture(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format);
+static uint64_t g_now;  /* virtual time of the frame being shown */
 static Stream g_streams[2];
 static FILE *g_csv;
 static uint8_t g_shown[DISP_W * DISP_H * 3];  /* frame currently on screen, RGB */
@@ -135,6 +140,52 @@ int rt_frames_write_png(const char *path, uint32_t addr, uint32_t stride, uint32
     return write_png_rgb(path, rgb, DISP_W, DISP_H);
 }
 
+int rt_frames_write_png_rgba(const char *path, const uint8_t *rgba) {
+    static uint8_t rgb[DISP_W * DISP_H * 3];
+    for (int i = 0; i < DISP_W * DISP_H; i++) { rgb[3 * i] = rgba[4 * i]; rgb[3 * i + 1] = rgba[4 * i + 1]; rgb[3 * i + 2] = rgba[4 * i + 2]; }
+    return write_png_rgb(path, rgb, DISP_W, DISP_H);
+}
+
+void rt_frames_compare_gpu(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format, const char *dir) {
+    static uint8_t gpu[DISP_W * DISP_H * 4], soft[DISP_W * DISP_H * 3], out[DISP_W * 3 * DISP_H * 3];
+    if (!rt_gpu_read_target(addr, stride, format, gpu)) {
+        printf("[compare] frame %llu: the GPU has no target for %08X\n", (unsigned long long)frame, addr);
+        return;
+    }
+    to_rgb(soft, addr, stride, format);
+    double sum = 0, sq = 0;
+    int over8 = 0, over32 = 0;
+    for (int y = 0; y < DISP_H; y++)
+        for (int x = 0; x < DISP_W; x++) {
+            int i = y * DISP_W + x, worst = 0;
+            uint8_t *o = out + ((size_t)y * DISP_W * 3 + x) * 3;
+            for (int ch = 0; ch < 3; ch++) {
+                int s = soft[3 * i + ch], g = gpu[4 * i + ch], d = abs(s - g);
+                sum += d;
+                sq += (double)d * d;
+                if (d > worst) worst = d;
+                o[ch] = (uint8_t)s;
+                o[DISP_W * 3 + ch] = (uint8_t)g;
+                o[DISP_W * 6 + ch] = (uint8_t)(d * 4 > 255 ? 255 : d * 4);
+            }
+            over8 += worst > 8;
+            over32 += worst > 32;
+        }
+    double n = (double)DISP_W * DISP_H, mse = sq / (n * 3);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/compare_%06llu.png", dir ? dir : ".", (unsigned long long)frame);
+    write_png_rgb(path, out, DISP_W * 3, DISP_H);
+    printf("[compare] frame %llu: mean |diff| %.2f, %.2f%% of pixels differ by >8, %.2f%% by >32, PSNR %.1f dB -> %s\n",
+           (unsigned long long)frame, sum / (n * 3), 100.0 * over8 / n, 100.0 * over32 / n,
+           mse > 0 ? 10.0 * log10(255.0 * 255.0 / mse) : 99.0, path);
+}
+
+void rt_frames_after_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) {
+    if (g_o.from_gpu) capture(frame, addr, stride, format);
+    if (g_o.gpu_compare_at && listed(g_o.gpu_compare_at, frame) && addr && stride)
+        rt_frames_compare_gpu(frame, addr, stride, format, g_o.png_dir);
+}
+
 static int listed(const char *list, uint64_t frame) {
     for (const char *p = list; p && *p;) {
         char *end;
@@ -188,11 +239,24 @@ void rt_frames_present(uint64_t frame, uint64_t now_us, uint32_t addr, uint32_t 
         g_ft_hist[ft >= FT_BUCKETS - 1 ? FT_BUCKETS - 1 : (int)ft]++;
     }
     if (g_csv) fprintf(g_csv, "%llu,%.3f,%.3f,%.3f\n", (unsigned long long)frame, now_us / 1000.0, (t - g_t0) / 1000.0, ft);
+    g_now = now_us;
+    if (g_o.from_gpu) return;  /* captured in rt_frames_after_present, once the GPU drew it */
+    capture(frame, addr, stride, format);
+}
+
+static void capture(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) {
     if (!addr || !stride) return;
     int want_png = g_o.png_dir && ((g_o.png_every && frame % g_o.png_every == 0) || listed(g_o.png_at, frame));
     if (!g_streams[0].pipe && !g_streams[1].pipe && !want_png) return;
-    video_catch_up(now_us);
-    to_rgb(g_shown, addr, stride, format);
+    video_catch_up(g_now);
+    if (g_o.from_gpu) {
+        static uint8_t rgba[DISP_W * DISP_H * 4];
+        if (!rt_gpu_read_target(addr, stride, format, rgba)) return;
+        for (int i = 0; i < DISP_W * DISP_H; i++)
+            for (int ch = 0; ch < 3; ch++) g_shown[3 * i + ch] = rgba[4 * i + ch];
+    } else {
+        to_rgb(g_shown, addr, stride, format);
+    }
     g_have_shown = 1;
     if (want_png) {
         char path[1024];
