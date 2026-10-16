@@ -144,3 +144,18 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 ![זמני פריים במשחק](../media/screenshots/2026-10-16_11_perf_gameplay_v3.png)
 
 בשלב הראשון ה-renderer התוכנה נותן כ-19 FPS (‏52 ms לפריים), ולכן בחלון המשחק רץ לאט. יש כ-850 flushes לכל פריים של משחק: כמעט כל draw call משתמש ב-render target או בטקסטורה ב-VRAM. זה היעד הבא לשיפור ביצועים, לפני מעבר ל-renderer חומרה.
+
+## 2026-10-16: צמצום ה-flushes (v4)
+
+הפירוט ב-[renderer-decision.md](renderer-decision.md).
+
+**מה השתנה:** התור של ה-renderer נמשך (flush) רק כשיש סכנת זיכרון אמיתית. ההחלטה מתבססת על אזורים דו-ממדיים וטווחי UV, במקום על "כל טקסטורה ב-VRAM".
+
+**התוצאות:**
+- מספר ה-flushes ירד פי 37.
+- המשחק עלה מ-19 ל-26 FPS בזמן הקלטה, ול-29–35 FPS בלי הקלטה.
+- הפלט זהה פיקסל-אחר-פיקסל.
+
+![v3 מול v4](../media/screenshots/2026-10-16_12_perf_gameplay_v3_v4.png)
+
+**השוואה בווידאו:** `media/videos/2026-10-16_coo_gameplay_v3_vs_v4_hostclock.mp4` מציג את v3 ואת v4 זה לצד זה, לפי שעון המחשב, עם מונה FPS חי.

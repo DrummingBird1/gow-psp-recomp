@@ -46,7 +46,7 @@ static void load_clut(uint32_t op) {
     uint32_t addr = ((ge.cmd[GE_CMD_CLUTADDRUPPER] & 0x0F0000) << 8) | (ge.cmd[GE_CMD_CLUTADDR] & 0xFFFFF0);
     uint32_t bytes = (op & 0x3F) * 32;
     if (bytes > sizeof(ge.clut)) bytes = sizeof(ge.clut);
-    if ((addr & 0x0F000000) == 0x04000000) ge_flush();  /* a palette in VRAM may still be being drawn */
+    ge_sync_read(addr, bytes, FLUSH_CLUT);  /* the palette may be drawing still queued */
     memcpy(ge.clut, rt_ptr(addr), bytes);
     ge_clut_changed();
 }
@@ -121,7 +121,7 @@ static void run_list(uint32_t list, uint32_t stall) {
 /* Lists run to completion when enqueued; queued drawing is finished before returning. */
 void rt_ge_run(uint32_t list, uint32_t stall) {
     run_list(list, stall);
-    ge_flush();
+    ge_flush(FLUSH_LIST_END);
 }
 
 static const char *prim_names[8] = { "points", "lines", "line strip", "triangles", "tri strip", "tri fan", "sprites", "keep" };
@@ -140,6 +140,12 @@ void rt_ge_report(void) {
            (unsigned long long)ge_stats.verts_xformed, (unsigned long long)ge_stats.tris_raster,
            (unsigned long long)ge_stats.px_shaded, (unsigned long long)ge_stats.px_written,
            (unsigned long long)ge_stats.flushes, (unsigned long long)ge_stats.jobs);
+    printf("  flushes by reason: list end %llu, texture %llu, target %llu, transfer %llu, clut %llu, trace %llu\n",
+           (unsigned long long)ge_stats.flush_why[FLUSH_LIST_END], (unsigned long long)ge_stats.flush_why[FLUSH_TEXTURE],
+           (unsigned long long)ge_stats.flush_why[FLUSH_TARGET],
+           (unsigned long long)ge_stats.flush_why[FLUSH_TRANSFER], (unsigned long long)ge_stats.flush_why[FLUSH_CLUT],
+           (unsigned long long)ge_stats.flush_why[FLUSH_TRACE]);
+    ge_soft_report();
     printf("  primitives:");
     for (int i = 0; i < 8; i++) if (ge_stats.prim_type[i]) printf(" %s=%u", prim_names[i], ge_stats.prim_type[i]);
     printf("\n");

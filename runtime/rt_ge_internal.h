@@ -53,11 +53,14 @@ typedef struct {
     uint8_t clut[1024];
 } Ge;
 
+/* why the renderer's queue was drawn (ge_flush) */
+enum { FLUSH_LIST_END, FLUSH_TEXTURE, FLUSH_TARGET, FLUSH_TRANSFER, FLUSH_CLUT, FLUSH_TRACE, FLUSH_REASONS };
 #define GE_STAT_SLOTS 48
 typedef struct { uint32_t key, count; } GeCount;
 typedef struct {
     uint32_t lists, prims, through, clears, lit, skinned, morphed, patches, transfers, stalls, runaway, signals;
     uint64_t vertices, verts_xformed, tris_raster, px_shaded, px_written, flushes, jobs;
+    uint64_t flush_why[FLUSH_REASONS];
     uint32_t prim_type[8];
     uint32_t cmds[256];
     GeCount vtypes[GE_STAT_SLOTS], texfmts[GE_STAT_SLOTS], blends[GE_STAT_SLOTS], fbfmts[GE_STAT_SLOTS];
@@ -72,5 +75,7 @@ uint32_t ge_rel(uint32_t data);
 void ge_draw_prim(uint32_t op);
 int ge_bbox(uint32_t op);
 void ge_block_transfer(uint32_t op);
-void ge_flush(void);          /* draws everything queued */
+void ge_flush(int why);       /* draws everything queued */
+void ge_sync_read(uint32_t addr, uint32_t size, int why);  /* flushes if the queue writes that memory */
+void ge_soft_report(void);
 void ge_clut_changed(void);   /* LOADCLUT replaced ge.clut */

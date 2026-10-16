@@ -473,7 +473,7 @@ typedef struct {
     int logic, lop;
     /* texturing */
     int tex, tfmt, swz, clampS, clampT, minf, magf, mipf, maxlevel, func, rgba, dbl, lodmode, lodoff;
-    int needs_lod, proj, tex_in_vram;
+    int needs_lod, proj;
     float lodslope;
     uint32_t env;
     int clutfmt, clutshift, clutmask, clutoff, clutshared;
@@ -579,7 +579,6 @@ static void setup_raster(Raster *rs, int through) {
         static const uint32_t align_mask[16] = { 0x7F8, 0x7F8, 0x7F8, 0x7FC, 0x7E0, 0x7F0, 0x7F8, 0x7FC, 0x7FF, 0x7FF, 0x7FF };
         int bufw = (int)(D(GE_CMD_TEXBUFWIDTH0 + i) & align_mask[R.tfmt]);
         if (bufw == 0 && R.tfmt <= 10) bufw = 128 / tex_bits[R.tfmt];
-        if ((addr & 0x0F000000) == VRAM) R.tex_in_vram = 1;
         R.tptr[i] = rt_ptr(addr);
         R.tbufw[i] = bufw;
         R.tw[i] = 1 << (D(GE_CMD_TEXSIZE0 + i) & 0xF);
@@ -681,7 +680,27 @@ HOT_INLINE void sample_level(const Raster *rs, int out[4], int level, float s, f
     bu >>= 8; bv >>= 8;
     int u0 = wrap_clamp(bu, w, R.clampS), u1 = wrap_clamp(bu + 1, w, R.clampS);
     int v0 = wrap_clamp(bv, h, R.clampT), v1 = wrap_clamp(bv + 1, h, R.clampT);
-    uint32_t tl = fetch(rs, level, u0, v0), tr = fetch(rs, level, u1, v0), bl = fetch(rs, level, u0, v1), br = fetch(rs, level, u1, v1);
+    uint32_t tl, tr, bl, br;
+    if (R.use_pal && R.swz) {
+        /* swizzled palette texture (most of the game's pixels): the four addresses share their
+         * row and column parts; 16-byte x 8-row blocks, block rows of pitch*8 bytes */
+        const uint8_t *base = R.tptr[level];
+        uint32_t pitch = (uint32_t)R.tbufw[level] * (R.tfmt == 4 ? 4u : 8u) / 8u;
+        uint32_t r0 = (uint32_t)(v0 >> 3) * (pitch >> 4) * 128 + (uint32_t)(v0 & 7) * 16;
+        uint32_t r1 = (uint32_t)(v1 >> 3) * (pitch >> 4) * 128 + (uint32_t)(v1 & 7) * 16;
+        if (R.tfmt == 5) {
+            uint32_t c0 = (uint32_t)(u0 >> 4) * 128 + (uint32_t)(u0 & 15), c1 = (uint32_t)(u1 >> 4) * 128 + (uint32_t)(u1 & 15);
+            tl = R.pal[base[r0 + c0]]; tr = R.pal[base[r0 + c1]]; bl = R.pal[base[r1 + c0]]; br = R.pal[base[r1 + c1]];
+        } else {
+            uint32_t x0 = (uint32_t)u0 >> 1, x1 = (uint32_t)u1 >> 1;
+            uint32_t c0 = (x0 >> 4) * 128 + (x0 & 15), c1 = (x1 >> 4) * 128 + (x1 & 15);
+            int s0 = (u0 & 1) * 4, s1 = (u1 & 1) * 4;
+            tl = R.pal[(base[r0 + c0] >> s0) & 15]; tr = R.pal[(base[r0 + c1] >> s1) & 15];
+            bl = R.pal[(base[r1 + c0] >> s0) & 15]; br = R.pal[(base[r1 + c1] >> s1) & 15];
+        }
+    } else {
+        tl = fetch(rs, level, u0, v0); tr = fetch(rs, level, u1, v0); bl = fetch(rs, level, u0, v1); br = fetch(rs, level, u1, v1);
+    }
     for (int i = 0; i < 4; i++) {
         int sh = 8 * i;
         int top = (int)((tl >> sh) & 0xFF) * (16 - fu) + (int)((tr >> sh) & 0xFF) * fu;
@@ -1119,6 +1138,60 @@ static void push_state(void) {
 }
 
 /* ymin/ymax: screen rows in 1/16 pixel (clipped to the scissor here); w16: width in 1/16 pixel */
+/* RT_GE_STATE_STATS=1: estimated pixels per raster-state combination (which fast paths matter) */
+typedef struct { uint64_t key, area; } StateStat;
+static StateStat g_sstat[512];
+static int g_sstat_on = -1;
+
+static uint64_t state_key(const Raster *rs) {
+    uint64_t k = 0;
+    k |= (uint64_t)R.fmt; k |= (uint64_t)R.clear << 2; k |= (uint64_t)R.through << 3; k |= (uint64_t)R.gouraud << 4;
+    k |= (uint64_t)R.tex << 5;
+    if (R.tex) {
+        k |= (uint64_t)R.tfmt << 6; k |= (uint64_t)R.swz << 10; k |= (uint64_t)R.magf << 11; k |= (uint64_t)R.minf << 12;
+        k |= (uint64_t)R.func << 13; k |= (uint64_t)R.rgba << 16; k |= (uint64_t)R.dbl << 17; k |= (uint64_t)(R.maxlevel > 0) << 18;
+        k |= (uint64_t)R.clampS << 19; k |= (uint64_t)R.clampT << 20;
+    }
+    k |= (uint64_t)R.blend << 21;
+    if (R.blend) { k |= (uint64_t)R.bsrc << 22; k |= (uint64_t)R.bdst << 26; k |= (uint64_t)R.beq << 30; }
+    k |= (uint64_t)R.zfunc << 33; k |= (uint64_t)R.zwrite << 36; k |= (uint64_t)(R.afunc != CMP_ALWAYS) << 37;
+    k |= (uint64_t)R.fog << 38; k |= (uint64_t)R.stest << 39; k |= (uint64_t)R.ctest << 40; k |= (uint64_t)R.logic << 41;
+    k |= (uint64_t)(R.wmask != 0xFF000000u) << 42;
+    return k;
+}
+
+static void state_stat(uint64_t area) {
+    if (g_sstat_on < 0) g_sstat_on = getenv("RT_GE_STATE_STATS") != NULL;
+    if (!g_sstat_on) return;
+    uint64_t k = state_key(&g_cur);
+    for (int i = 0; i < 512; i++) {
+        if (g_sstat[i].area && g_sstat[i].key != k) continue;
+        g_sstat[i].key = k;
+        g_sstat[i].area += area;
+        return;
+    }
+}
+
+void ge_soft_report(void) {
+    if (g_sstat_on <= 0) return;
+    uint64_t total = 0;
+    for (int i = 0; i < 512; i++) total += g_sstat[i].area;
+    printf("  raster states by estimated pixels (fmt clear through gouraud | tex fmt swz mag min func rgba dbl mip clampS clampT | blend src dst eq | zfunc zwrite atest fog stest ctest logic mask):\n");
+    for (int n = 0; n < 20; n++) {
+        int best = -1;
+        for (int i = 0; i < 512; i++) if (g_sstat[i].area && (best < 0 || g_sstat[i].area > g_sstat[best].area)) best = i;
+        if (best < 0) break;
+        uint64_t k = g_sstat[best].key;
+        printf("   %5.1f%%  fb%llu c%llu t%llu g%llu | tex%llu f%llu s%llu mag%llu min%llu fn%llu a%llu d%llu mip%llu cs%llu ct%llu | bl%llu %llu %llu %llu | z%llu w%llu at%llu fog%llu st%llu ct%llu lo%llu m%llu\n",
+               100.0 * g_sstat[best].area / (total ? total : 1),
+               k & 3, (k >> 2) & 1, (k >> 3) & 1, (k >> 4) & 1, (k >> 5) & 1, (k >> 6) & 15, (k >> 10) & 1, (k >> 11) & 1, (k >> 12) & 1,
+               (k >> 13) & 7, (k >> 16) & 1, (k >> 17) & 1, (k >> 18) & 1, (k >> 19) & 1, (k >> 20) & 1,
+               (k >> 21) & 1, (k >> 22) & 15, (k >> 26) & 15, (k >> 30) & 7,
+               (k >> 33) & 7, (k >> 36) & 1, (k >> 37) & 1, (k >> 38) & 1, (k >> 39) & 1, (k >> 40) & 1, (k >> 41) & 1, (k >> 42) & 1);
+        g_sstat[best].area = 0;
+    }
+}
+
 static Job *new_job(uint32_t kind, int ymin, int ymax, int w16) {
     grow((void **)&g_jobs, &g_jcap, g_njobs + 1, sizeof(Job));
     Job *j = &g_jobs[g_njobs++];
@@ -1128,7 +1201,11 @@ static Job *new_job(uint32_t kind, int ymin, int ymax, int w16) {
     j->y1 = imin((ymax >> 4) + 1, imin(g_cur.sy2, 1023));
     if (j->y0 < g_ymin) g_ymin = j->y0;
     if (j->y1 > g_ymax) g_ymax = j->y1;
-    if (j->y1 >= j->y0) g_work += (uint64_t)(j->y1 - j->y0 + 1) * (uint64_t)((w16 >> 4) + 1);
+    if (j->y1 >= j->y0) {
+        uint64_t area = (uint64_t)(j->y1 - j->y0 + 1) * (uint64_t)((w16 >> 4) + 1);
+        g_work += area;
+        state_stat(kind == JOB_TRI ? area / 2 : area);
+    }
     return j;
 }
 
@@ -1205,10 +1282,186 @@ static void start_threads(void) { g_nthreads = 1; }
 static void run_parallel(void) { run_jobs(0); }
 #endif
 
+/* --- memory hazards between the queue and new work ------------------------------------
+ * The queue is drawn later and in parallel bands, so new work must wait for a flush when it
+ * reads memory the queue writes (a texture that is a pending render target), or writes memory
+ * the queue reads or writes (a new render target over pending textures, a block transfer).
+ * Accesses are kept as regions: a byte span plus, for 2D buffers, the rectangle inside a
+ * buffer of a given stride, so that e.g. drawing into the right half of a buffer while
+ * sampling its left half, or sampling only the top rows of a 512x512 screen texture, does not
+ * count as overlapping. Depth tests and blending read the target pixel by pixel in the same
+ * bands as the writes, so they are not hazards for the queue itself. */
+typedef struct {
+    uint32_t lo, hi;        /* [lo, hi) bytes (guest addresses masked to 28 bits) */
+    uint32_t base, stride;  /* rectangle: rows y0..y1 of `stride` bytes from base, bytes x0..x1-1 */
+    int32_t x0, x1, y0, y1;
+    int rect;
+    int local;              /* read pixel by pixel in band order (depth test): no hazard for draws to the same buffer */
+} Region;
+
+typedef struct { Region *r; size_t n, cap; int32_t hash[256]; } RegionList;  /* hash: index+1 by base */
+/* pending writes; pending reads in VRAM (render-to-texture sources, depth) and elsewhere (other
+ * textures: only block transfers can hit those, render targets are always in VRAM) */
+static RegionList g_pw, g_pr, g_pr_ram;
+
+static Region region_span(uint32_t lo, uint32_t hi) {
+    Region g;
+    memset(&g, 0, sizeof(g));
+    g.lo = lo & 0x0FFFFFFF;
+    g.hi = g.lo + (hi - lo);
+    return g;
+}
+
+static Region region_rect(uint32_t base, uint32_t stride, int x0, int x1, int y0, int y1) {
+    Region g;
+    if (stride == 0 || x1 <= x0 || y1 < y0) return region_span(base, base);
+    g.base = base & 0x0FFFFFFF;
+    g.stride = stride;
+    g.x0 = x0; g.x1 = x1; g.y0 = y0; g.y1 = y1;
+    g.lo = g.base + (uint32_t)y0 * stride + (uint32_t)x0;
+    g.hi = g.base + (uint32_t)y1 * stride + (uint32_t)x1;
+    g.rect = 1;
+    return g;
+}
+
+static int region_overlap(const Region *a, const Region *b) {
+    if (a->hi <= a->lo || b->hi <= b->lo || a->hi <= b->lo || b->hi <= a->lo) return 0;
+    if (!a->rect || !b->rect || a->stride != b->stride) return 1;
+    int64_t s = a->stride, d = (int64_t)b->base - (int64_t)a->base;
+    int64_t dy = floor_div(d, s), dx = d - dy * s;  /* b's origin in a's rows and bytes */
+    int64_t bx0 = b->x0 + dx, bx1 = b->x1 + dx, by0 = b->y0 + dy, by1 = b->y1 + dy;
+    if (bx1 > s) return 1;  /* b's rows wrap around a's: stay conservative */
+    return !(bx1 <= a->x0 || a->x1 <= bx0 || by1 < a->y0 || a->y1 < by0);
+}
+
+static int list_overlaps(const RegionList *l, const Region *g) {
+    for (size_t i = 0; i < l->n; i++) if (region_overlap(&l->r[i], g)) return 1;
+    return 0;
+}
+
+/* A draw's write against pending reads: pixel-local reads of the same buffer are in band order. */
+static int list_overlaps_draw(const RegionList *l, const Region *g) {
+    for (size_t i = 0; i < l->n; i++) {
+        const Region *e = &l->r[i];
+        if (e->local && e->rect && g->rect && e->base == g->base && e->stride == g->stride) continue;
+        if (region_overlap(e, g)) return 1;
+    }
+    return 0;
+}
+
+static void list_reset(RegionList *l) {
+    if (!l->n) return;
+    l->n = 0;
+    memset(l->hash, 0, sizeof(l->hash));
+}
+
+/* Adds a region; one with the same base and stride as the entry last added for that base is
+ * merged into it (the bounding rectangle), an identical span is not added twice. */
+static void list_add(RegionList *l, const Region *g) {
+    if (g->hi <= g->lo) return;
+    uint32_t key = g->rect ? g->base : g->lo, h = ((key >> 4) * 2654435761u) >> 24;
+    int32_t ix = l->hash[h] - 1;
+    if (ix >= 0 && (size_t)ix < l->n) {
+        Region *e = &l->r[ix];
+        if (e->rect && g->rect && e->base == g->base && e->stride == g->stride && e->local == g->local) {
+            e->x0 = imin(e->x0, g->x0); e->x1 = imax(e->x1, g->x1);
+            e->y0 = imin(e->y0, g->y0); e->y1 = imax(e->y1, g->y1);
+            e->lo = e->base + (uint32_t)e->y0 * e->stride + (uint32_t)e->x0;
+            e->hi = e->base + (uint32_t)e->y1 * e->stride + (uint32_t)e->x1;
+            return;
+        }
+        if (!e->rect && !g->rect && e->lo == g->lo && e->hi == g->hi) return;
+    }
+    grow((void **)&l->r, &l->cap, l->n + 1, sizeof(Region));
+    l->r[l->n++] = *g;
+    l->hash[h] = (int32_t)l->n;
+}
+
+static int in_vram(const Region *g) { return (g->lo & 0x0F000000) == VRAM; }
+
+/* Texels a draw may sample from texture level `level`: the vertices' coordinate range (plus a
+ * texel for filtering), or the whole texture when coordinates wrap or are generated. */
+static Region texture_region(const Raster *rs, int level, const float *srange, int known) {
+    uint32_t addr = (D(GE_CMD_TEXADDR0 + level) & 0xFFFFF0) | ((D(GE_CMD_TEXBUFWIDTH0 + level) << 8) & 0x0F000000);
+    int bits = tex_bits[R.tfmt], w = R.tw[level], h = R.th[level];
+    uint32_t pitch = (uint32_t)R.tbufw[level] * (uint32_t)bits / 8;
+    int u0 = 0, u1 = w - 1, v0 = 0, v1 = h - 1;
+    if (known) {
+        if (R.clampS || (srange[0] >= 0.0f && srange[1] <= 1.0f)) {
+            u0 = imax((int)floorf(srange[0] * w) - 1, 0); u1 = imin((int)ceilf(srange[1] * w) + 1, w - 1);
+        }
+        if (R.clampT || (srange[2] >= 0.0f && srange[3] <= 1.0f)) {
+            v0 = imax((int)floorf(srange[2] * h) - 1, 0); v1 = imin((int)ceilf(srange[3] * h) + 1, h - 1);
+        }
+    }
+    if (R.swz || R.tfmt >= 8) {  /* blocks: whole block rows */
+        int rows = R.tfmt >= 8 ? 4 : 8;
+        uint32_t row_bytes = R.tfmt >= 8 ? pitch * 4 : pitch * 8;
+        return region_span(addr + (uint32_t)(v0 / rows) * row_bytes, addr + (uint32_t)(v1 / rows + 1) * row_bytes);
+    }
+    int x0 = u0 * bits / 8, x1 = ((u1 + 1) * bits + 7) / 8;
+    if ((uint32_t)x1 > pitch) return region_span(addr, addr + pitch * (uint32_t)h);
+    return region_rect(addr, pitch, x0, x1, v0, v1);
+}
+
+/* Checks the draw being queued against the queue (flushing on a hazard), then records what it
+ * will read and write. bbox: screen rectangle of its vertices in pixels, or NULL (scissor);
+ * srange: normalized s/t range of its vertices, or NULL (unknown). */
+static void track_draw(const int *bbox, const float *srange) {
+    const Raster *rs = &g_cur;
+    int x0 = imax(R.sx1, 0), x1 = imin(R.sx2, 1023), y0 = imax(R.sy1, 0), y1 = imin(R.sy2, 1023);
+    if (bbox) { x0 = imax(x0, bbox[0]); x1 = imin(x1, bbox[1]); y0 = imax(y0, bbox[2]); y1 = imin(y1, bbox[3]); }
+    if (x1 < x0 || y1 < y0) return;  /* nothing can be drawn */
+    Region w[2], zr, r[8];
+    int nw = 0, nr = 0, zread = 0;
+    w[nw++] = region_rect(VRAM | (D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0), (uint32_t)R.fbstride * R.bpp, x0 * R.bpp, (x1 + 1) * R.bpp, y0, y1);
+    zr = region_rect(VRAM | (D(GE_CMD_ZBUFPTR) & 0x1FFFF0), (uint32_t)R.zbstride * 2, x0 * 2, (x1 + 1) * 2, y0, y1);
+    if (R.zwrite || (R.clear && R.clear_depth)) w[nw++] = zr;
+    else if (R.zfunc != CMP_ALWAYS) { zread = 1; zr.local = 1; }
+    if (R.tex)
+        for (int i = 0; i <= R.maxlevel && nr < 8; i++) r[nr++] = texture_region(rs, i, srange, srange != NULL);
+    int why = -1;
+    for (int i = 0; i < nr && why < 0; i++) if (list_overlaps(&g_pw, &r[i])) why = FLUSH_TEXTURE;  /* read after write */
+    for (int i = 0; i < nw && why < 0; i++) if (list_overlaps_draw(&g_pr, &w[i])) why = FLUSH_TARGET;  /* write after read */
+    if (why >= 0) {
+        static int shown = -1;
+        if (shown < 0) { const char *e = getenv("RT_GE_FLUSH_TRACE"); shown = e ? atoi(e) : 0; }
+        if (shown > 0) {
+            shown--;
+            printf("[flush] list %u %s: target %08X stride %u x %d..%d y %d..%d", ge_stats.lists, why == FLUSH_TEXTURE ? "texture" : "target",
+                   w[0].base, w[0].stride, w[0].x0, w[0].x1, w[0].y0, w[0].y1);
+            for (int i = 0; i < nr; i++)
+                printf("  tex %08X..%08X%s rect %d stride %u x %d..%d y %d..%d", r[i].lo, r[i].hi, list_overlaps(&g_pw, &r[i]) ? "*" : "",
+                       r[i].rect, r[i].stride, r[i].x0, r[i].x1, r[i].y0, r[i].y1);
+            if (why == FLUSH_TARGET)
+                for (size_t k = 0; k < g_pr.n; k++)
+                    for (int i = 0; i < nw; i++)
+                        if (region_overlap(&g_pr.r[k], &w[i]) && !g_pr.r[k].local)
+                            printf("  [w%d hits pending read %08X..%08X rect %d stride %u x %d..%d y %d..%d]", i, g_pr.r[k].lo, g_pr.r[k].hi,
+                                   g_pr.r[k].rect, g_pr.r[k].stride, g_pr.r[k].x0, g_pr.r[k].x1, g_pr.r[k].y0, g_pr.r[k].y1);
+            printf("\n");
+        }
+        ge_flush(why);
+    }
+    for (int i = 0; i < nw; i++) list_add(&g_pw, &w[i]);
+    for (int i = 0; i < nr; i++) list_add(in_vram(&r[i]) ? &g_pr : &g_pr_ram, &r[i]);
+    if (zread) list_add(&g_pr, &zr);
+}
+
+/* Called before something reads [addr, addr+size) directly (e.g. LOADCLUT). */
+void ge_sync_read(uint32_t addr, uint32_t size, int why) {
+    Region g = region_span(addr, addr + size);
+    if (list_overlaps(&g_pw, &g)) ge_flush(why);
+}
+
 /* Draws everything queued. Called at the end of each display list and before anything
  * that reads or changes memory the queued drawing may touch. */
-void ge_flush(void) {
+void ge_flush(int why) {
+    list_reset(&g_pw);
+    list_reset(&g_pr);
+    list_reset(&g_pr_ram);
     if (!g_njobs) return;
+    ge_stats.flush_why[why]++;
     if (!g_nthreads) start_threads();
     for (size_t i = 0; i < g_nstates; i++) {
         Raster *st = &g_states[i];
@@ -1349,8 +1602,10 @@ void ge_draw_prim(uint32_t op) {
 
     setup_transform(&f);
     setup_raster(&g_cur, f.through);
-    if (g_cur.tex_in_vram) ge_flush();  /* the texture may be a render target with drawing still queued */
-    push_state();
+    static int trace_list = -1;
+    if (trace_list < 0) { const char *e = getenv("RT_GE_TRACE_LIST"); trace_list = e ? atoi(e) : 0; }
+    int tracing = trace_list && (int)ge_stats.lists == trace_list;
+    if (tracing) ge_flush(FLUSH_TRACE);
 
     /* transform each referenced vertex once */
     grow((void **)&g_map, &g_mapcap, count, sizeof(int));
@@ -1376,12 +1631,30 @@ void ge_draw_prim(uint32_t op) {
     }
 #define V(i) (&g_vtx[g_map[i] - (int)lo])
 
+    /* screen box and texture-coordinate range of the draw, for the hazard check */
+    int bbox[4] = { 1 << 30, -(1 << 30), 1 << 30, -(1 << 30) }, bb_ok = 1, sr_ok = g_cur.tex && !(X.uvgen == 1 && !f.through);
+    float sr[4] = { 1e30f, -1e30f, 1e30f, -1e30f };
+    for (uint32_t i = lo; i <= hi; i++) {
+        const Vtx *v = &g_vtx[i - lo];
+        if (v->outside || (!f.through && v->cz < -v->cw)) bb_ok = 0;
+        else {
+            bbox[0] = imin(bbox[0], v->x >> 4); bbox[1] = imax(bbox[1], (v->x >> 4) + 1);
+            bbox[2] = imin(bbox[2], v->y >> 4); bbox[3] = imax(bbox[3], (v->y >> 4) + 1);
+        }
+        if (sr_ok) {
+            float s = f.through ? v->s / g_cur.tw[0] : v->s, t = f.through ? v->t / g_cur.th[0] : v->t;
+            if (!(s == s) || !(t == t)) sr_ok = 0;
+            if (s < sr[0]) sr[0] = s;
+            if (s > sr[1]) sr[1] = s;
+            if (t < sr[2]) sr[2] = t;
+            if (t > sr[3]) sr[3] = t;
+        }
+    }
+    track_draw(bb_ok ? bbox : NULL, sr_ok ? sr : NULL);  /* flushes first if this draw depends on (or changes) memory the queue uses */
+    push_state();
+
     int cull = CULL_OFF;
     if ((D(GE_CMD_CULLFACEENABLE) & 1) && !R.clear) cull = (D(GE_CMD_CULL) & 1) ? CULL_CCW : CULL_CW;
-    static int trace_list = -1;
-    if (trace_list < 0) { const char *e = getenv("RT_GE_TRACE_LIST"); trace_list = e ? atoi(e) : 0; }
-    int tracing = trace_list && (int)ge_stats.lists == trace_list;
-    if (tracing) ge_flush();
     uint64_t px_before = ge_stats.px_shaded;
     switch (prim) {
     case 0: for (uint32_t i = 0; i < count; i++) submit_point(V(i)); break;
@@ -1400,7 +1673,7 @@ void ge_draw_prim(uint32_t op) {
     }
 #undef V
     if (tracing) {
-        ge_flush();
+        ge_flush(FLUSH_TRACE);
         printf("[ge-trace] prim %u x%-5u vtype %06X fb %06X/%u fmt %u scissor %u,%u-%u,%u %s%s%s tex %u %ux%u -> %llu px\n",
                prim, count, D(GE_CMD_VERTEXTYPE), D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0, R.fbstride, R.fmt, R.sx1, R.sy1, R.sx2, R.sy2,
                R.clear ? "clear " : "", R.blend ? "blend " : "", R.zfunc != CMP_ALWAYS ? "ztest " : "", R.tex ? R.tfmt : 99,
@@ -1412,7 +1685,6 @@ int ge_bbox(uint32_t op) { (void)op; return 1; }
 
 /* TRANSFERSTART: rectangle copy between memory areas (masks as PPSSPP GPUState.h) */
 void ge_block_transfer(uint32_t op) {
-    ge_flush();
     uint32_t src = (ge.cmd[GE_CMD_TRANSFERSRC] & 0xFFFFF0) | ((ge.cmd[GE_CMD_TRANSFERSRCW] & 0xFF0000) << 8);
     uint32_t dst = (ge.cmd[GE_CMD_TRANSFERDST] & 0xFFFFF0) | ((ge.cmd[GE_CMD_TRANSFERDSTW] & 0xFF0000) << 8);
     uint32_t sstride = ge.cmd[GE_CMD_TRANSFERSRCW] & 0x7F8, dstride = ge.cmd[GE_CMD_TRANSFERDSTW] & 0x7F8;
@@ -1422,6 +1694,12 @@ void ge_block_transfer(uint32_t op) {
     uint32_t dx = ge.cmd[GE_CMD_TRANSFERDSTPOS] & 0x3FF, dy = (ge.cmd[GE_CMD_TRANSFERDSTPOS] >> 10) & 0x3FF;
     uint32_t w = (ge.cmd[GE_CMD_TRANSFERSIZE] & 0x3FF) + 1, h = ((ge.cmd[GE_CMD_TRANSFERSIZE] >> 10) & 0x3FF) + 1;
     uint32_t bpp = (op & 1) ? 4 : 2;
+    Region rsrc = sstride ? region_rect(src, sstride * bpp, (int)(sx * bpp), (int)((sx + w) * bpp), (int)sy, (int)(sy + h - 1))
+                          : region_span(src + sx * bpp, src + (sx + w) * bpp);
+    Region rdst = dstride ? region_rect(dst, dstride * bpp, (int)(dx * bpp), (int)((dx + w) * bpp), (int)dy, (int)(dy + h - 1))
+                          : region_span(dst + dx * bpp, dst + (dx + w) * bpp);
+    if (list_overlaps(&g_pw, &rsrc) || list_overlaps(&g_pw, &rdst) || list_overlaps(&g_pr, &rdst) || list_overlaps(&g_pr_ram, &rdst))
+        ge_flush(FLUSH_TRANSFER);
     for (uint32_t y = 0; y < h; y++)
         memmove(rt_ptr(dst + ((dy + y) * dstride + dx) * bpp), rt_ptr(src + ((sy + y) * sstride + sx) * bpp), w * bpp);
 }
