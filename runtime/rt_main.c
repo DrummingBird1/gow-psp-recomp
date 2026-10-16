@@ -164,6 +164,7 @@ static void boot_report(void) {
     rt_audio_report();
     rt_sas_report();
     rt_atrac_report();
+    rt_mpeg_report();
 }
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
@@ -241,6 +242,11 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--mute")) o.mute = 1;
         else if (!strcmp(argv[i], "--extract") && i + 2 < argc) { extract = argv[++i]; extract_to = argv[++i]; }
         else if (!strcmp(argv[i], "--vfpu-selftest")) { rt_mem_init(); return rt_vfpu_selftest(); }
+        else if (!strcmp(argv[i], "--movie-test") && i + 2 < argc) {
+            const char *pmf = argv[i + 1], *out = argv[i + 2];
+            int ch = i + 3 < argc && argv[i + 3][0] != '-' ? atoi(argv[i + 3]) : 0;
+            return rt_mpeg_test(pmf, out, ch);
+        }
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     if (extract) {
@@ -255,8 +261,9 @@ int main(int argc, char **argv) {
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--wav out.wav] [--mute])\n"
-                        "       %s --disc game.chd|.iso --extract disc0:/path out.file\n",
-                argv[0], argv[0]);
+                        "       %s --disc game.chd|.iso --extract disc0:/path out.file (a directory is listed)\n"
+                        "       %s --movie-test movie.pmf out_prefix [audio channel]\n",
+                argv[0], argv[0], argv[0]);
         return 2;
     }
     if (strcmp(renderer, "soft") && strcmp(renderer, "gpu") && strcmp(renderer, "both")) {

@@ -2034,3 +2034,12 @@ void ge_block_transfer(uint32_t op) {
     stamp_pages(dst + (dy * dstride + dx) * bpp, dst + ((dy + h - 1) * dstride + dx + w) * bpp);  /* textures there changed */
     if (g_gpu) rt_gpu_transfer_end(dst, dstride * bpp, (int)dx, (int)dy, (int)w, (int)h, (int)bpp);
 }
+
+/* An HLE function (the video decoder) wrote w x h pixels at addr. Lists are drawn when they
+ * end, so no queued drawing is pending here: textures on those pages and a GPU target there
+ * take the new memory. */
+void rt_ge_cpu_wrote(uint32_t addr, uint32_t pitch, int w, int h, int bpp) {
+    if (w <= 0 || h <= 0) return;
+    stamp_pages(addr, addr + (uint32_t)(h - 1) * pitch + (uint32_t)(w * bpp));
+    if (g_gpu) rt_gpu_memory_written(addr, pitch, 0, 0, w, h, bpp);
+}

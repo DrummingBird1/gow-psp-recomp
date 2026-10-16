@@ -119,10 +119,20 @@ the virtual clock; sceSasCore (sound effects) and sceAtrac3plus (music) are impl
 | (with `--window`) | Plays through the default audio device (SDL3), ~50 ms latency |
 | `--mute` | No sound in the window |
 | `--wav out.wav` | Writes the whole mix in game time, from virtual time 0 (headless or windowed; deterministic headless) |
-| `--disc game.chd --extract disc0:/PSP_GAME/USRDIR/music/MAINMENU.AT3 out.at3` | Copies a file off the disc (to check decoders against ffmpeg) |
+| `--disc game.chd --extract disc0:/PSP_GAME/USRDIR/music/MAINMENU.AT3 out.at3` | Copies a file off the disc (to check decoders against ffmpeg); also takes `disc0:/sce_lbn0x..._size0x...` names, and lists a directory with each file's sectors |
 
 The ATRAC3/ATRAC3+ decoder (PPSSPP's `ext/at3_standalone`, FFmpeg's decoder, LGPL-2.1+) is downloaded by CMake at
 configure time from PPSSPP tag v1.20.4 and checked against SHA-256 hashes; it is not part of this repository.
+
+Movies (`runtime/rt_mpeg.c`, `rt_h264dec.cpp`; see `docs/phase8-movies.md`): sceMpeg demuxes the PSMF stream the game
+feeds through its ring buffer; H.264 pictures are decoded by OpenH264 and ATRAC3+ sound by the decoder above.
+
+| Option | Effect |
+|---|---|
+| `--movie-test movie.pmf out [audio channel]` | Demuxes and decodes a movie file without the game: `out.yuv` (I420, to compare with `ffmpeg -f rawvideo -pix_fmt yuv420p`), `out.wav`, and a PNG every 300 pictures |
+
+OpenH264's decoder (Cisco, BSD-2-Clause) is downloaded by CMake at configure time, file by file from tag v2.6.0, and
+checked against the SHA-256 hashes in `cmake/openh264-v2.6.0.sha256`; it is not part of this repository.
 
 The renderer draws on all logical processors (`RT_GE_THREADS=N` overrides); `RT_GE_TRACE_LIST=N`
 prints every primitive of display list N with the pixels it shaded.

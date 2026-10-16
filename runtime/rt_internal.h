@@ -41,3 +41,7 @@ int rt_io_open_disc(const char *path);
 void rt_io_set_ms0(const char *dir);
 int rt_io_extract(const char *disc_path, const char *out);
 void rt_io_report(void);
+
+/* Movies (rt_mpeg.c): a report, and --movie-test (demux and decode a .pmf file without the game) */
+void rt_mpeg_report(void);
+int rt_mpeg_test(const char *pmf, const char *out, int audio_ch);

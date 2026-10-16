@@ -12,7 +12,7 @@ typedef struct { const char *name; HleFn fn; } HleEntry;
 extern const HleEntry rt_hle_kernel[];   /* rt_thread.c: ThreadMan, SysMem, Kernel_Library, Utils */
 extern const HleEntry rt_hle_io[];       /* rt_io.c: IoFileMgr, Umd */
 extern const HleEntry rt_hle_misc[];     /* rt_hle.c: display, ge, ctrl, audio, utility, power, ... */
-extern const HleEntry rt_hle_mpeg[];     /* rt_mpeg.c: sceMpeg without a video decoder */
+extern const HleEntry rt_hle_mpeg[];     /* rt_mpeg.c: sceMpeg, PSMF movies */
 extern const HleEntry rt_hle_audio[];    /* rt_audio.c: sceAudio channels and Output2 */
 extern const HleEntry rt_hle_sas[];      /* rt_sas.c: sceSasCore mixer */
 extern const HleEntry rt_hle_atrac[];    /* rt_atrac.c: sceAtrac3plus */
@@ -92,6 +92,8 @@ int32_t k_wait(int type, int id, uint64_t timeout_us);
 void k_wake(KThread *t, int32_t result);
 /* Give up the CPU if a ready thread now has higher priority than the current one. */
 void k_check_preempt(void);
+/* The current thread spends us of CPU time (busy polling): time advances, due waits end. */
+void k_eat(uint64_t us);
 /* Iterate over threads waiting on (type, id), in wake order (priority attr or FIFO). */
 int k_waiters(int type, int id, int by_priority, KThread **out, int max);
 void k_stop(int kind, uint32_t addr, uint32_t extra, const char *what);

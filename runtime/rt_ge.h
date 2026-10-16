@@ -10,5 +10,7 @@ void rt_ge_report(void);
 void rt_ge_set_renderer(int soft, int gpu);
 /* PSP memory may have changed (e.g. a new frame): GPU texture contents are re-checked */
 void ge_memory_changed(void);
+/* The CPU side (e.g. the video decoder) wrote w x h pixels of bpp bytes at addr, rows pitch bytes apart */
+void rt_ge_cpu_wrote(uint32_t addr, uint32_t pitch, int w, int h, int bpp);
 
 /* Writes the 480x272 image shown by sceDisplaySetFrameBuf to a PNG file. */

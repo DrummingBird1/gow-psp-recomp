@@ -108,6 +108,8 @@ static int64_t g_seq, g_front_seq;
 static int g_dispatch_enabled = 1;
 static int g_stopping;
 static uint64_t g_switches;
+static uint64_t g_next_wake;   /* no timed wait ends before this (a lower bound) */
+static uint64_t g_eat_paced;   /* virtual time k_eat last kept the window in step with */
 
 static KThread *thread_at(int i) { return g_obj[i].kind == OBJ_THREAD ? (KThread *)g_obj[i].p : NULL; }
 
@@ -146,6 +148,7 @@ int32_t k_wait(int type, int id, uint64_t timeout_us) {
     t->wait_id = id;
     t->wait_start = k_now;
     t->wake_time = timeout_us == K_NO_TIMEOUT ? K_NO_TIMEOUT : k_now + timeout_us;
+    if (t->wake_time < g_next_wake) g_next_wake = t->wake_time;
     t->wait_result = 0;
     to_scheduler();
     return t->wait_result;
@@ -182,11 +185,26 @@ uint32_t k_timeout_arg(uint32_t ptr) { return ptr ? rt_r32(ptr) : 0; }
 static uint64_t timeout_us(uint32_t ptr) { return ptr ? (uint64_t)rt_r32(ptr) : K_NO_TIMEOUT; }
 
 static void wake_due(void) {
+    uint64_t next = K_NO_TIMEOUT;
     for (int i = 1; i < MAX_OBJ; i++) {
         KThread *t = thread_at(i);
-        if (!t || t->status != TS_WAIT || t->wake_time == K_NO_TIMEOUT || t->wake_time > k_now) continue;
+        if (!t || t->status != TS_WAIT || t->wake_time == K_NO_TIMEOUT) continue;
+        if (t->wake_time > k_now) { if (t->wake_time < next) next = t->wake_time; continue; }
         int timed = t->wait_type == WT_DELAY || t->wait_type == WT_VBLANK || t->wait_type == WT_AUDIO || t->wait_type == WT_IO;
         k_wake(t, timed ? 0 : (int32_t)SCE_ERR_WAIT_TIMEOUT);
+    }
+    g_next_wake = next;
+}
+
+/* The running thread spends us of CPU time polling (PPSSPP's hleEatCycles + hleReSchedule):
+ * virtual time moves on, threads whose wait has ended wake and a higher-priority one takes
+ * over, and in the window the wall clock is kept in step, as when every thread waits. */
+void k_eat(uint64_t us) {
+    k_now += us;
+    if (k_now >= g_next_wake) { wake_due(); k_check_preempt(); }
+    if (k_idle_hook && k_now - g_eat_paced >= 1000) {
+        g_eat_paced = k_now;
+        if (k_idle_hook(k_now, k_now)) k_stop(RT_ABORT_HLE, 0, 0, "window closed");
     }
 }
 

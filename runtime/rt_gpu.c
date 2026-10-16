@@ -1049,7 +1049,11 @@ void rt_gpu_transfer_begin(uint32_t src, uint32_t spitch, int sx, int sy, uint32
 }
 
 void rt_gpu_transfer_end(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
-    if (!g_dev || g_xfer_gpu) return;
+    if (!g_xfer_gpu) rt_gpu_memory_written(dst, dpitch, dx, dy, w, h, bpp);
+}
+
+void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
+    if (!g_dev) return;
     int tx = 0, ty = 0, d = target_for_rect(dst, dpitch, bpp, dx, dy, w, h, 0, &tx, &ty);
     if (d < 0) return;
     Target *t = &g_targets[d];
@@ -1286,6 +1290,9 @@ void rt_gpu_transfer_begin(uint32_t src, uint32_t spitch, int sx, int sy, uint32
     (void)src; (void)spitch; (void)sx; (void)sy; (void)dst; (void)dpitch; (void)dx; (void)dy; (void)w; (void)h; (void)bpp; (void)readback;
 }
 void rt_gpu_transfer_end(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
+    (void)dst; (void)dpitch; (void)dx; (void)dy; (void)w; (void)h; (void)bpp;
+}
+void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
     (void)dst; (void)dpitch; (void)dx; (void)dy; (void)w; (void)h; (void)bpp;
 }
 void rt_gpu_sync_span(uint32_t addr, uint32_t size) { (void)addr; (void)size; }

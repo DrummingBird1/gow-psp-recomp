@@ -58,6 +58,9 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n);
 void rt_gpu_transfer_begin(uint32_t src, uint32_t spitch, int sx, int sy, uint32_t dst, uint32_t dpitch, int dx, int dy,
                            int w, int h, int bpp, int readback);
 void rt_gpu_transfer_end(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp);
+/* Something other than the GE (the CPU, a video decoder) wrote the w x h rectangle at (dx, dy)
+ * of dst in PSP memory: the part of a GPU target there is updated from memory. */
+void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp);
 /* Writes what the GPU drew in [addr, addr + size) to PSP memory, before something reads it directly. */
 void rt_gpu_sync_span(uint32_t addr, uint32_t size);
 /* end of frame: submits the recorded work and shows the framebuffer at addr in the window */

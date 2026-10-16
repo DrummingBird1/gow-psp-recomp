@@ -10,11 +10,13 @@
 #include <string.h>
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
 #define mkdir_host(p) _mkdir(p)
 #define fseek64 _fseeki64
 #define ftell64 _ftelli64
 #else
 #include <sys/stat.h>
+#include <time.h>
 #define mkdir_host(p) mkdir(p, 0755)
 #define fseek64 fseeko
 #define ftell64 ftello
@@ -56,7 +58,30 @@ int rt_io_open_disc(const char *path) {
 
 void rt_io_set_ms0(const char *dir) { strncpy(g_ms0, dir, sizeof(g_ms0) - 1); }
 
+static uint64_t host_ms(void) {
+#ifdef _WIN32
+    return GetTickCount64();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
+#endif
+}
+
+static uint32_t disc_read_raw(uint64_t off, uint8_t *dst, uint32_t len);
+
+/* Reads from the image. The game waits for nothing while the host reads, so a slow read
+ * (an external drive waking up, say) is a stall in the window: those are logged. */
 static uint32_t disc_read(uint64_t off, uint8_t *dst, uint32_t len) {
+    uint64_t t0 = host_ms();
+    uint32_t got = disc_read_raw(off, dst, len);
+    uint64_t ms = host_ms() - t0;
+    if (ms >= 50) rt_log("[io] slow disc read: %u bytes at sector 0x%llx took %llu ms of host time\n", len,
+                         (unsigned long long)(off / SECTOR), (unsigned long long)ms);
+    return got;
+}
+
+static uint32_t disc_read_raw(uint64_t off, uint8_t *dst, uint32_t len) {
     if (off >= g_disc_size) return 0;
     if (off + len > g_disc_size) len = (uint32_t)(g_disc_size - off);
     if (g_iso) {
@@ -189,11 +214,26 @@ static int parse_lbn(const char *path, uint32_t *lba, uint32_t *size) {
     return 1;
 }
 
-/* Copies a file from the disc to the host (--extract, for checking decoders against other tools). */
+static int print_entry_cb(const IsoEntry *e, void *p) {
+    (void)p;
+    printf("  %-24s %s lbn 0x%05x size 0x%08x (%u bytes)\n", e->name, e->is_dir ? "dir " : "file", e->lba, e->size, e->size);
+    return 0;
+}
+
+/* Copies a file from the disc to the host (--extract, for checking decoders against other tools).
+ * Takes a path or an sce_lbn0x..._size0x... name; a directory is listed with its files' sectors. */
 int rt_io_extract(const char *disc_path, const char *out) {
     char rel[512];
     IsoEntry e;
-    if (resolve(disc_path, rel, sizeof(rel)) != DEV_DISC || !iso_lookup(rel, &e) || e.is_dir) {
+    memset(&e, 0, sizeof(e));
+    if (resolve(disc_path, rel, sizeof(rel)) != DEV_DISC) e.is_dir = 2;
+    else if (!parse_lbn(rel, &e.lba, &e.size) && !iso_lookup(rel, &e)) e.is_dir = 2;
+    if (e.is_dir == 1) {
+        printf("[io] %s:\n", disc_path);
+        iso_list(&e, print_entry_cb, NULL);
+        return 1;
+    }
+    if (e.is_dir) {
         fprintf(stderr, "rt: %s not found on the disc\n", disc_path);
         return 0;
     }
