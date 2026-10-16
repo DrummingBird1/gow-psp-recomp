@@ -16,7 +16,10 @@
 #include <unistd.h>
 #endif
 
+#include "rt_frames.h"
+#include "rt_ge.h"
 #include "rt_kernel.h"
+#include "rt_prof.h"
 #define CASE_TIMEOUT_MS 3000
 #define EXIT_CASE_HUNG 3
 
@@ -142,12 +145,15 @@ static int run_difftest(const char *image, const char *cases_path, const char *r
 typedef struct {
     const char *image, *disc, *ms0;
     uint32_t max_hle, cpu_ms, wall_ms;
+    FrameOptions frames;
+    int profile;
 } BootOptions;
 
 static void boot_report(void) {
     printf("[boot] %llu calls through rt_call (indirect or cross-build)\n", (unsigned long long)rt_call_count);
     rt_hle_report();
     rt_io_report();
+    rt_ge_report();
 }
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
@@ -170,16 +176,20 @@ static int run_boot(const BootOptions *o) {
     g_case_started = now_ms();
     g_case_running = 1;
     start_watchdog();
+    rt_frames_init(&o->frames);
+    if (o->profile) rt_prof_start();
     k_run_scheduler(o->cpu_ms);
     g_case_running = 0;
+    rt_frames_close(k_now);
     boot_report();
+    if (o->profile) rt_prof_report(40);
     return 0;
 }
 
 int main(int argc, char **argv) {
     const char *image = NULL, *cases = NULL, *results = NULL;
     int boot = 0;
-    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000 };
+    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, 0 };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--image") && i + 1 < argc) image = argv[++i];
         else if (!strcmp(argv[i], "--difftest") && i + 2 < argc) { cases = argv[++i]; results = argv[++i]; }
@@ -190,12 +200,23 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--cpu-ms") && i + 1 < argc) o.cpu_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--wall-ms") && i + 1 < argc) o.wall_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--trace-hle")) rt_hle_verbose = 1;
+        else if (!strcmp(argv[i], "--frames-dir") && i + 1 < argc) o.frames.png_dir = argv[++i];
+        else if (!strcmp(argv[i], "--frames-every") && i + 1 < argc) o.frames.png_every = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--frames-at") && i + 1 < argc) o.frames.png_at = argv[++i];
+        else if (!strcmp(argv[i], "--record") && i + 1 < argc) o.frames.video = argv[++i];
+        else if (!strcmp(argv[i], "--record-host") && i + 1 < argc) o.frames.video_host = argv[++i];
+        else if (!strcmp(argv[i], "--ffmpeg") && i + 1 < argc) o.frames.ffmpeg = argv[++i];
+        else if (!strcmp(argv[i], "--perf-csv") && i + 1 < argc) o.frames.perf_csv = argv[++i];
+        else if (!strcmp(argv[i], "--profile")) o.profile = 1;
+        else if (!strcmp(argv[i], "--max-frames") && i + 1 < argc) rt_max_frames = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--vfpu-selftest")) { rt_mem_init(); return rt_vfpu_selftest(); }
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     if (!image || (!cases && !boot)) {
         fprintf(stderr, "usage: %s --image image.bin (--difftest cases.bin results.bin |\n"
-                        "       --boot [--disc game.chd|.iso] [--ms0 dir] [--max-hle N] [--cpu-ms N] [--wall-ms N] [--trace-hle])\n",
+                        "       --boot [--disc game.chd|.iso] [--ms0 dir] [--max-hle N] [--cpu-ms N] [--wall-ms N] [--trace-hle]\n"
+                        "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
+                        "              [--perf-csv frames.csv] [--profile] [--max-frames N])\n",
                 argv[0]);
         return 2;
     }

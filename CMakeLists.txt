@@ -22,9 +22,13 @@ FetchContent_MakeAvailable(libchdr)
 add_executable(gow_rt
   runtime/rt_core.c
   runtime/rt_fiber.c
+  runtime/rt_frames.c
+  runtime/rt_ge.c
+  runtime/rt_gesoft.c
   runtime/rt_hle.c
   runtime/rt_io.c
   runtime/rt_main.c
+  runtime/rt_prof.c
   runtime/rt_thread.c
   runtime/rt_vfpu.c
   runtime/rt_selftest.c
@@ -37,6 +41,12 @@ if(MSVC)
   # /bigobj: generated files are large; /fp:precise keeps IEEE single-precision semantics
   target_compile_options(gow_rt PRIVATE /W3 /bigobj /fp:precise /wd4102 /wd4100 /MP)
   target_compile_definitions(gow_rt PRIVATE _CRT_SECURE_NO_WARNINGS)
+  # A PDB for Release too: the sampling profiler (--profile) resolves function names from it
+  target_compile_options(gow_rt PRIVATE $<$<CONFIG:Release>:/Zi>)
+  target_link_options(gow_rt PRIVATE $<$<CONFIG:Release>:/DEBUG /OPT:REF /OPT:ICF>)
+  target_link_libraries(gow_rt PRIVATE dbghelp winmm)
+  # the renderer's per-pixel functions are hot; stack cookies cost several percent there
+  set_source_files_properties(runtime/rt_gesoft.c PROPERTIES COMPILE_OPTIONS /GS-)
 else()
   target_compile_options(gow_rt PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
   target_link_libraries(gow_rt PRIVATE m)

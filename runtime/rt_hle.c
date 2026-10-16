@@ -6,6 +6,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "rt_frames.h"
+#include "rt_ge.h"
 #include "rt_kernel.h"
 
 int rt_hle_verbose;
@@ -96,6 +98,8 @@ static void hle_DisplaySetFrameBuf(RtCtx *c) {
     g_fb_addr = A0; g_fb_width = A1; g_fb_format = A2;
     if (g_frames == 1 || g_frames % 600 == 0)
         rt_log("[display] frame %llu: framebuffer %08X width %u format %u\n", (unsigned long long)g_frames, A0, A1, A2);
+    rt_frames_present(g_frames, k_now, A0, A1, A2);
+    if (rt_max_frames && g_frames >= rt_max_frames) k_stop(RT_ABORT_BUDGET, 0, (uint32_t)g_frames, "frame limit reached");
     if (A0 && prev && A0 != prev) {
         uint64_t now = k_now, wait = g_next_flip > now ? g_next_flip - now : 0;
         g_next_flip = (g_next_flip > now ? g_next_flip : now) + VBLANK_US - 10;
@@ -118,6 +122,7 @@ static void hle_GeEdramGetSize(RtCtx *c) { RET(0x00200000u); }
 static void hle_GeEdramSetAddrTranslation(RtCtx *c) { RET(0x400u); }
 static void hle_GeListEnQueue(RtCtx *c) {
     g_ge_lists++;
+    rt_ge_run(A0, A1);
     if (g_ge_lists <= 3 || (g_ge_lists & (g_ge_lists - 1)) == 0)
         rt_log("[ge] display list #%u enqueued: list %08X stall %08X cb %d\n", g_ge_lists, A0, A1, (int)A2);
     RET(g_ge_lists);

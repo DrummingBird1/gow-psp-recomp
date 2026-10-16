@@ -14,6 +14,10 @@ re/ghidra/
 # Third-party reference sources (PPSSPP, GPL); fetch again with the commands in README.md
 re/ppsspp-hle/
 re/ppsspp-mips/
+re/ppsspp-gpu/
+
+# Progress screenshots and gameplay recordings (they show the game's imagery)
+media/
 
 # Tooling
 .venv/

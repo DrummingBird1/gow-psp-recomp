@@ -82,5 +82,30 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 The boot runs under the thread scheduler (`runtime/rt_thread.c`) and reads the disc
 through libchdr (`runtime/rt_io.c`); see `docs/phase2-threads-fs.md`.
 
+Display lists are executed by `runtime/rt_ge.c` and drawn by the software renderer
+(`runtime/rt_gesoft.c`). Frame output (`runtime/rt_frames.c`) for documentation and performance tracking:
+
+| Option | Effect |
+|---|---|
+| `--frames-dir DIR --frames-every N` / `--frames-at N,N,...` | Writes displayed frames as `DIR/frame_NNNNNN.png` |
+| `--record out.mp4 [--ffmpeg exe]` | Pipes every virtual vblank (59.94 Hz) to ffmpeg; the video plays at game speed |
+| `--record-host out.mp4` | Same on the host clock: shows how smoothly this machine runs it |
+| `--perf-csv frames.csv` | Host time per displayed frame; a `[perf]` summary (fps, frame-time percentiles) is printed at exit |
+| `--max-frames N` | Stops after displayed frame N (runs of equal length for comparisons) |
+| `--profile` | Sampling profiler of the main thread; top functions printed at exit (needs the Release PDB) |
+
+The renderer draws on all logical processors (`RT_GE_THREADS=N` overrides); `RT_GE_TRACE_LIST=N`
+prints every primitive of display list N with the pixels it shaded.
+
+```bash
+build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_full/image.bin --boot --disc "God of War - Chains of Olympus (USA).chd" --ms0 build/ms0 --cpu-ms 60000 --frames-dir build/frames --frames-every 120 --record build/frames/run.mp4 --ffmpeg C:/Tools/ffmpeg/bin/ffmpeg.exe --perf-csv build/frames/perf.csv
+```
+
+Documentation tools (`tools/`): `render_terminal.py` turns a command's real output into a terminal-style PNG;
+`run_logged.sh` records several commands with their output for it; `check_frames.py` compares the frames of
+two runs (renderer changes must keep them identical) and summarizes frame times; `perf_report.py` draws a
+frame-time chart and a side-by-side host-clock video with a live fps overlay. Results go to `docs/progress.md`.
+`capture_window.ps1` captures one window by process id (for when the port has a window of its own).
+
 When Ghidra functions change, re-export with `ExportRecompInput.java` and re-run
 `code_pointers.py` to check for code pointers that still lack a function.

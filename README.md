@@ -17,8 +17,9 @@ Reverse engineering and static recompilation of the two PSP God of War games
 | `recomp/` | Recompiler (Python): loader/relocator, decoder, C emitter, driver, differential tests |
 | `runtime/` | C runtime the generated code links against |
 | `CMakeLists.txt` | Builds `gow_rt_<GAME>` from `build/gen/<GAME>` |
+| `tools/` | Documentation helpers: terminal-output screenshots, logged command runs |
 
-Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `re/ppsspp-*`.
+Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `re/ppsspp-*`, `media/` (screenshots and recordings; see [`docs/progress.md`](docs/progress.md)).
 
 ## Setup on a new machine
 
@@ -26,7 +27,10 @@ Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `r
 2. Dump `EBOOT.BIN` with PPSSPP (`DumpFileTypes = 3`) into `re/dumps/`.
 3. Python environment for the tests: `py -3 -m venv .venv` then `.venv/Scripts/python -m pip install unicorn`.
 4. PPSSPP reference sources used by `build_nid_db.mjs` (optional, re-fetchable):
-   `Core/HLE/*.cpp` into `re/ppsspp-hle/`, `Core/MIPS/MIPSInt.cpp` and `MIPSTables.cpp` into `re/ppsspp-mips/` (tag v1.20.4).
+   `Core/HLE/*.cpp` into `re/ppsspp-hle/`, `Core/MIPS/MIPSInt.cpp` and `MIPSTables.cpp` into `re/ppsspp-mips/`,
+   and the GE references (`GPU/Software/*`, `GPU/GPUState.*`, `GPU/ge_constants.h`, `GPU/Common/VertexDecoderCommon.*`,
+   `GPU/Common/TextureDecoder.*`, `GPU/GPUCommon*.cpp`) into `re/ppsspp-gpu/` (tag v1.20.4).
+5. For progress screenshots and recordings: `.venv/Scripts/python.exe -m pip install pillow`, and ffmpeg.
 
 See [`recomp/README.md`](recomp/README.md) for the recompile/build/test commands and
 [`docs/`](docs/) for results.
