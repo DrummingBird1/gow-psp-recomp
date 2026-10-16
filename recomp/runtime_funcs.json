@@ -2,5 +2,8 @@
   "_comment": "Functions the runtime provides instead of their translation, per game: address -> C call (c is the CPU context). See runtime/rt_coro.c.",
   "UCUS98653": {
     "0x08A157B8": "rt_co_switch(c, 0x08B36148u, 0x08B36150u)"
+  },
+  "UCUS98737": {
+    "0x08AD775C": "rt_co_switch(c, 0x08C15D88u, 0x08C15D90u)"
   }
 }

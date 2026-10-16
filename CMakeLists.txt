@@ -59,7 +59,7 @@ set(AT3_FILES
   mem.cpp=5899087c84397db946fa91d737a70ba6589449ea74115b0e438f48bebd030cad
   mem.h=3b4c78a4ba926548300f67d2a860417d5c2ef6a4d8d13c92c320205f07223602)
 # Downloads each name=sha256 entry of a list from url/name into dir unless the copy there already
-# has that hash; the .cpp files are returned in out_sources.
+# has that hash; the .c and .cpp files are returned in out_sources.
 function(fetch_pinned_files label dir url files out_sources)
   set(sources)
   foreach(entry IN LISTS files)
@@ -78,7 +78,7 @@ function(fetch_pinned_files label dir url files out_sources)
         message(FATAL_ERROR "Downloading ${label}/${name} failed: ${st}")
       endif()
     endif()
-    if(name MATCHES "\\.cpp$")
+    if(name MATCHES "\\.(c|cpp)$")
       list(APPEND sources "${path}")
     endif()
   endforeach()
@@ -120,6 +120,34 @@ else()
   target_link_libraries(openh264_dec PRIVATE pthread)
 endif()
 
+# PGD decryption (Ghost of Sparta's encrypted data files, sceIoIoctl 0x04100001): PPSSPP's
+# ext/libkirk (KIRK engine by Draan et al., GPL-3.0+; amctrl by tpu; AES and SHA-1 public domain;
+# bn/ec by Segher Boessenkool, GPL-2.0/3.0), downloaded from tag v1.20.4 and checked by SHA-256.
+# It holds the PSP's crypto keys, so it is never part of this repository.
+set(KIRK_DIR "${CMAKE_BINARY_DIR}/_deps/libkirk")
+set(KIRK_URL "https://raw.githubusercontent.com/hrydgard/ppsspp/v1.20.4/ext/libkirk")
+set(KIRK_FILES
+  AES.c=3e0321521c1985aceac86d0b5388ab5256a58b94b82092ef48c658756b19d09f
+  AES.h=61e784ebd7ddcb6f7876f1933c1e2020f7fc89ab3a1f3bfcb50c29cd35abf179
+  SHA1.c=7ef8ee993a7858ff78fdf22efb8c2e06b4864513f6842396b1cf7035f7604024
+  SHA1.h=527c0407568beea5b3a07675ec1e25cf477208cd68ba2e45d462fdcb1cd21237
+  amctrl.c=2bba661c23c028004ba796620dd95f3e6e9fddfb34701eb8a8846aa61ca1df96
+  amctrl.h=298c4a2dca4b6abfd50b0c1cd2fe0574b0fa15ef1d86d55471f420d1ca95e4a5
+  bn.c=06d2886369f2490855e9e1541ab84901b4a5b03661fbbcd6899444d18c28718f
+  ec.c=f86bc1c13680da95486538b0202467e089a2f50907caebe1afa31d489d96df48
+  kirk_common.h=8bc730e60c1a5498cec2f649bf8bc356ce85a843da8d2f4a278f19d14cce17a5
+  kirk_engine.c=74e363f78fdec5c0fc82842a21c11c3b0363996a931805cec9fd11231a3e7763
+  kirk_engine.h=d827ae841fe160a52ae4ad8f118c6d46476a5a0887d349328419197ad5e996bc)
+fetch_pinned_files(libkirk "${KIRK_DIR}" "${KIRK_URL}" "${KIRK_FILES}" KIRK_SOURCES)
+add_library(libkirk STATIC ${KIRK_SOURCES})
+target_include_directories(libkirk INTERFACE "${KIRK_DIR}")
+if(MSVC)
+  target_compile_options(libkirk PRIVATE /W0)
+  target_compile_definitions(libkirk PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+  target_compile_options(libkirk PRIVATE -O2 -w)
+endif()
+
 add_executable(gow_rt
   runtime/rt_atrac.c
   runtime/rt_audio.c
@@ -144,7 +172,7 @@ add_executable(gow_rt
   ${GEN_SOURCES})
 set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 11)
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")
-target_link_libraries(gow_rt PRIVATE chdr-static at3_standalone openh264_dec)
+target_link_libraries(gow_rt PRIVATE chdr-static at3_standalone openh264_dec libkirk)
 if(GOW_WINDOW)
   target_link_libraries(gow_rt PRIVATE SDL3::SDL3-static)
   target_compile_definitions(gow_rt PRIVATE GOW_HAVE_SDL)

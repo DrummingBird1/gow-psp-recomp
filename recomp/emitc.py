@@ -210,6 +210,9 @@ def emit_function(fn: FuncInfo, prog: Program) -> str:
             labels.add(pc + 8)
 
     out = [f"void f_{fn.entry:08X}(RtCtx *c) {{"]
+    if fn.addrs[0] != fn.entry:  # the body walk reached code below the entry (a loop head): start at the entry
+        labels.add(fn.entry)
+        out.append(f"  goto L_{fn.entry:08X};")
     expected = None   # address that sequential execution reaches next
     consumed = set()
     idx = 0

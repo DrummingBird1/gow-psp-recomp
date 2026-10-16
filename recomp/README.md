@@ -31,7 +31,7 @@ runtime/ (psp_rt.h, rt_core.c, rt_hle.c, rt_main.c) ─────────�
 
 ## Translation model
 
-* Function bodies come from Ghidra, then are completed by the recompiler's own control-flow walk from each entry (code Ghidra left out, e.g. a fall-through, is added; other entries end the walk).
+* Function bodies come from Ghidra, then are completed by the recompiler's own control-flow walk from each entry (code Ghidra left out, e.g. a fall-through, is added; other entries end the walk). A body that the walk extends below its entry (a loop head before it) starts with a jump to the entry.
 * One C function per guest function: `void f_XXXXXXXX(RtCtx *c)`; CPU state lives in `RtCtx`.
 * Guest memory is a 512MB arena indexed by `addr & 0x1FFFFFFF` (cached/uncached/kernel mirrors map to the same bytes).
 * Branch conditions and `jr` targets are captured before the delay slot executes; branch-likely runs the delay slot only when taken.
@@ -138,6 +138,26 @@ feeds through its ring buffer; H.264 pictures are decoded by OpenH264 and ATRAC3
 
 OpenH264's decoder (Cisco, BSD-2-Clause) is downloaded by CMake at configure time, file by file from tag v2.6.0, and
 checked against the SHA-256 hashes in `cmake/openh264-v2.6.0.sha256`; it is not part of this repository.
+
+Ghost of Sparta (see `docs/phase10-ghost-of-sparta.md`) builds the same way into its own directory, and
+`tools\play_gos.cmd` plays it (hardware renderer, saves in `build\ms0_gos`):
+
+```bash
+python -I recomp/recomp.py --elf re/dumps/UCUS98737_EBOOT.BIN --ghidra re/out/recomp/UCUS98737_EBOOT.BIN.recomp.json --nids re/out/psp_nids_ppsspp.tsv --out build/gen/UCUS98737_full --difftest 0 --boot 0 --all
+```
+
+```bash
+cmake -S . -B build/cmake_gos_full -G "Visual Studio 18 2026" -A x64 -DGAME=UCUS98737_full
+```
+
+```bash
+cmake --build build/cmake_gos_full --config Release --parallel
+```
+
+PGD-encrypted files (`sceIoIoctl` 0x04100001 with the key the game passes, `runtime/rt_io.c`) are decrypted with
+PPSSPP's `ext/libkirk` (KIRK engine and amctrl; GPL-3.0+ / GPL-2.0+, AES and SHA-1 public domain), downloaded by CMake
+at configure time from tag v1.20.4 and checked by SHA-256. It contains the PSP's crypto keys, so it is not part of
+this repository.
 
 The renderer draws on all logical processors (`RT_GE_THREADS=N` overrides); `RT_GE_TRACE_LIST=N`
 prints every primitive of display list N with the pixels it shaded.

@@ -24,6 +24,7 @@
 | 2026-10-16 | שלב 7: סאונד (sceAudio, ‏SAS, ‏ATRAC3+) | מוזיקת התפריט והשלב ואפקטי הקרב; 60 FPS בחלון בלי underruns; ה-decoder זהה ל-FFmpeg ([פירוט](phase7-audio.md)) |
 | 2026-10-16 | שלב 8: סרטונים (sceMpeg, ‏H.264, ‏ATRAC3+) | סרטון הפתיחה מתנגן עם תמונה, כתוביות וסאונד, בזמן אמת בחלון; התמונות זהות ל-FFmpeg בכל 27 הסרטונים ([פירוט](phase8-movies.md)) |
 | 2026-10-16 | שלב 9: שמירות, הקלטת קלט ו-replay | שמירה וטעינה דרך קוד השמירה של המשחק; משחק בחלון שהוקלט חוזר ב-headless עם פריימים ו-WAV זהים ([פירוט](phase9-saves-replay.md)) |
+| 2026-10-16 | שלב 10: Ghost of Sparta | פענוח PGD, תיקון במהדר, ‏coroutines: מהתפריט הראשי ועד קרב בשלב הראשון (Atlantis), בחלון ב-60 FPS עם סאונד וקלט; ‏CoO לא השתנה ([פירוט](phase10-ghost-of-sparta.md)) |
 
 ## 2026-10-16: ה-boot של Chains of Olympus, ובדיקות האימות
 
@@ -314,3 +315,42 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 ![משחק בחלון מול ה-replay שלו](../media/screenshots/2026-10-16_30_replay_window_vs_headless.png)
 
 המסגרות נשמרו מה-framebuffer של ה-PSP על ידי הריצות עצמן (`--frames-dir`). בשורה העליונה של התמונה השנייה, ריצת החלון עם `--renderer gpu`, כך שהמסגרות שלה נקראו מה-GPU.
+
+## 2026-10-16: Ghost of Sparta (שלב 10)
+
+נעשה על commit `29b9638` ועוד השינויים שעדיין לא נכנסו ל-commit. הפירוט ב-[phase10-ghost-of-sparta.md](phase10-ghost-of-sparta.md).
+
+**מה נבנה:**
+- **פענוח PGD** (`rt_io.c`): ‏`sceIoIoctl` ‏`0x04100001`/`02`/`10` לפי `sceIo` של PPSSPP, עם המפתח שהמשחק עצמו נותן. הפענוח הוא `ext/libkirk` של PPSSPP. ‏CMake מוריד אותו ובודק אותו ב-SHA-256, ושום מפתח לא נכנס לגיט.
+  - בדיסק יש קובץ PGD אחד, ‏`ATT_000_STARTSCREEN.BIN`. זו בדיקת מקוריות שהמשחק חוזר עליה בלולאה עד שהיא מצליחה.
+- **‏`scePspNpDrm_user`** לפי PPSSPP. המשחק בודק אם יש DLC ב-`ms0`.
+- **‏`sceUtilityLoadModule`** לפי PPSSPP: כך GoS טוען את הקודקים.
+- **‏`__sceSasSetVoicePCM`:** קולות PCM ב-SAS.
+- **תיקון במהדר מחדש:** פונקציה שהגוף שלה מתחיל מתחת ל-entry מתחילה עכשיו בקפיצה ל-entry. ב-GoS זו פונקציה אחת, והיא תקעה את המשחק בלולאה אינסופית בשנייה 24.4. ב-CoO אין אף אחת.
+- **ה-coroutines של GoS:** ה-context switch ב-`0x08AD775C`, ב-`recomp/runtime_funcs.json`.
+- **‏`tools/play_gos.cmd`:** משחק בחלון עם `--renderer gpu`, ושמירות ב-`build\ms0_gos`. ‏`tools/replay.cmd` מזהה עכשיו גם סשנים של GoS.
+
+**התוצאות:**
+- **מה-boot ועד השלב הראשון:** האזהרה, הלוגואים, התפריט הראשי, רמת הקושי, סרטון הפתיחה (105 שניות) והשלב Atlantis. בשלב יש קרב, ‏tutorials, ‏QTE ו-cutscenes במנוע.
+- **בחלון** (`--renderer gpu`):
+  - 60 FPS בשלב, 58.5 בתפריט, והסרטון ב-30.
+  - הסאונד במיקס זהה בית-לבית לריצת headless.
+  - הדרך לשלב שוחקה גם עם הודעות מקלדת אמיתיות לחלון, וה-replay של ההקלטה נתן WAV זהה.
+- **דיוק:** כל 34 הסרטונים שבדיסק זהים בית-לבית ל-FFmpeg (60,637 תמונות). המוזיקה מתאימה לפענוח של FFmpeg ב-75–80 dB.
+- **CoO לא השתנה:** ‏34/34 פריימים זהים ל-`rec_v9` ב-renderer התוכנה, ו-WAV זהה.
+
+![רצף ה-boot של GoS](../media/screenshots/2026-10-16_31_gos_boot_sequence.png)
+
+![התפריט הראשי בחלון](../media/screenshots/2026-10-16_32_gos_window_main_menu.png)
+
+![קרב ב-Atlantis בחלון](../media/screenshots/2026-10-16_33_gos_window_atlantis_combat.png)
+
+![לוג ה-boot](../media/screenshots/2026-10-16_34_gos_boot_log.png)
+
+![רגעים מריצת החלון](../media/screenshots/2026-10-16_35_gos_window_sequence.png)
+
+![המיקס של ריצת החלון](../media/screenshots/2026-10-16_36_gos_audio_spectrogram.png)
+
+![ריצת המקלדת בחלון](../media/screenshots/2026-10-16_37_gos_window_keyboard_session.png)
+
+צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`). רצף ה-boot נשמר מה-framebuffer של ה-PSP על ידי הריצה עצמה (`--frames-dir`, ‏`--renderer gpu`). הספקטרוגרמה נוצרה מה-WAV של ריצת החלון עם `tools/audio_report.py`, והלוג הוא פלט אמיתי דרך `tools/render_terminal.py`.

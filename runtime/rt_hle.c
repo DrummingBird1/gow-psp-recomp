@@ -1,5 +1,5 @@
 /* HLE dispatcher plus the smaller PSP modules: display, GE, controller, power, RTC, impose,
- * message dialog, modules, NpDrm. Audio lives in rt_audio.c, rt_sas.c and rt_atrac.c, save
+ * message dialog, modules. Audio lives in rt_audio.c, rt_sas.c and rt_atrac.c, save
  * data in rt_savedata.c.
  * Unimplemented functions return 0 and are logged the first time they are called. */
 #include <stdarg.h>
@@ -206,6 +206,58 @@ static void hle_LoadModule(RtCtx *c) {
     rt_log("[module] load \"%s\" (system module: emulated by HLE)\n", A0 ? (const char *)rt_ptr(A0) : "");
     RET(k_obj_new(OBJ_MODULE, NULL));
 }
+/* sceUtilityLoadModule (Ghost of Sparta loads its codecs this way, Chains of Olympus loads PRX
+ * files): the modules themselves are HLE, so a load does what PPSSPP's sceUtility books for it:
+ * the module's memory in the user partition, its dependencies, an error for a second load, and
+ * 25 ms of load time (0.13 ms for 0x3FF). */
+typedef struct { uint16_t id; uint32_t size; uint16_t deps[6]; const char *name; } UtilModule;
+static const UtilModule g_util_mods[] = {
+    {0x100, 0x14000, {0}, "net_common"}, {0x101, 0x20000, {0}, "net_adhoc"}, {0x102, 0x58000, {0}, "net_inet"},
+    {0x103, 0x06000, {0}, "net_parse_uri"}, {0x104, 0x02000, {0}, "net_parse_http"},
+    {0x105, 0x28000, {0x102, 0x103, 0x104}, "net_http"}, {0x106, 0x44000, {0x102}, "net_ssl"},
+    {0x107, 0x10000, {0}, "unk_0x107"}, {0x108, 0x08000, {0x100, 0x102, 0x103, 0x104, 0x105}, "usb_pspcm"},
+    {0x200, 0, {0}, "usb_mic"}, {0x201, 0, {0}, "usb_cam"}, {0x202, 0, {0}, "usb_gps"}, {0x203, 0, {0}, "usb_unk_0x203"},
+    {0x2FF, 0, {0}, "unk_0x2ff"}, {0x300, 0, {0}, "av_avcodec"}, {0x301, 0, {0}, "av_sascore"},
+    {0x302, 0x08000, {0x300}, "av_atrac3plus"}, {0x303, 0x0C000, {0x300}, "av_mpegbase"}, {0x304, 0x04000, {0}, "av_mp3"},
+    {0x305, 0x0A300, {0}, "av_vaudio"}, {0x306, 0x04000, {0}, "av_aac"}, {0x307, 0, {0}, "av_g729"},
+    {0x308, 0x3C000, {0x300}, "av_mp4"}, {0x3FE, 0, {0}, "me_stuff"}, {0x3FF, 0, {0}, "me_core"},
+    {0x400, 0x0C000, {0}, "np_common"}, {0x401, 0x18000, {0}, "np_service"}, {0x402, 0x48000, {0}, "np_matching2"},
+    {0x403, 0x0E000, {0}, "np_unk_0x403"}, {0x500, 0, {0}, "np_drm"}, {0x600, 0, {0}, "irda"}, {0x601, 0, {0}, "unk_0x601"},
+};
+#define N_UTIL_MODS (sizeof(g_util_mods) / sizeof(g_util_mods[0]))
+static int g_util_loaded[N_UTIL_MODS];
+static uint32_t g_util_addr[N_UTIL_MODS];
+
+static int util_module(uint32_t id) {
+    for (int i = 0; i < (int)N_UTIL_MODS; i++) if (g_util_mods[i].id == id) return i;
+    return -1;
+}
+static void hle_UtilityLoadModule(RtCtx *c) {
+    int m = util_module(A0);
+    if (m < 0) RET(0x80111101u);                     /* SCE_ERROR_MODULE_BAD_ID */
+    if (g_util_loaded[m]) RET(0x80111102u);          /* SCE_ERROR_MODULE_ALREADY_LOADED */
+    for (int d = 0; d < 6 && g_util_mods[m].deps[d]; d++) {
+        int dm = util_module(g_util_mods[m].deps[d]);
+        if (dm < 0 || !g_util_loaded[dm]) RET(0x8002013Cu);  /* SCE_KERNEL_ERROR_LIBRARY_NOTFOUND */
+    }
+    g_util_loaded[m] = 1;
+    g_util_addr[m] = g_util_mods[m].size ? k_alloc(g_util_mods[m].size, 0, 0x100) : 0;
+    rt_log("[module] utility module 0x%03X %s: emulated by HLE, %X bytes at %08X\n", A0, g_util_mods[m].name,
+           g_util_mods[m].size, g_util_addr[m]);
+    k_wait(WT_DELAY, 0, A0 == 0x3FF ? 130 : 25000);
+    RET(0);
+}
+static void hle_UtilityUnloadModule(RtCtx *c) {
+    int m = util_module(A0);
+    if (m < 0) RET(0x80111101u);
+    if (!g_util_loaded[m]) RET(0x80111103u);         /* SCE_ERROR_MODULE_NOT_LOADED */
+    if (g_util_addr[m]) k_free(g_util_addr[m]);
+    g_util_loaded[m] = 0;
+    g_util_addr[m] = 0;
+    k_wait(WT_DELAY, 0, A0 == 0x3FF ? 110 : 400);
+    RET(0);
+}
+
 static void hle_GetModuleId(RtCtx *c) { RET(1); }
 static void hle_ExitGame(RtCtx *c) { k_stop(RT_ABORT_HLE, 0, 0, "game called sceKernelExitGame"); }
 static void hle_StopUnloadSelf(RtCtx *c) { k_stop(RT_ABORT_HLE, 0, 0, "module unloaded itself"); }
@@ -231,12 +283,11 @@ const HleEntry rt_hle_misc[] = {
     {"sceImposeGetLanguageMode", hle_ImposeGetLanguageMode}, {"sceImposeSetLanguageMode", hle_Zero},
     {"sceUtilityMsgDialogInitStart", hle_MsgDialogInitStart}, {"sceUtilityMsgDialogGetStatus", hle_MsgDialogGetStatus},
     {"sceUtilityMsgDialogUpdate", hle_MsgDialogUpdate}, {"sceUtilityMsgDialogShutdownStart", hle_MsgDialogShutdownStart},
-    {"sceUtilityLoadModule", hle_Zero}, {"sceUtilityUnloadModule", hle_Zero},
+    {"sceUtilityLoadModule", hle_UtilityLoadModule}, {"sceUtilityUnloadModule", hle_UtilityUnloadModule},
     {"sceKernelLoadModule", hle_LoadModule}, {"sceKernelStartModule", hle_Zero}, {"sceKernelStopModule", hle_Zero},
     {"sceKernelUnloadModule", hle_Zero}, {"sceKernelGetModuleId", hle_GetModuleId},
     {"sceKernelGetModuleIdByAddress", hle_GetModuleId}, {"sceKernelStopUnloadSelfModuleWithStatus", hle_StopUnloadSelf},
     {"sceKernelRegisterExitCallback", hle_Zero}, {"sceKernelExitGame", hle_ExitGame}, {"sceKernelLoadExec", hle_ExitGame},
     {"sceKernelStdin", hle_Stdin}, {"sceKernelStdout", hle_Stdout}, {"sceKernelStderr", hle_Stderr},
-    {"sceNpDrmSetLicenseeKey", hle_Zero}, {"sceNpDrmEdataSetupKey", hle_Zero},
     {NULL, NULL},
 };

@@ -3,7 +3,11 @@
  *
  * Devices: disc0:/umd0:/umd1: read from the disc (including "sce_lbn0x<lba>_size0x<n>"
  * raw-sector paths); ms0: maps to a local folder (--ms0). Asynchronous calls complete
- * immediately; PollAsync/WaitAsync return the stored result, as on PPSSPP. */
+ * immediately; PollAsync/WaitAsync return the stored result, as on PPSSPP.
+ *
+ * PGD-encrypted files (Ghost of Sparta's disc check, amctrl.prx DRM) follow PPSSPP's sceIo: the game
+ * passes its key with sceIoIoctl 0x04100001, after which reads and seeks see the decrypted data.
+ * The KIRK/amctrl code is PPSSPP's ext/libkirk, downloaded at configure time (CMakeLists.txt). */
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,6 +28,7 @@
 
 #include <libchdr/chd.h>
 
+#include "amctrl.h"  /* PPSSPP ext/libkirk: pgd_open, pgd_decrypt_block */
 #include "rt_kernel.h"
 
 #define SECTOR 2048u
@@ -259,6 +264,8 @@ typedef struct {
     int64_t async_result;
     IsoEntry *ents;
     int nents, dirpos;
+    PGD_DESC *pgd;        /* set by sceIoIoctl 0x04100001: reads and seeks see the decrypted data */
+    uint32_t pgd_offset;  /* where the PGD header starts (0x90 in an EDAT file) */
     char path[256];
 } Fd;
 static Fd g_fd[MAX_FD];
@@ -271,6 +278,7 @@ static Fd *fd_get(uint32_t fd) { return fd < MAX_FD && g_fd[fd].used ? &g_fd[fd]
 static void fd_free(int fd) {
     Fd *f = &g_fd[fd];
     if (f->host) fclose(f->host);
+    if (f->pgd) pgd_close(f->pgd);
     free(f->ents);
     memset(f, 0, sizeof(*f));
 }
@@ -310,18 +318,93 @@ static int32_t io_open(const char *path, uint32_t flags) {
     return (int32_t)SCE_ERR_FILE_NOT_FOUND;
 }
 
+/* Reads the file's stored bytes at pos (no decryption, the position is left alone). */
+static uint32_t fd_read_raw(Fd *f, uint64_t pos, uint8_t *dst, uint32_t len) {
+    if (pos >= f->size) return 0;
+    if (pos + len > f->size) len = (uint32_t)(f->size - pos);
+    if (f->host) { fseek(f->host, (long)pos, SEEK_SET); return (uint32_t)fread(dst, 1, len, f->host); }
+    return disc_read((uint64_t)f->lba * SECTOR + pos, dst, len);
+}
+
+/* --- PGD (amctrl.prx DRM) ------------------------------------------------------------ */
+#define PGD_ERR_INVALID_HEADER 0x80510204u
+static KirkState g_kirk;
+static int g_kirk_ready;
+static uint64_t g_pgd_opens, g_pgd_blocks;
+
+static KirkState *kirk(void) {
+    if (!g_kirk_ready) { kirk_init(&g_kirk); g_kirk_ready = 1; }
+    return &g_kirk;
+}
+
+/* Like PPSSPP's npdrmRead, block by block through the descriptor's one-block cache; reads stop
+ * at the end of the data (PPSSPP only caps one read at the data size). */
+static int64_t pgd_read(Fd *f, uint8_t *dst, uint32_t len) {
+    PGD_DESC *p = f->pgd;
+    if (p->file_offset >= p->data_size) return 0;
+    if (len > p->data_size - p->file_offset) len = p->data_size - p->file_offset;
+    for (uint32_t done = 0; done < len;) {
+        uint32_t block = p->file_offset / p->block_size, off = p->file_offset % p->block_size;
+        if (p->current_block != block) {
+            memset(p->block_buf, 0, p->block_size);
+            fd_read_raw(f, (uint64_t)p->data_offset + (uint64_t)block * p->block_size, p->block_buf, p->block_size);
+            pgd_decrypt_block(kirk(), p, (int)block);
+            p->current_block = block;
+            g_pgd_blocks++;
+        }
+        uint32_t n = p->block_size - off < len - done ? p->block_size - off : len - done;
+        memcpy(dst + done, p->block_buf + off, n);
+        done += n;
+        p->file_offset += n;
+    }
+    return len;
+}
+
+static int32_t pgd_ioctl(Fd *f, int fd, uint32_t cmd, uint32_t in, uint32_t inlen) {
+    if (cmd == 0x04100002) { f->pgd_offset = in; return 0; }  /* header offset (sceNpDrmEdataSetupKey) */
+    if (cmd == 0x04100010) return f->pgd ? (int32_t)f->pgd->data_size : (int32_t)f->size;  /* data size */
+    /* 0x04100001: open with the game's 16-byte key, or with none (the key then comes from the header) */
+    uint8_t hdr[0x90], key[16];
+    memset(hdr, 0, sizeof(hdr));
+    int have_key = in && inlen == 16;
+    if (have_key) memcpy(key, rt_ptr(in), 16);
+    fd_read_raw(f, f->pgd_offset, hdr, sizeof(hdr));
+    if (f->pgd) { pgd_close(f->pgd); f->pgd = NULL; }
+    f->pgd = pgd_open(kirk(), hdr, 2, have_key ? key : NULL);
+    if (!f->pgd) {
+        f->pgd_offset = 0;
+        f->pos = 0;
+        if (!memcmp(hdr, "\0PGD", 4)) {
+            rt_log("[io] PGD fd %d \"%s\": the header does not match the key\n", fd, f->path);
+            return (int32_t)PGD_ERR_INVALID_HEADER;
+        }
+        rt_log("[io] PGD fd %d \"%s\": not encrypted, read as is\n", fd, f->path);
+        return 0;
+    }
+    f->pgd->data_offset += f->pgd_offset;
+    g_pgd_opens++;
+    if (g_pgd_opens <= 8 || (g_pgd_opens & (g_pgd_opens - 1)) == 0)
+        rt_log("[io] PGD fd %d \"%s\": %u bytes in blocks of %u, DRM type %u, key index %u, %s key (open #%llu)\n", fd,
+               f->path, f->pgd->data_size, f->pgd->block_size, f->pgd->drm_type, f->pgd->key_index,
+               have_key ? "the game's" : "the header's", (unsigned long long)g_pgd_opens);
+    return 0;
+}
+
 static int64_t io_read(Fd *f, uint32_t buf, uint32_t len) {
     if (f->is_dir) return (int32_t)SCE_ERR_BADF;
-    if (f->pos >= f->size) return 0;
-    if (f->pos + len > f->size) len = (uint32_t)(f->size - f->pos);
-    uint32_t got;
-    if (f->host) { fseek(f->host, (long)f->pos, SEEK_SET); got = (uint32_t)fread(rt_ptr(buf), 1, len, f->host); }
-    else got = disc_read((uint64_t)f->lba * SECTOR + f->pos, rt_ptr(buf), len);
+    if (f->pgd) return pgd_read(f, rt_ptr(buf), len);
+    uint32_t got = fd_read_raw(f, f->pos, rt_ptr(buf), len);
     f->pos += got;
     return got;
 }
 
 static int64_t io_seek(Fd *f, int64_t off, uint32_t whence) {
+    if (f->pgd) {  /* positions in the decrypted data, which a seek may not pass (PPSSPP's npdrmLseek) */
+        int64_t base = whence == 1 ? (int64_t)f->pgd->file_offset : whence == 2 ? (int64_t)f->pgd->data_size : 0;
+        if (base + off < 0 || base + off > (int64_t)f->pgd->data_size) return (int32_t)0x80010016u;
+        f->pgd->file_offset = (uint32_t)(base + off);
+        return base + off;
+    }
     int64_t base = whence == 1 ? (int64_t)f->pos : whence == 2 ? (int64_t)f->size : 0;
     if (base + off < 0) return (int32_t)0x80010016u;  /* EINVAL */
     f->pos = (uint64_t)(base + off);
@@ -515,8 +598,45 @@ static void hle_IoRemove(RtCtx *c) {
     RET(remove(hp) == 0 ? 0 : SCE_ERR_FILE_NOT_FOUND);
 }
 static void hle_IoIoctl(RtCtx *c) {
+    Fd *f = fd_get(A0);
+    if (!f) RET(SCE_ERR_BADF);
+    switch (A1) {
+    case 0x04100001: case 0x04100002: case 0x04100010: RET(pgd_ioctl(f, (int)A0, A1, A2, A3));
+    case 0x01020003:  /* sector size */
+        if (!T0 || T1 < 4) RET(0x80010016u);
+        rt_w32(T0, SECTOR);
+        RET(0);
+    case 0x01020004:  /* position in the file */
+        if (!T0 || T1 < 4) RET(0x80010016u);
+        rt_w32(T0, (uint32_t)f->pos);
+        RET(0);
+    }
     rt_log("[io] ioctl fd %d cmd %08X in %08X/%u out %08X/%u (not implemented, returns 0)\n", (int)A0, A1, A2, A3, T0, T1);
     RET(0);
+}
+
+/* --- scePspNpDrm_user (PPSSPP's scePspNpDrm_user.cpp) ---------------------------------- */
+static int g_licensee_set;
+static void hle_NpDrmSetLicenseeKey(RtCtx *c) {
+    if (!A0) RET(0x80550902u);  /* SCE_NPDRM_ERROR_INVALID_FILE */
+    g_licensee_set = 1;         /* the PGD keys come from the files themselves */
+    RET(0);
+}
+static void hle_NpDrmClearLicenseeKey(RtCtx *c) { g_licensee_set = 0; RET(0); }
+static void hle_NpDrmEdataSetupKey(RtCtx *c) {
+    Fd *f = fd_get(A0);
+    if (!f) RET(0xFFFFFFFFu);
+    uint8_t magic[8] = {0};
+    fd_read_raw(f, 0, magic, 8);
+    if (memcmp(magic, "\0PSPEDAT", 8)) RET(0);  /* not encrypted */
+    if (!g_licensee_set) RET(0x80550901u);       /* SCE_NPDRM_ERROR_NO_K_LICENSEE_SET */
+    pgd_ioctl(f, (int)A0, 0x04100002, 0x90, 0);
+    RET(pgd_ioctl(f, (int)A0, 0x04100001, 0, 0));
+}
+static void hle_NpDrmEdataGetDataSize(RtCtx *c) {
+    Fd *f = fd_get(A0);
+    if (!f) RET(SCE_ERR_BADF);
+    RET(pgd_ioctl(f, (int)A0, 0x04100010, 0, 0));
 }
 static void hle_Zero(RtCtx *c) { RET(0); }
 static void hle_One(RtCtx *c) { RET(1); }
@@ -524,6 +644,8 @@ static void hle_One(RtCtx *c) { RET(1); }
 void rt_io_report(void) {
     printf("[io] %llu opens, %llu reads, %.1f MB read from disc\n", (unsigned long long)g_opens, (unsigned long long)g_reads,
            (double)g_read_bytes / (1 << 20));
+    if (g_pgd_opens)
+        printf("[io] %llu PGD files decrypted, %llu blocks\n", (unsigned long long)g_pgd_opens, (unsigned long long)g_pgd_blocks);
 }
 
 const HleEntry rt_hle_io[] = {
@@ -537,5 +659,7 @@ const HleEntry rt_hle_io[] = {
     {"sceIoRename", hle_Zero}, {"sceIoIoctl", hle_IoIoctl},
     {"sceUmdCheckMedium", hle_One}, {"sceUmdActivate", hle_Zero}, {"sceUmdWaitDriveStatWithTimer", hle_Zero},
     {"sceUmdWaitDriveStat", hle_Zero}, {"sceUmdGetDriveStat", hle_Zero},
+    {"sceNpDrmSetLicenseeKey", hle_NpDrmSetLicenseeKey}, {"sceNpDrmClearLicenseeKey", hle_NpDrmClearLicenseeKey},
+    {"sceNpDrmEdataSetupKey", hle_NpDrmEdataSetupKey}, {"sceNpDrmEdataGetDataSize", hle_NpDrmEdataGetDataSize},
     {NULL, NULL},
 };

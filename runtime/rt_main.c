@@ -30,7 +30,7 @@
  * EXIT_CASE_HUNG; results written so far stay valid and the driver resumes after it. */
 static volatile uint32_t g_case_running, g_case_index, g_timeout_ms = CASE_TIMEOUT_MS;
 static volatile uint64_t g_case_started;
-static volatile int g_boot_mode;
+static volatile int g_boot_mode, g_profile;
 
 static uint64_t now_ms(void) {
 #ifdef _WIN32
@@ -60,6 +60,7 @@ static void *watchdog(void *arg)
                 printf("[boot] stopped: time limit of %u ms reached (%llu recompiled calls through rt_call)\n",
                        g_timeout_ms, (unsigned long long)rt_call_count);
                 rt_hle_report();
+                if (g_profile) rt_prof_report(40);  /* where a run that never yields spends its time */
             } else {
                 fprintf(stderr, "rt: case %u exceeded %u ms\n", g_case_index, g_timeout_ms);
             }
@@ -207,7 +208,7 @@ static int run_boot(const BootOptions *o) {
     start_watchdog();
     rt_frames_init(&o->frames);
     if (o->host.window) k_idle_hook = rt_host_idle;
-    if (o->profile) rt_prof_start();
+    if (o->profile) { rt_prof_start(); g_profile = 1; }
     k_run_scheduler(cpu_ms);
     g_case_running = 0;
     rt_frames_close(k_now);

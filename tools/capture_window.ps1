@@ -31,7 +31,9 @@ if ($h -eq [IntPtr]::Zero) { throw "no visible window for '$Title' / process $Pr
 $r = New-Object Win+RECT
 [Win]::GetWindowRect($h, [ref]$r) | Out-Null
 $w = $r.R - $r.L; $hgt = $r.B - $r.T
-$bmp = New-Object System.Drawing.Bitmap $w, $hgt
+# 24-bit: the window's own alpha (0 where the game left framebuffer alpha at 0, e.g. movie pictures)
+# would otherwise make those pixels transparent in the PNG
+$bmp = New-Object System.Drawing.Bitmap $w, $hgt, ([System.Drawing.Imaging.PixelFormat]::Format24bppRgb)
 $g = [System.Drawing.Graphics]::FromImage($bmp)
 $hdc = $g.GetHdc()
 [Win]::PrintWindow($h, $hdc, 2) | Out-Null   # PW_RENDERFULLCONTENT

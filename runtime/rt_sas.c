@@ -1,5 +1,6 @@
 /* sceSasCore: the PSP's software mixer on the Media Engine, which the game's sound engine (Sony
- * Scream) drives for its sound effects: up to 32 voices of VAG (Sony ADPCM) samples or noise,
+ * Scream) drives for its sound effects: up to 32 voices of VAG (Sony ADPCM) samples, 16-bit PCM
+ * (__sceSasSetVoicePCM, imported by Ghost of Sparta) or noise,
  * each with an ADSR envelope, a pitch, dry left/right volumes and a send to the reverb.
  * __sceSasCore mixes one grain (256 frames in Chains of Olympus) into a stereo buffer the game
  * then plays through sceAudio.
@@ -39,7 +40,7 @@ enum {
 
 enum { CURVE_LINEAR_INC, CURVE_LINEAR_DEC, CURVE_LINEAR_BENT, CURVE_EXP_DEC, CURVE_EXP_INC, CURVE_DIRECT };
 enum { ENV_KEYON_STEP = -42, ENV_KEYON = -2, ENV_OFF = -1, ENV_ATTACK = 0, ENV_DECAY, ENV_SUSTAIN, ENV_RELEASE };
-enum { VT_OFF, VT_VAG, VT_NOISE };
+enum { VT_OFF, VT_VAG, VT_NOISE, VT_PCM };
 
 static int16_t clamp16(int v) { return (int16_t)(v > 32767 ? 32767 : v < -32768 ? -32768 : v); }
 
@@ -209,6 +210,7 @@ static void env_simple(Env *e, uint32_t a1, uint32_t a2) {
 typedef struct {
     int playing, paused, on, type;
     uint32_t vag_addr, vag_size;
+    uint32_t pcm_addr, pcm_size, pcm_index, pcm_loop_pos;  /* in samples */
     uint32_t frac;
     int pitch, loop, noise_freq;
     int vol_l, vol_r, fx_l, fx_r;
@@ -248,19 +250,39 @@ static void noise_get(Voice *v, int16_t *out, int n) {
     }
 }
 
+/* PPSSPP SasVoice::ReadSamples for PCM: straight from guest memory, looping at the loop position. */
+static void pcm_get(Voice *v, int16_t *out, int n) {
+    while (n > 0) {
+        uint32_t size = v->pcm_size - v->pcm_index < (uint32_t)n ? v->pcm_size - v->pcm_index : (uint32_t)n;
+        if (!v->on) { v->pcm_index = 0; break; }
+        memcpy(out, rt_ptr(v->pcm_addr + v->pcm_index * 2), size * 2);
+        v->pcm_index += size;
+        n -= (int)size;
+        out += size;
+        if (v->pcm_index >= v->pcm_size) {
+            if (!v->loop) break;
+            v->pcm_index = v->pcm_loop_pos;
+        }
+    }
+    if (n > 0) memset(out, 0, (size_t)n * 2);
+}
+
 static void voice_read(Voice *v, int16_t *out, int n) {
     if (v->type == VT_VAG) vag_get(&v->vag, out, n);
+    else if (v->type == VT_PCM) pcm_get(v, out, n);
     else if (v->type == VT_NOISE) noise_get(v, out, n);
     else memset(out, 0, (size_t)n * 2);
 }
 
 static void mix_voice(Sas *s, Voice *v) {
     if (v->type == VT_VAG && !v->vag_addr) return;
+    if (v->type == VT_PCM && !v->pcm_addr) return;
     const int grain = s->grain;
     int delay = 0;
     if (v->env.state == ENV_KEYON) {
-        /* the first 32 samples after a key-on are silent (33 for VAG), scaled by the pitch */
-        delay = (int)((32u * (uint32_t)v->pitch) >> PITCH_SHIFT);
+        /* the first 32 samples after a key-on are silent (33 for VAG), scaled by the pitch
+         * (not above the base pitch for PCM) */
+        delay = v->type == VT_PCM && v->pitch > PITCH_BASE ? 32 : (int)((32u * (uint32_t)v->pitch) >> PITCH_SHIFT);
         if (v->type == VT_VAG) delay++;
     }
     s->temp[0] = v->hist[0];
@@ -296,7 +318,10 @@ static void mix_voice(Sas *s, Voice *v) {
     v->hist[0] = s->temp[temp_pos - 2];
     v->hist[1] = s->temp[temp_pos - 1];
     v->frac = frac - (uint32_t)(temp_pos - 2) * PITCH_BASE;
-    if (v->type == VT_VAG && v->vag.end) { env_set_state(&v->env, ENV_OFF); v->env.height = 0; }
+    if ((v->type == VT_VAG && v->vag.end) || (v->type == VT_PCM && v->pcm_index >= v->pcm_size)) {
+        env_set_state(&v->env, ENV_OFF);
+        v->env.height = 0;
+    }
     if (v->env.state == ENV_OFF) { v->playing = 0; v->on = 0; }
 }
 
@@ -391,6 +416,14 @@ static void rev_process(Sas *s, int16_t *out, const int16_t *in, int n, int vol_
 static void sas_mix(Sas *s, uint32_t out_addr, uint32_t in_addr, int lvol, int rvol) {
     const int g = s->grain;
     for (int i = 0; i < VOICES; i++) if (s->v[i].playing && !s->v[i].paused) mix_voice(s, &s->v[i]);
+    /* RT_SAS_MUTE: the voices run as usual but are not heard (like PPSSPP's mute), so that the
+     * music in a --wav can be checked against a reference decode */
+    static int mute = -1;
+    if (mute < 0) mute = getenv("RT_SAS_MUTE") != NULL;
+    if (mute) {
+        memset(s->mix, 0, sizeof(int32_t) * (size_t)g * 2);
+        memset(s->send, 0, sizeof(int32_t) * (size_t)g * 2);
+    }
     int16_t *out = (int16_t *)rt_ptr(out_addr);
     if (s->output_mode == 0) {
         const int dry = s->dry_on, wet = s->wet_on;
@@ -503,6 +536,24 @@ static void hle_SasSetVoice(RtCtx *c) {
     v->loop = loop;
     if (v->on) v->playing = 1;
     if (reset) vag_start(&v->vag, A2, (uint32_t)size, loop);
+    RET(0);
+}
+
+/* __sceSasSetVoicePCM(core, voice, addr, size in samples, loop position or -1) */
+static void hle_SasSetVoicePCM(RtCtx *c) {
+    VOICE_ARG(A1);
+    int32_t size = (int32_t)A3, loop = (int32_t)T0;
+    if (size <= 0 || size > 0x10000) RET(0x8042001Au);  /* SCE_SAS_ERROR_INVALID_PCM_SIZE */
+    if (loop >= size) RET(SAS_ERR_INVALID_LOOP_POS);
+    if (!A2) RET(0);
+    Voice *v = &g_sas.v[A1];
+    v->type = VT_PCM;
+    v->pcm_addr = A2;
+    v->pcm_size = (uint32_t)size;
+    v->pcm_index = 0;
+    v->pcm_loop_pos = loop >= 0 ? (uint32_t)loop : 0;
+    v->loop = loop >= 0;
+    v->playing = 1;
     RET(0);
 }
 
@@ -673,6 +724,7 @@ void rt_sas_report(void) {
 const HleEntry rt_hle_sas[] = {
     {"__sceSasInit", hle_SasInit}, {"__sceSasCore", hle_SasCore}, {"__sceSasCoreWithMix", hle_SasCoreWithMix},
     {"__sceSasGetEndFlag", hle_SasGetEndFlag}, {"__sceSasSetVoice", hle_SasSetVoice}, {"__sceSasSetNoise", hle_SasSetNoise},
+    {"__sceSasSetVoicePCM", hle_SasSetVoicePCM},
     {"__sceSasSetVolume", hle_SasSetVolume}, {"__sceSasSetPitch", hle_SasSetPitch}, {"__sceSasSetKeyOn", hle_SasSetKeyOn},
     {"__sceSasSetKeyOff", hle_SasSetKeyOff}, {"__sceSasSetPause", hle_SasSetPause}, {"__sceSasGetPauseFlag", hle_SasGetPauseFlag},
     {"__sceSasSetSL", hle_SasSetSL}, {"__sceSasSetADSR", hle_SasSetADSR}, {"__sceSasSetADSRmode", hle_SasSetADSRmode},
