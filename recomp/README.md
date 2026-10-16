@@ -92,6 +92,7 @@ Display lists are executed by `runtime/rt_ge.c` and drawn by the software render
 | `--record-host out.mp4` | Same on the host clock: shows how smoothly this machine runs it |
 | `--perf-csv frames.csv` | Host time per displayed frame; a `[perf]` summary (fps, frame-time percentiles) is printed at exit |
 | `--max-frames N` | Stops after displayed frame N (runs of equal length for comparisons) |
+| `--fast-forward N` | Draws nothing before displayed frame N; the game runs exactly the same, about twice as fast (long replays) |
 | `--profile` | Sampling profiler of the main thread; top functions printed at exit (needs the Release PDB) |
 
 Playing in a window (`runtime/rt_host.c`, SDL3):
@@ -106,10 +107,14 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 | Keyboard | Arrows = D-pad, Z = ✕, X = ○, A = □, S = △, Q/W = L/R, Space or Enter = Start, V = Select, I/J/K/L = analog stick |
 | Gamepad | PSP layout (south button = ✕), left stick = analog stick, both shoulders and triggers = L/R |
 | F11 or Alt+Enter, F12, Esc | Fullscreen, screenshot to `--shots DIR`, quit |
-| `--input "1000:cross:6,t27.5:start:0.3"` | Scripted presses by displayed frame (or `t` + virtual seconds), headless or windowed; buttons `cross circle square triangle up down left right l r start select aup adown aleft aright`, joined with `+` |
+| `--input "1000:cross:6,t27.5:start:0.3"` | Scripted presses by displayed frame (or `t` + virtual seconds), headless or windowed; buttons `cross circle square triangle up down left right l r start select aup adown aleft aright` and `lx=N`/`ly=N` (stick, 0-255), joined with `+`. Also takes a file of entries (`#` comments), e.g. a recording |
+| `--record-input file` | Writes every change of what the game reads from the controller, by displayed frame, in the `--input` format; `--input file` replays it read for read, headless too (see `docs/phase9-saves-replay.md`) |
+| `--save-slot NAME` | The save slot that the game's save/load lists use (`DATA00`..`DATA14` in Chains of Olympus); otherwise saves go to the first empty slot (then the oldest) and loads take the newest |
 
 Without `--window` the run stays headless and deterministic (virtual time as fast as the host allows).
-`tools\play.cmd` starts Chains of Olympus in a window (extra arguments are passed on, e.g. `--fullscreen`).
+`tools\play.cmd` starts Chains of Olympus in a window (extra arguments are passed on, e.g. `--fullscreen`). Saves go to
+`build\ms0\PSP\SAVEDATA`, and every session is recorded in `build\sessions\<date_time>\`; `tools\replay.cmd` replays one
+headless, from the saves it started with to the frame where it stopped or crashed.
 
 Sound (`runtime/rt_audio.c`, `rt_sas.c`, `rt_atrac.c`; see `docs/phase7-audio.md`): sceAudio channels are mixed on
 the virtual clock; sceSasCore (sound effects) and sceAtrac3plus (music) are implemented in the runtime.

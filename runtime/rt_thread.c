@@ -706,9 +706,10 @@ static void hle_Printf(RtCtx *c) { rt_log("[guest printf] %s\n", A0 ? (const cha
 static void hle_Memset(RtCtx *c) { memset(rt_ptr(A0), (int)(A1 & 0xFF), A2); RET(A0); }
 static void hle_Memcpy(RtCtx *c) { memmove(rt_ptr(A0), rt_ptr(A1), A2); RET(A0); }
 static void hle_LibcClock(RtCtx *c) { RET((uint32_t)k_now); }
-static void hle_LibcTime(RtCtx *c) { uint32_t t = (uint32_t)time(NULL); if (A0) rt_w32(A0, t); RET(t); }
+/* the guest's wall clock follows virtual time (rt_wall_time_us), so replays see the same dates */
+static void hle_LibcTime(RtCtx *c) { uint32_t t = (uint32_t)(rt_wall_time_us() / 1000000u); if (A0) rt_w32(A0, t); RET(t); }
 static void hle_LibcGettimeofday(RtCtx *c) {
-    uint64_t us = (uint64_t)time(NULL) * 1000000u + k_now % 1000000u;
+    uint64_t us = rt_wall_time_us();
     if (A0) { rt_w32(A0, (uint32_t)(us / 1000000u)); rt_w32(A0 + 4, (uint32_t)(us % 1000000u)); }
     RET(0);
 }

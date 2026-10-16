@@ -13,6 +13,7 @@
 #define popen _popen
 #define pclose _pclose
 #else
+#include <sys/stat.h>
 #include <time.h>
 #endif
 
@@ -28,6 +29,7 @@
 typedef struct { FILE *pipe; uint64_t out; int host_clock; } Stream;
 
 uint32_t rt_max_frames;
+uint32_t rt_fast_forward;
 static FrameOptions g_o;
 static int listed(const char *list, uint64_t frame);
 static void capture(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format);
@@ -212,6 +214,13 @@ static void open_stream(Stream *st, const char *path, int host_clock) {
 
 void rt_frames_init(const FrameOptions *o) {
     g_o = *o;
+    if (g_o.png_dir) {  /* a new folder is the usual case for replays */
+#ifdef _WIN32
+        CreateDirectoryA(g_o.png_dir, NULL);
+#else
+        mkdir(g_o.png_dir, 0755);
+#endif
+    }
     open_stream(&g_streams[0], g_o.video, 0);
     open_stream(&g_streams[1], g_o.video_host, 1);
     if (g_o.perf_csv && (g_csv = fopen(g_o.perf_csv, "w")) != NULL)

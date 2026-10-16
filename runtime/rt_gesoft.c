@@ -1886,6 +1886,7 @@ void ge_draw_prim(uint32_t op) {
     const uint8_t *vbase = rt_ptr(ge.vaddr), *ibase = f.idx ? rt_ptr(ge.iaddr) : NULL;
     if (f.idx) ge.iaddr += count * isize;
     else ge.vaddr += count * f.size;
+    if (rt_ge_skip_draw) return;
     if (f.pos == 0) return;  /* vertices without a position are culled */
     if (prim == 7) prim = 3;
 

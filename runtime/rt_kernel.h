@@ -16,6 +16,7 @@ extern const HleEntry rt_hle_mpeg[];     /* rt_mpeg.c: sceMpeg, PSMF movies */
 extern const HleEntry rt_hle_audio[];    /* rt_audio.c: sceAudio channels and Output2 */
 extern const HleEntry rt_hle_sas[];      /* rt_sas.c: sceSasCore mixer */
 extern const HleEntry rt_hle_atrac[];    /* rt_atrac.c: sceAtrac3plus */
+extern const HleEntry rt_hle_savedata[]; /* rt_savedata.c: sceUtilitySavedata */
 
 #define A0 (c->r[4])
 #define A1 (c->r[5])

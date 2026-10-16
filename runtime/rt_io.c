@@ -57,6 +57,7 @@ int rt_io_open_disc(const char *path) {
 }
 
 void rt_io_set_ms0(const char *dir) { strncpy(g_ms0, dir, sizeof(g_ms0) - 1); }
+const char *rt_io_ms0(void) { return g_ms0; }
 
 static uint64_t host_ms(void) {
 #ifdef _WIN32

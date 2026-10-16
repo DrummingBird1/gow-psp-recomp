@@ -1,5 +1,6 @@
 /* HLE dispatcher plus the smaller PSP modules: display, GE, controller, power, RTC, impose,
- * utility dialogs, modules, NpDrm. Audio lives in rt_audio.c, rt_sas.c and rt_atrac.c.
+ * message dialog, modules, NpDrm. Audio lives in rt_audio.c, rt_sas.c and rt_atrac.c, save
+ * data in rt_savedata.c.
  * Unimplemented functions return 0 and are logged the first time they are called. */
 #include <stdarg.h>
 #include <stdio.h>
@@ -29,7 +30,8 @@ void rt_log(const char *fmt, ...) {
 typedef struct { uint32_t nid; int resolved; HleFn fn; const char *lib, *name; uint64_t count; } Slot;
 static Slot g_slots[2048];
 
-static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc, rt_hle_mpeg, rt_hle_audio, rt_hle_sas, rt_hle_atrac };
+static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc, rt_hle_mpeg, rt_hle_audio, rt_hle_sas, rt_hle_atrac,
+                                             rt_hle_savedata };
 
 static Slot *slot_for(uint32_t nid, const char *lib, const char *name) {
     uint32_t h = (nid * 2654435761u) & 2047;
@@ -99,6 +101,8 @@ static void hle_DisplaySetFrameBuf(RtCtx *c) {
     g_fb_addr = A0; g_fb_width = A1; g_fb_format = A2;
     if (g_frames == 1 || g_frames % 600 == 0)
         rt_log("[display] frame %llu: framebuffer %08X width %u format %u\n", (unsigned long long)g_frames, A0, A1, A2);
+    rt_ge_skip_draw = g_frames + 1 < rt_fast_forward;  /* the next frame's drawing */
+    if (rt_fast_forward && g_frames + 1 == rt_fast_forward) rt_log("[display] fast-forward over: drawing from frame %u\n", rt_fast_forward);
     rt_frames_present(g_frames, k_now, A0, A1, A2);
     int closed = rt_host_present(g_frames, A0, A1, A2);
     rt_frames_after_present(g_frames, A0, A1, A2);
@@ -159,13 +163,24 @@ static void hle_VolatileMemLock(RtCtx *c) {
 }
 
 /* --- RTC / impose ------------------------------------------------------------- */
+/* The guest's wall clock moves with virtual time from a fixed start, so a replay of an
+ * input recording sees the same dates as the session it was recorded in. */
+static int64_t g_epoch = -1;
+void rt_wall_set_epoch(int64_t seconds) { g_epoch = seconds; }
+int64_t rt_wall_epoch(void) {
+    if (g_epoch < 0) g_epoch = (int64_t)time(NULL);
+    return g_epoch;
+}
+uint64_t rt_wall_time_us(void) { return (uint64_t)rt_wall_epoch() * 1000000u + k_now; }
+
 static void hle_RtcGetCurrentClockLocalTime(RtCtx *c) {
-    time_t now = time(NULL);
+    uint64_t us = rt_wall_time_us();
+    time_t now = (time_t)(us / 1000000u);
     struct tm *tm = localtime(&now);
     uint16_t v[6] = { (uint16_t)(tm->tm_year + 1900), (uint16_t)(tm->tm_mon + 1), (uint16_t)tm->tm_mday,
                       (uint16_t)tm->tm_hour, (uint16_t)tm->tm_min, (uint16_t)tm->tm_sec };
     memcpy(rt_ptr(A0), v, sizeof(v));
-    rt_w32(A0 + 12, (uint32_t)(k_now % 1000000u));
+    rt_w32(A0 + 12, (uint32_t)(us % 1000000u));
     RET(0);
 }
 static void hle_ImposeGetLanguageMode(RtCtx *c) {
@@ -174,8 +189,8 @@ static void hle_ImposeGetLanguageMode(RtCtx *c) {
     RET(0);
 }
 
-/* --- utility dialogs: complete immediately (message: OK, savedata: no data) ------- */
-static int g_msg_status, g_save_status;
+/* --- message dialog: completes at once with OK (save data: rt_savedata.c) ----------- */
+static int g_msg_status;
 static int dialog_status(int *st) {
     int s = *st;
     if (s == 1) *st = 2;
@@ -186,18 +201,6 @@ static void hle_MsgDialogInitStart(RtCtx *c) { g_msg_status = 1; rt_log("[utilit
 static void hle_MsgDialogGetStatus(RtCtx *c) { RET(dialog_status(&g_msg_status)); }
 static void hle_MsgDialogUpdate(RtCtx *c) { if (g_msg_status == 2) g_msg_status = 3; RET(0); }
 static void hle_MsgDialogShutdownStart(RtCtx *c) { g_msg_status = 4; RET(0); }
-static void hle_SavedataInitStart(RtCtx *c) {
-    uint32_t mode = rt_r32(A0 + 0x30);
-    int load = mode == 0 || mode == 2 || mode == 4;
-    rt_w32(A0 + 0x1C, load ? 0x80110307u : 0);  /* LOAD_NO_DATA / success */
-    rt_log("[utility] savedata mode %u -> %s\n", mode, load ? "no data" : "ok (not written yet)");
-    g_save_status = 1;
-    RET(0);
-}
-static void hle_SavedataGetStatus(RtCtx *c) { RET(dialog_status(&g_save_status)); }
-static void hle_SavedataUpdate(RtCtx *c) { if (g_save_status == 2) g_save_status = 3; RET(0); }
-static void hle_SavedataShutdownStart(RtCtx *c) { g_save_status = 4; RET(0); }
-
 /* --- modules / process ------------------------------------------------------------ */
 static void hle_LoadModule(RtCtx *c) {
     rt_log("[module] load \"%s\" (system module: emulated by HLE)\n", A0 ? (const char *)rt_ptr(A0) : "");
@@ -228,8 +231,6 @@ const HleEntry rt_hle_misc[] = {
     {"sceImposeGetLanguageMode", hle_ImposeGetLanguageMode}, {"sceImposeSetLanguageMode", hle_Zero},
     {"sceUtilityMsgDialogInitStart", hle_MsgDialogInitStart}, {"sceUtilityMsgDialogGetStatus", hle_MsgDialogGetStatus},
     {"sceUtilityMsgDialogUpdate", hle_MsgDialogUpdate}, {"sceUtilityMsgDialogShutdownStart", hle_MsgDialogShutdownStart},
-    {"sceUtilitySavedataInitStart", hle_SavedataInitStart}, {"sceUtilitySavedataGetStatus", hle_SavedataGetStatus},
-    {"sceUtilitySavedataUpdate", hle_SavedataUpdate}, {"sceUtilitySavedataShutdownStart", hle_SavedataShutdownStart},
     {"sceUtilityLoadModule", hle_Zero}, {"sceUtilityUnloadModule", hle_Zero},
     {"sceKernelLoadModule", hle_LoadModule}, {"sceKernelStartModule", hle_Zero}, {"sceKernelStopModule", hle_Zero},
     {"sceKernelUnloadModule", hle_Zero}, {"sceKernelGetModuleId", hle_GetModuleId},

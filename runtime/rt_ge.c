@@ -8,6 +8,7 @@
 
 Ge ge;
 GeStats ge_stats;
+int rt_ge_skip_draw;
 
 static float ge_float(uint32_t op) { uint32_t b = op << 8; float f; memcpy(&f, &b, 4); return f; }
 

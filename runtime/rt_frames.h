@@ -17,6 +17,7 @@ typedef struct {
 } FrameOptions;
 
 extern uint32_t rt_max_frames;  /* --max-frames: the run stops after this displayed frame */
+extern uint32_t rt_fast_forward;  /* --fast-forward: nothing is drawn before this displayed frame */
 
 void rt_frames_init(const FrameOptions *o);
 /* Called when the game shows a framebuffer (sceDisplaySetFrameBuf). now_us is virtual time. */

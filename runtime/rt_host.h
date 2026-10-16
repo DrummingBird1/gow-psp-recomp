@@ -8,7 +8,8 @@ typedef struct {
     int scale;               /* initial window size: 480x272 times this */
     int fullscreen;
     int nearest;             /* nearest-neighbour scaling instead of linear */
-    const char *input;       /* --input: scripted presses "frame:buttons[:frames]" or "tSEC:buttons[:sec]", comma-separated */
+    const char *input;       /* --input: scripted presses "frame:buttons[:frames]" or "tSEC:buttons[:sec]", comma-separated, or a file of them */
+    const char *record_input;  /* --record-input: write what the game reads from the controller, in the --input format */
     const char *shot_dir;    /* F12 screenshots go here */
     int gpu;                 /* draw with the SDL GPU renderer (rt_gpu.c) */
     const char *gpu_driver;  /* "vulkan", "direct3d12" or NULL (SDL's choice) */
@@ -30,5 +31,7 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
 int rt_host_idle(uint64_t now_us, uint64_t next_us);
 /* Controller state at displayed frame `frame` / virtual time now_us: buttons, analog stick (128 = centre). */
 uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly);
+/* Ends an input recording (also at exit and on a crash); safe to call more than once. */
+void rt_host_record_close(void);
 
 #endif

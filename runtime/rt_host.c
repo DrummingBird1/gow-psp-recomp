@@ -11,12 +11,18 @@
  *
  * Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R,
  * Space or Enter = start, V = select, I/J/K/L = analog stick; F11 or Alt+Enter = fullscreen,
- * F12 = screenshot, Esc = quit. Gamepads use the PSP layout (south button = cross). */
+ * F12 = screenshot, Esc = quit. Gamepads use the PSP layout (south button = cross).
+ *
+ * Replays: the window samples the keyboard and gamepads once per displayed frame (and once
+ * per vblank while no frames are shown, as in movies), so the game reads the same state all
+ * through a frame. --record-input writes every change of what the game reads, keyed by the
+ * displayed frame (and virtual time for changes between frames), in the --input format;
+ * --input with that file replays the session, headless too, read for read. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "psp_rt.h"
+#include "rt_internal.h"
 #include "rt_audio.h"
 #include "rt_frames.h"
 #include "rt_gpu.h"
@@ -28,10 +34,13 @@
 static HostOptions g_o;
 
 /* --- scripted input --------------------------------------------------------------- */
-/* by displayed frame, or by virtual time ("t" prefix: seconds) when no frames are shown, e.g. in movies */
-typedef struct { uint64_t frame, until; int by_time; uint32_t buttons; int lx, ly; } ScriptPress;
+/* by displayed frame, or by virtual time ("t" prefix: seconds) when no frames are shown, e.g.
+ * in movies, or between two (frame, virtual microseconds) keys ("F@US:buttons:F@US", what
+ * --record-input writes for changes within a frame) */
+typedef struct { uint64_t frame, until, t0, t1; int by_time, keyed; uint32_t buttons; int lx, ly; } ScriptPress;
 static ScriptPress *g_script;
 static int g_nscript;
+static uint64_t g_script_end;  /* "end=N" of a recording: where the recorded session stopped */
 
 static const struct { const char *name; uint32_t bits; int lx, ly; } k_names[] = {
     { "select", PSP_SELECT }, { "start", PSP_START }, { "up", PSP_UP }, { "right", PSP_RIGHT }, { "down", PSP_DOWN },
@@ -40,21 +49,40 @@ static const struct { const char *name; uint32_t bits; int lx, ly; } k_names[] =
     { "aup", 0, 128, 0 }, { "adown", 0, 128, 255 }, { "aleft", 0, 0, 128 }, { "aright", 0, 255, 128 },
 };
 
-/* "frame:buttons[:frames]" or "tSECONDS:buttons[:seconds]" entries separated by commas;
- * buttons joined with '+'. */
+static int parse_key(const char *s, uint64_t *frame, uint64_t *us) {
+    char *end;
+    *frame = strtoull(s, &end, 10);
+    if (*end != '@') return 0;
+    *us = strtoull(end + 1, &end, 10);
+    return *end == 0;
+}
+
+/* "frame:buttons[:frames]", "tSECONDS:buttons[:seconds]" or "F@US:buttons:F@US" entries
+ * separated by commas; buttons joined with '+', the stick also as lx=N / ly=N (0-255).
+ * "rtc=SECONDS" sets the guest's wall clock at virtual time 0 (rt_wall_set_epoch); "end=N"
+ * is the displayed frame at which a recorded session stopped. */
 static int parse_script(const char *spec) {
     for (const char *p = spec; p && *p;) {
-        char item[128];
+        char item[256];
         const char *end = strchr(p, ',');
         size_t n = end ? (size_t)(end - p) : strlen(p);
         if (n >= sizeof(item)) n = sizeof(item) - 1;
         memcpy(item, p, n);
         item[n] = 0;
         p = end ? end + 1 : NULL;
+        if (!item[0]) continue;
+        if (!strncmp(item, "rtc=", 4)) { rt_wall_set_epoch(strtoll(item + 4, NULL, 10)); continue; }
+        if (!strncmp(item, "end=", 4)) { g_script_end = strtoull(item + 4, NULL, 10); continue; }
         char *f = strtok(item, ":"), *b = strtok(NULL, ":"), *d = strtok(NULL, ":");
         if (!f || !b) { fprintf(stderr, "[host] bad --input entry '%s'\n", item); return 0; }
-        ScriptPress sp = { 0, 0, f[0] == 't', 0, 128, 128 };
-        if (sp.by_time) {
+        ScriptPress sp = { 0, 0, 0, 0, f[0] == 't', 0, 0, 128, 128 };
+        if (strchr(f, '@')) {
+            sp.keyed = 1;
+            if (!d || !parse_key(f, &sp.frame, &sp.t0) || !parse_key(d, &sp.until, &sp.t1)) {
+                fprintf(stderr, "[host] bad --input entry '%s' (F@US:buttons:F@US)\n", f);
+                return 0;
+            }
+        } else if (sp.by_time) {
             sp.frame = (uint64_t)(strtod(f + 1, NULL) * 1e6);
             sp.until = sp.frame + (uint64_t)((d ? strtod(d, NULL) : 0.1) * 1e6);
         } else {
@@ -63,7 +91,9 @@ static int parse_script(const char *spec) {
         }
         for (char *name = strtok(b, "+"); name; name = strtok(NULL, "+")) {
             int found = 0;
-            for (size_t i = 0; i < sizeof(k_names) / sizeof(k_names[0]); i++)
+            if (!strncmp(name, "lx=", 3)) { sp.lx = atoi(name + 3); found = 1; }
+            else if (!strncmp(name, "ly=", 3)) { sp.ly = atoi(name + 3); found = 1; }
+            for (size_t i = 0; i < sizeof(k_names) / sizeof(k_names[0]) && !found; i++)
                 if (!strcmp(name, k_names[i].name)) {
                     sp.buttons |= k_names[i].bits;
                     if (k_names[i].lx || k_names[i].ly) { sp.lx = k_names[i].lx; sp.ly = k_names[i].ly; }
@@ -77,15 +107,145 @@ static int parse_script(const char *spec) {
     return 1;
 }
 
+/* --input takes the entries themselves or a file of them (any number per line, '#' starts
+ * a comment), such as a recording made with --record-input. */
+static int load_script(const char *arg) {
+    FILE *f = fopen(arg, "rb");
+    if (!f) return parse_script(arg);
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char *text = (char *)malloc((size_t)n + 1);
+    size_t got = fread(text, 1, (size_t)n, f);
+    fclose(f);
+    text[got] = 0;
+    int comment = 0;
+    for (char *c = text; *c; c++) {
+        if (*c == '#') comment = 1;
+        if (*c == '\n') comment = 0;
+        if (comment || *c == '\n' || *c == '\r' || *c == ' ' || *c == '\t') *c = ',';
+    }
+    int ok = parse_script(text);
+    free(text);
+    if (ok) printf("[host] input from %s: %d entries\n", arg, g_nscript);
+    /* a replay stops where the session did; in the window it may go on with live input */
+    if (ok && g_script_end && !g_o.window && !rt_max_frames) {
+        rt_max_frames = (uint32_t)g_script_end;
+        printf("[host] the recorded session stopped at frame %llu: so does this run\n", (unsigned long long)g_script_end);
+    }
+    return ok;
+}
+
 static uint32_t script_buttons(uint64_t frame, uint64_t now_us, int *lx, int *ly) {
     uint32_t b = 0;
     for (int i = 0; i < g_nscript; i++) {
-        uint64_t at = g_script[i].by_time ? now_us : frame;
-        if (at >= g_script[i].frame && at < g_script[i].until) {
-            b |= g_script[i].buttons;
-            if (g_script[i].lx != 128 || g_script[i].ly != 128) { *lx = g_script[i].lx; *ly = g_script[i].ly; }
+        const ScriptPress *e = &g_script[i];
+        int on;
+        if (e->keyed)
+            on = (frame > e->frame || (frame == e->frame && now_us >= e->t0)) &&
+                 (frame < e->until || (frame == e->until && now_us < e->t1));
+        else {
+            uint64_t at = e->by_time ? now_us : frame;
+            on = at >= e->frame && at < e->until;
+        }
+        if (on) {
+            b |= e->buttons;
+            if (e->lx != 128 || e->ly != 128) { *lx = e->lx; *ly = e->ly; }
         }
     }
+    return b;
+}
+
+/* --- recording (--record-input) ------------------------------------------------------- */
+/* What the game read is written as segments of unchanged input: "F:buttons:frames" when the
+ * change happened at the first read of a frame and lasted to the first read of a later one,
+ * "F@US:buttons:F@US" otherwise. A segment is written when it ends; the one still open is
+ * closed when the run stops or crashes (rt_host_record_close). */
+static FILE *g_rec;
+static uint64_t g_rec_frame, g_rec_us, g_rec_last_frame, g_read_frame = UINT64_MAX, g_rec_entries;
+static int g_rec_aligned = 1, g_rec_lx = 128, g_rec_ly = 128;
+static uint32_t g_rec_b;
+
+static void rec_segment(uint64_t end_frame, uint64_t end_us, int end_aligned) {
+    if (!g_rec || (!g_rec_b && g_rec_lx == 128 && g_rec_ly == 128)) return;
+    char names[256] = "";
+    for (size_t i = 0; i < 12; i++)
+        if (g_rec_b & k_names[i].bits) {
+            if (names[0]) strcat(names, "+");
+            strcat(names, k_names[i].name);
+        }
+    if (g_rec_lx != 128 || g_rec_ly != 128)
+        snprintf(names + strlen(names), sizeof(names) - strlen(names), "%slx=%d+ly=%d", names[0] ? "+" : "", g_rec_lx, g_rec_ly);
+    if (g_rec_aligned && end_aligned)
+        fprintf(g_rec, "%llu:%s:%llu\n", (unsigned long long)g_rec_frame, names, (unsigned long long)(end_frame - g_rec_frame));
+    else
+        fprintf(g_rec, "%llu@%llu:%s:%llu@%llu\n", (unsigned long long)g_rec_frame, (unsigned long long)g_rec_us, names,
+                (unsigned long long)end_frame, (unsigned long long)end_us);
+    fflush(g_rec);
+    g_rec_entries++;
+}
+
+static void rec_read(uint64_t frame, uint64_t now_us, int first_in_frame, uint32_t b, int lx, int ly) {
+    g_rec_last_frame = frame;
+    if (b == g_rec_b && lx == g_rec_lx && ly == g_rec_ly) return;
+    rec_segment(frame, now_us, first_in_frame);
+    g_rec_frame = frame;
+    g_rec_us = now_us;
+    g_rec_aligned = first_in_frame;
+    g_rec_b = b;
+    g_rec_lx = lx;
+    g_rec_ly = ly;
+}
+
+void rt_host_record_close(void) {
+    if (!g_rec) return;
+    rec_segment(g_rec_last_frame + 1, 0, 1);  /* whatever is held lasts to the end */
+    fprintf(g_rec, "end=%llu\n# %llu segments\n", (unsigned long long)g_rec_last_frame + 1, (unsigned long long)g_rec_entries);
+    fclose(g_rec);
+    g_rec = NULL;
+    printf("[host] input recording closed at frame %llu (%llu segments)\n", (unsigned long long)g_rec_last_frame,
+           (unsigned long long)g_rec_entries);
+}
+
+static int rec_open(const char *path) {
+    g_rec = fopen(path, "w");
+    if (!g_rec) { fprintf(stderr, "[host] cannot write %s\n", path); return 0; }
+    fprintf(g_rec, "# God of War PSP native port: input recording (--record-input). Replay with --input <this file>,\n"
+                   "# starting from the same --ms0 contents. Entries: frame:buttons:frames, or frame@us:buttons:frame@us\n"
+                   "# (us = virtual time in microseconds) for changes within a displayed frame.\n"
+                   "rtc=%lld\n", (long long)rt_wall_epoch());
+    fflush(g_rec);
+    atexit(rt_host_record_close);
+    printf("[host] recording input to %s\n", path);
+    return 1;
+}
+
+static int live_input(uint32_t *b, int *lx, int *ly);  /* keyboard and gamepads, when there is a window */
+
+uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly) {
+    int ax = 128, ay = 128;
+    int first_in_frame = frame != g_read_frame;
+    g_read_frame = frame;
+    uint32_t b = script_buttons(frame, now_us, &ax, &ay);
+    /* the devices are sampled once per frame, or per vblank while no frames are shown */
+    static uint64_t latch_us;
+    static uint32_t live_b;
+    static int live_x = 128, live_y = 128, have_live, latched;
+    if (first_in_frame || now_us - latch_us >= 16683 || !latched) {
+        latched = 1;
+        latch_us = now_us;
+        live_b = 0;
+        live_x = live_y = 128;
+        have_live = live_input(&live_b, &live_x, &live_y);
+    }
+    if (have_live) {
+        b |= live_b;
+        if (live_x != 128) ax = live_x;
+        if (live_y != 128) ay = live_y;
+    }
+    rec_read(frame, now_us, first_in_frame, b, ax, ay);
+    *lx = (uint8_t)ax;
+    *ly = (uint8_t)ay;
     return b;
 }
 
@@ -158,7 +318,8 @@ static void pump(void) {
 
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
-    if (g_o.input && !parse_script(g_o.input)) return 0;
+    if (g_o.input && !load_script(g_o.input)) return 0;
+    if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     SDL_SetMainReady();
     if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
@@ -195,6 +356,7 @@ int rt_host_init(const HostOptions *o) {
 }
 
 void rt_host_shutdown(void) {
+    rt_host_record_close();
     rt_gpu_shutdown();
     if (!g_win) return;
     for (int i = 0; i < 8; i++) if (g_pads[i]) SDL_CloseGamepad(g_pads[i]);
@@ -275,10 +437,11 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
     return g_quit;
 }
 
-uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly) {
+static int live_input(uint32_t *out_b, int *lx, int *ly) {
+    if (!g_win) return 0;
+    uint32_t b = 0;
     int ax = 128, ay = 128;
-    uint32_t b = script_buttons(frame, now_us, &ax, &ay);
-    if (g_win) {
+    {
         const bool *k = SDL_GetKeyboardState(NULL);
         static const struct { SDL_Scancode sc; uint32_t bit; } keys[] = {
             { SDL_SCANCODE_UP, PSP_UP }, { SDL_SCANCODE_DOWN, PSP_DOWN }, { SDL_SCANCODE_LEFT, PSP_LEFT },
@@ -311,26 +474,23 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
             if (abs(x) > 6000 || abs(y) > 6000) { ax = (x + 32768) >> 8; ay = (y + 32768) >> 8; }
         }
     }
-    *lx = (uint8_t)ax;
-    *ly = (uint8_t)ay;
-    return b;
+    *out_b = b;
+    *lx = ax;
+    *ly = ay;
+    return 1;
 }
 
 #else  /* built without SDL: headless only, scripted input */
 
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
-    if (g_o.input && !parse_script(g_o.input)) return 0;
+    if (g_o.input && !load_script(g_o.input)) return 0;
+    if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     if (g_o.window || g_o.gpu) { fprintf(stderr, "[host] this build has no window or GPU support (SDL3 not linked)\n"); return 0; }
     return 1;
 }
-void rt_host_shutdown(void) {}
+void rt_host_shutdown(void) { rt_host_record_close(); }
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) { (void)frame; (void)addr; (void)stride; (void)format; return 0; }
 int rt_host_idle(uint64_t now_us, uint64_t next_us) { (void)now_us; (void)next_us; return 0; }
-uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly) {
-    int ax = 128, ay = 128;
-    uint32_t b = script_buttons(frame, now_us, &ax, &ay);
-    *lx = (uint8_t)ax; *ly = (uint8_t)ay;
-    return b;
-}
+static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
 #endif

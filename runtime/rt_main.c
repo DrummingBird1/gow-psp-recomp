@@ -165,7 +165,17 @@ static void boot_report(void) {
     rt_sas_report();
     rt_atrac_report();
     rt_mpeg_report();
+    rt_savedata_report();
 }
+
+#ifdef _WIN32
+static LPTOP_LEVEL_EXCEPTION_FILTER g_prev_filter;
+static LONG WINAPI on_crash(EXCEPTION_POINTERS *e) {
+    rt_host_record_close();
+    fflush(NULL);
+    return g_prev_filter ? g_prev_filter(e) : EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
  * thread (as the PSP module manager does) and the scheduler runs until every thread
@@ -183,6 +193,9 @@ static int run_boot(const BootOptions *o) {
     KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
     k_thread_start(t, sizeof(path), argp);
     if (!rt_host_init(&o->host)) return 1;
+#ifdef _WIN32
+    if (o->host.record_input) g_prev_filter = SetUnhandledExceptionFilter(on_crash);
+#endif
     AudioOptions ao = { o->wav, o->host.window && !o->mute };
     if (!rt_audio_init(&ao)) return 1;
     /* An interactive window runs until it is closed, unless limits were given explicitly. */
@@ -209,7 +222,7 @@ static int run_boot(const BootOptions *o) {
 int main(int argc, char **argv) {
     const char *image = NULL, *cases = NULL, *results = NULL, *renderer = "soft", *extract = NULL, *extract_to = NULL;
     int boot = 0;
-    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, { 0, 2, 0, 0, NULL, "." }, 0, 0, 0, NULL, 0 };
+    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, { 0, 2, 0, 0, NULL, NULL, "." }, 0, 0, 0, NULL, 0 };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--image") && i + 1 < argc) image = argv[++i];
         else if (!strcmp(argv[i], "--difftest") && i + 2 < argc) { cases = argv[++i]; results = argv[++i]; }
@@ -224,6 +237,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--fullscreen")) o.host.fullscreen = 1;
         else if (!strcmp(argv[i], "--nearest")) o.host.nearest = 1;
         else if (!strcmp(argv[i], "--input") && i + 1 < argc) o.host.input = argv[++i];
+        else if (!strcmp(argv[i], "--record-input") && i + 1 < argc) o.host.record_input = argv[++i];
+        else if (!strcmp(argv[i], "--save-slot") && i + 1 < argc) rt_savedata_slot = argv[++i];
         else if (!strcmp(argv[i], "--shots") && i + 1 < argc) o.host.shot_dir = argv[++i];
         else if (!strcmp(argv[i], "--renderer") && i + 1 < argc) renderer = argv[++i];
         else if (!strcmp(argv[i], "--gpu-driver") && i + 1 < argc) o.host.gpu_driver = argv[++i];
@@ -238,6 +253,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--perf-csv") && i + 1 < argc) o.frames.perf_csv = argv[++i];
         else if (!strcmp(argv[i], "--profile")) o.profile = 1;
         else if (!strcmp(argv[i], "--max-frames") && i + 1 < argc) rt_max_frames = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--fast-forward") && i + 1 < argc) rt_fast_forward = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--wav") && i + 1 < argc) o.wav = argv[++i];
         else if (!strcmp(argv[i], "--mute")) o.mute = 1;
         else if (!strcmp(argv[i], "--extract") && i + 2 < argc) { extract = argv[++i]; extract_to = argv[++i]; }
@@ -257,8 +273,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: %s --image image.bin (--difftest cases.bin results.bin |\n"
                         "       --boot [--disc game.chd|.iso] [--ms0 dir] [--max-hle N] [--cpu-ms N] [--wall-ms N] [--trace-hle]\n"
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
-                        "              [--perf-csv frames.csv] [--profile] [--max-frames N]\n"
-                        "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...]\n"
+                        "              [--perf-csv frames.csv] [--profile] [--max-frames N] [--fast-forward N]\n"
+                        "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...|file]\n"
+                        "              [--record-input file] [--save-slot NAME]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--wav out.wav] [--mute])\n"
                         "       %s --disc game.chd|.iso --extract disc0:/path out.file (a directory is listed)\n"
@@ -273,6 +290,7 @@ int main(int argc, char **argv) {
     rt_ge_set_renderer(strcmp(renderer, "gpu") != 0, strcmp(renderer, "soft") != 0);
     o.host.gpu = strcmp(renderer, "soft") != 0;
     o.frames.from_gpu = !strcmp(renderer, "gpu");
+    rt_ge_skip_draw = rt_fast_forward > 1;
     rt_mem_init();
     o.image = image;
     return cases ? run_difftest(image, cases, results) : run_boot(&o);

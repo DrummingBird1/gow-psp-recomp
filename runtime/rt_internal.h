@@ -39,8 +39,20 @@ int rt_vfpu_selftest(void);
 /* File I/O layer */
 int rt_io_open_disc(const char *path);
 void rt_io_set_ms0(const char *dir);
+const char *rt_io_ms0(void);  /* host folder that holds ms0: */
 int rt_io_extract(const char *disc_path, const char *out);
 void rt_io_report(void);
+
+/* Save data (rt_savedata.c): --save-slot picks the slot of the list dialogs */
+extern const char *rt_savedata_slot;
+void rt_savedata_report(void);
+
+/* Guest wall clock (sceRtc, sceKernelLibcTime): the wall time at virtual time 0, in whole
+ * seconds since 1970, plus virtual time. Taken from the host clock when the run starts,
+ * or from an input recording (rtc=...), so that a replay sees the same dates. */
+void rt_wall_set_epoch(int64_t seconds);
+int64_t rt_wall_epoch(void);
+uint64_t rt_wall_time_us(void);
 
 /* Movies (rt_mpeg.c): a report, and --movie-test (demux and decode a .pmf file without the game) */
 void rt_mpeg_report(void);

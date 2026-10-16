@@ -137,6 +137,7 @@ add_executable(gow_rt
   runtime/rt_mpeg.c
   runtime/rt_prof.c
   runtime/rt_sas.c
+  runtime/rt_savedata.c
   runtime/rt_thread.c
   runtime/rt_vfpu.c
   runtime/rt_selftest.c
