@@ -278,6 +278,8 @@ static void report_threads(void) {
     }
 }
 
+int (*k_idle_hook)(uint64_t now_us, uint64_t next_us);
+
 int k_run_scheduler(uint32_t cpu_ms_limit) {
     g_sched = rt_fiber_init_main();
     rt_abort_hook = abort_hook;
@@ -296,6 +298,12 @@ int k_run_scheduler(uint32_t cpu_ms_limit) {
                 rt_last_abort.kind = RT_ABORT_DEADLOCK;
                 rt_last_abort.what = "every thread is blocked with no timeout (waiting for an event the runtime does not produce yet)";
                 result = RT_ABORT_DEADLOCK;
+                break;
+            }
+            if (k_idle_hook && next > k_now && k_idle_hook(k_now, next)) {
+                rt_last_abort.kind = RT_ABORT_HLE;
+                rt_last_abort.what = "window closed";
+                result = RT_ABORT_HLE;
                 break;
             }
             if (next > k_now) k_now = next;

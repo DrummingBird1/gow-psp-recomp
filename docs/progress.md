@@ -17,6 +17,7 @@
 | 2026-10-15 | שלב 2: מתזמן תהליכונים, מערכת קבצים (CHD/ISO), שכבת HLE | הושלם (commit d12a000) |
 | 2026-10-16 | שלב 3: VFPU | הושלם (commit 9f3b497) |
 | 2026-10-16 | שלב 4: מפרש GE ו-renderer תוכנה | התפריט הראשי של CoO על המסך, ‏24–28 FPS ([פירוט](phase4-ge.md)) |
+| 2026-10-16 | שלב 5: חלון, קלט, sceMpeg, coroutines | נכנסים למשחק: השלב הראשון משוחק בחלון, ~19 FPS ([פירוט](phase5-window-input.md)) |
 
 ## 2026-10-16: ה-boot של Chains of Olympus, ובדיקות האימות
 
@@ -106,3 +107,40 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 | `2026-10-16_coo_perf_v1_vs_v2_hostclock.mp4` | v1 ו-v2 זה לצד זה, עם מונה FPS ומספר פריים חיים. |
 
 זמני הפריים הגולמיים נמצאים ב-`media/perf/*.csv`.
+
+## 2026-10-16: חלון, קלט, ונכנסים למשחק
+
+הפירוט ב-[phase5-window-input.md](phase5-window-input.md).
+
+### הדרך לשלב הראשון
+
+ל-port יש עכשיו חלון אמיתי (SDL3) שרץ בזמן אמת, וקלט ממקלדת ומגיימפד. בדרך לשלב הראשון היו צריך לפתור שני מכשולים:
+- **סרטון הפתיחה:** הוא הפיל את המשחק. sceMpeg מומש בלי decoder, כמו PPSSPP בלי FFmpeg.
+- **coroutines של הסקריפטים:** המשחק מחליף בהן מחסנית, וזה לא ניתן לביטוי בקוד סטטי. הן מומשו על fibers.
+
+![בחירת רמת קושי בחלון](../media/screenshots/2026-10-16_08_window_difficulty.png)
+
+![השלב הראשון: The Shores of Attica](../media/screenshots/2026-10-16_09_coo_shores_of_attica_title.png)
+
+![ה-tutorial בחלון](../media/screenshots/2026-10-16_10_window_tutorial.png)
+
+![קרב בחלון: Blades of Chaos, קומבו של 4](../media/screenshots/2026-10-16_09_window_combat.png)
+
+צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`). הלחיצות בהם הגיעו מתסריט קלט (`--input`).
+
+### הקלטת משחק
+
+הלחיצות מגיעות מתסריט קבוע (`media/perf/2026-10-16_v3_gameplay_input.txt`). לכן ההקלטה ניתנת לשחזור, ואפשר להשוות אותה בין גרסאות. התסריט:
+- עובר בתפריט.
+- סוגר את מסכי ה-tutorial.
+- מבצע קומבואים: □□□△.
+- מזיז את Kratos עם הסטיק.
+
+| קובץ | מה רואים |
+|---|---|
+| `2026-10-16_coo_gameplay_shores_of_attica_gameclock.mp4` | 57 שניות של משחק במהירות האמיתית. השלב נפתח, יש קרבות, נאספים red orbs ומופיעים מסכי tutorial. |
+| `2026-10-16_coo_gameplay_shores_of_attica_hostclock_v3_overlay.mp4` | אותו קטע לפי שעון המחשב, עם מונה FPS חי: כמה חלק זה נראה על המחשב הזה (181 שניות). |
+
+![זמני פריים במשחק](../media/screenshots/2026-10-16_11_perf_gameplay_v3.png)
+
+בשלב הראשון ה-renderer התוכנה נותן כ-19 FPS (‏52 ms לפריים), ולכן בחלון המשחק רץ לאט. יש כ-850 flushes לכל פריים של משחק: כמעט כל draw call משתמש ב-render target או בטקסטורה ב-VRAM. זה היעד הבא לשיפור ביצועים, לפני מעבר ל-renderer חומרה.

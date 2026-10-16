@@ -12,6 +12,7 @@ typedef struct { const char *name; HleFn fn; } HleEntry;
 extern const HleEntry rt_hle_kernel[];   /* rt_thread.c: ThreadMan, SysMem, Kernel_Library, Utils */
 extern const HleEntry rt_hle_io[];       /* rt_io.c: IoFileMgr, Umd */
 extern const HleEntry rt_hle_misc[];     /* rt_hle.c: display, ge, ctrl, audio, utility, power, ... */
+extern const HleEntry rt_hle_mpeg[];     /* rt_mpeg.c: sceMpeg without a video decoder */
 
 #define A0 (c->r[4])
 #define A1 (c->r[5])
@@ -91,6 +92,9 @@ void k_check_preempt(void);
 /* Iterate over threads waiting on (type, id), in wake order (priority attr or FIFO). */
 int k_waiters(int type, int id, int by_priority, KThread **out, int max);
 void k_stop(int kind, uint32_t addr, uint32_t extra, const char *what);
+/* Called when every thread waits and virtual time is about to jump to next_us (real-time
+ * pacing in the window); a nonzero result stops the run. */
+extern int (*k_idle_hook)(uint64_t now_us, uint64_t next_us);
 int k_run_scheduler(uint32_t timeout_ms_wall);
 uint32_t k_timeout_arg(uint32_t ptr);  /* reads a guest timeout pointer (0 = infinite) */
 

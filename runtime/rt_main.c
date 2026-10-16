@@ -18,6 +18,7 @@
 
 #include "rt_frames.h"
 #include "rt_ge.h"
+#include "rt_host.h"
 #include "rt_kernel.h"
 #include "rt_prof.h"
 #define CASE_TIMEOUT_MS 3000
@@ -146,7 +147,8 @@ typedef struct {
     const char *image, *disc, *ms0;
     uint32_t max_hle, cpu_ms, wall_ms;
     FrameOptions frames;
-    int profile;
+    HostOptions host;
+    int profile, cpu_set, wall_set;
 } BootOptions;
 
 static void boot_report(void) {
@@ -154,6 +156,7 @@ static void boot_report(void) {
     rt_hle_report();
     rt_io_report();
     rt_ge_report();
+    rt_co_report();
 }
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
@@ -171,16 +174,21 @@ static int run_boot(const BootOptions *o) {
     memcpy(rt_ptr(argp), path, sizeof(path));
     KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
     k_thread_start(t, sizeof(path), argp);
+    if (!rt_host_init(&o->host)) return 1;
+    /* An interactive window runs until it is closed, unless limits were given explicitly. */
+    uint32_t cpu_ms = o->host.window && !o->cpu_set ? 0xFFFFFFFFu : o->cpu_ms;
     g_boot_mode = 1;
     g_timeout_ms = o->wall_ms;
     g_case_started = now_ms();
-    g_case_running = 1;
+    g_case_running = !o->host.window || o->wall_set;
     start_watchdog();
     rt_frames_init(&o->frames);
+    if (o->host.window) k_idle_hook = rt_host_idle;
     if (o->profile) rt_prof_start();
-    k_run_scheduler(o->cpu_ms);
+    k_run_scheduler(cpu_ms);
     g_case_running = 0;
     rt_frames_close(k_now);
+    rt_host_shutdown();
     boot_report();
     if (o->profile) rt_prof_report(40);
     return 0;
@@ -189,7 +197,7 @@ static int run_boot(const BootOptions *o) {
 int main(int argc, char **argv) {
     const char *image = NULL, *cases = NULL, *results = NULL;
     int boot = 0;
-    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, 0 };
+    BootOptions o = { NULL, NULL, NULL, 0, 30000, 60000, { 0 }, { 0, 2, 0, 0, NULL, "." }, 0, 0, 0 };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--image") && i + 1 < argc) image = argv[++i];
         else if (!strcmp(argv[i], "--difftest") && i + 2 < argc) { cases = argv[++i]; results = argv[++i]; }
@@ -197,8 +205,14 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--disc") && i + 1 < argc) o.disc = argv[++i];
         else if (!strcmp(argv[i], "--ms0") && i + 1 < argc) o.ms0 = argv[++i];
         else if (!strcmp(argv[i], "--max-hle") && i + 1 < argc) o.max_hle = (uint32_t)strtoul(argv[++i], NULL, 0);
-        else if (!strcmp(argv[i], "--cpu-ms") && i + 1 < argc) o.cpu_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
-        else if (!strcmp(argv[i], "--wall-ms") && i + 1 < argc) o.wall_ms = (uint32_t)strtoul(argv[++i], NULL, 0);
+        else if (!strcmp(argv[i], "--cpu-ms") && i + 1 < argc) { o.cpu_ms = (uint32_t)strtoul(argv[++i], NULL, 0); o.cpu_set = 1; }
+        else if (!strcmp(argv[i], "--wall-ms") && i + 1 < argc) { o.wall_ms = (uint32_t)strtoul(argv[++i], NULL, 0); o.wall_set = 1; }
+        else if (!strcmp(argv[i], "--window")) o.host.window = 1;
+        else if (!strcmp(argv[i], "--scale") && i + 1 < argc) o.host.scale = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--fullscreen")) o.host.fullscreen = 1;
+        else if (!strcmp(argv[i], "--nearest")) o.host.nearest = 1;
+        else if (!strcmp(argv[i], "--input") && i + 1 < argc) o.host.input = argv[++i];
+        else if (!strcmp(argv[i], "--shots") && i + 1 < argc) o.host.shot_dir = argv[++i];
         else if (!strcmp(argv[i], "--trace-hle")) rt_hle_verbose = 1;
         else if (!strcmp(argv[i], "--frames-dir") && i + 1 < argc) o.frames.png_dir = argv[++i];
         else if (!strcmp(argv[i], "--frames-every") && i + 1 < argc) o.frames.png_every = (uint32_t)strtoul(argv[++i], NULL, 0);
@@ -216,7 +230,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: %s --image image.bin (--difftest cases.bin results.bin |\n"
                         "       --boot [--disc game.chd|.iso] [--ms0 dir] [--max-hle N] [--cpu-ms N] [--wall-ms N] [--trace-hle]\n"
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
-                        "              [--perf-csv frames.csv] [--profile] [--max-frames N])\n",
+                        "              [--perf-csv frames.csv] [--profile] [--max-frames N]\n"
+                        "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...])\n",
                 argv[0]);
         return 2;
     }

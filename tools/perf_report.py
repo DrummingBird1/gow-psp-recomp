@@ -25,20 +25,23 @@ def load(path):
     return [{k: float(v) for k, v in r.items()} for r in csv.DictReader(open(path))]
 
 
-def chart(runs, out, title):
+def chart(runs, out, title, avg_from, avg_label):
     W, H, L, R, T, B = 1400, 640, 80, 30, 70, 70
     img = Image.new("RGB", (W, H), (16, 16, 20))
     d = ImageDraw.Draw(img)
     font = ImageFont.truetype(FONT, 15)
     big = ImageFont.truetype(FONT, 20)
     nmax = max(int(r["frame"]) for run in runs for r in run["rows"])
-    ymax = 500.0
+    times = sorted(r["host_frame_ms"] for run in runs for r in run["rows"])
+    ymax = max(100.0, 50.0 * -(-times[int(len(times) * 0.998) - 1] // 50))
+    xstep = next(s for s in (100, 200, 250, 500, 1000, 2000, 5000, 10000) if nmax / s <= 14)
+    ystep = 50 if ymax <= 500 else 100
     def X(f): return L + (W - L - R) * f / nmax
     def Y(ms): return H - B - (H - T - B) * min(ms, ymax) / ymax
-    for ms in range(0, int(ymax) + 1, 50):
+    for ms in range(0, int(ymax) + 1, ystep):
         d.line([(L, Y(ms)), (W - R, Y(ms))], fill=(40, 40, 48))
         d.text((L - 10 - d.textlength(f"{ms}", font=font), Y(ms) - 9), f"{ms}", font=font, fill=(150, 150, 160))
-    for f in range(0, nmax + 1, 100):
+    for f in range(0, nmax + 1, xstep):
         d.text((X(f) - d.textlength(str(f), font=font) / 2, H - B + 8), str(f), font=font, fill=(150, 150, 160))
     d.line([(L, Y(16.683)), (W - R, Y(16.683))], fill=(90, 90, 110))
     d.text((W - R - 190, Y(16.683) - 20), "59.94 fps (16.7 ms)", font=font, fill=(150, 150, 170))
@@ -49,11 +52,11 @@ def chart(runs, out, title):
         c = COLORS[i % len(COLORS)]
         pts = [(X(r["frame"]), Y(r["host_frame_ms"])) for r in run["rows"]]
         d.line(pts, fill=c, width=1)
-        menu = [r["host_frame_ms"] for r in run["rows"] if r["frame"] >= 900]
+        seg = [r["host_frame_ms"] for r in run["rows"] if r["frame"] >= avg_from]
         total = run["rows"][-1]["host_ms"] / 1000
         note = f"{run['label']}: total {total:.1f} s"
-        if menu:
-            note += f", main menu avg {sum(menu) / len(menu):.1f} ms ({1000 * len(menu) / sum(menu):.1f} fps)"
+        if seg:
+            note += f", {avg_label} avg {sum(seg) / len(seg):.1f} ms ({1000 * len(seg) / sum(seg):.1f} fps)"
         d.rectangle([L + 20, T + 10 + 26 * i, L + 34, T + 24 + 26 * i], fill=c)
         d.text((L + 44, T + 7 + 26 * i), note, font=font, fill=(225, 225, 230))
     Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -118,6 +121,8 @@ def main() -> int:
     ap.add_argument("--video")
     ap.add_argument("--ffmpeg", default="ffmpeg")
     ap.add_argument("--title", default="Chains of Olympus: host time per frame")
+    ap.add_argument("--avg-from", type=int, default=900, help="first frame of the averaged segment")
+    ap.add_argument("--avg-label", default="main menu", help="name of the averaged segment")
     a = ap.parse_args()
     runs = []
     for spec in a.run:
@@ -125,7 +130,7 @@ def main() -> int:
         kv["rows"] = load(kv["csv"])
         runs.append(kv)
     if a.chart:
-        chart(runs, a.chart, a.title)
+        chart(runs, a.chart, a.title, a.avg_from, a.avg_label)
     if a.video:
         video(runs, a.video, a.ffmpeg)
     return 0

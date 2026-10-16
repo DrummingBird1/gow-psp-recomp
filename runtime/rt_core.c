@@ -83,13 +83,29 @@ void rt_call(RtCtx *c, uint32_t addr) {
     f(c);
 }
 
+/* Calls guest code from HLE (e.g. a game callback) with up to 8 arguments and returns its v0.
+ * The caller's whole register state is restored afterwards. */
+uint32_t rt_call_guest(RtCtx *c, uint32_t addr, int nargs, const uint32_t *args) {
+    RtCtx saved = *c;
+    for (int i = 0; i < nargs && i < 8; i++) c->r[4 + i] = args[i];
+    rt_call(c, addr);
+    uint32_t v0 = c->r[2];
+    *c = saved;
+    return v0;
+}
+
 void rt_bad_jump(RtCtx *c, uint32_t pc, uint32_t target) {
     (void)c;
     rt_abort(RT_ABORT_BAD_JUMP, pc, target, "jump-table target not in table");
 }
 
 void rt_trap(RtCtx *c, uint32_t pc, uint32_t word, const char *what) {
-    (void)c;
+    /* the return address points into the caller (a game assert calls a function holding the break) */
+    printf("[trap] %s at %08X (code %08X), ra %08X, a0..a3 %08X %08X %08X %08X\n", what, pc, word,
+           c->r[31], c->r[4], c->r[5], c->r[6], c->r[7]);
+    printf("[trap] stack at %08X:", c->r[29]);
+    for (int i = 0; i < 24; i++) printf("%s%08X", i % 8 ? " " : "\n  ", rt_r32(c->r[29] + 4u * i));
+    printf("\n");
     rt_abort(RT_ABORT_TRAP, pc, word, what);
 }
 

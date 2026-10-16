@@ -121,6 +121,11 @@ static inline void rt_ctc1(RtCtx *c, int fs, uint32_t v) {
 
 /* Implemented in rt_core.c / rt_hle.c */
 void rt_call(RtCtx *c, uint32_t addr);
+/* Calls guest code from HLE with up to 8 arguments; returns v0 and restores the caller's registers. */
+uint32_t rt_call_guest(RtCtx *c, uint32_t addr, int nargs, const uint32_t *args);
+/* Game coroutine context switch on host fibers (rt_coro.c; wired in by recomp/runtime_funcs.json). */
+void rt_co_switch(RtCtx *c, uint32_t swap_slot, uint32_t cur_slot);
+void rt_co_report(void);
 void rt_bad_jump(RtCtx *c, uint32_t pc, uint32_t target);
 void rt_trap(RtCtx *c, uint32_t pc, uint32_t word, const char *what);
 void rt_hle(RtCtx *c, uint32_t nid, const char *lib, const char *name);

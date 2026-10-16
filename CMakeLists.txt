@@ -19,15 +19,31 @@ FetchContent_Declare(libchdr
   GIT_TAG 47d794151b2b64f6aba60304e6480f4f5a2bc24b)
 FetchContent_MakeAvailable(libchdr)
 
+# SDL3 (zlib license): the game window, keyboard and gamepad input; pinned to release 3.4.16
+option(GOW_WINDOW "Build the SDL3 window and input (gow_rt --window)" ON)
+if(GOW_WINDOW)
+  set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
+  set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+  set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+  FetchContent_Declare(SDL3
+    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+    GIT_TAG fa2c02bb6e21974a89ea9824bc53c9932abe5f9c)
+  FetchContent_MakeAvailable(SDL3)
+endif()
+
 add_executable(gow_rt
   runtime/rt_core.c
+  runtime/rt_coro.c
   runtime/rt_fiber.c
   runtime/rt_frames.c
   runtime/rt_ge.c
   runtime/rt_gesoft.c
   runtime/rt_hle.c
+  runtime/rt_host.c
   runtime/rt_io.c
   runtime/rt_main.c
+  runtime/rt_mpeg.c
   runtime/rt_prof.c
   runtime/rt_thread.c
   runtime/rt_vfpu.c
@@ -36,6 +52,10 @@ add_executable(gow_rt
 set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 11)
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")
 target_link_libraries(gow_rt PRIVATE chdr-static)
+if(GOW_WINDOW)
+  target_link_libraries(gow_rt PRIVATE SDL3::SDL3-static)
+  target_compile_definitions(gow_rt PRIVATE GOW_HAVE_SDL)
+endif()
 
 if(MSVC)
   # /bigobj: generated files are large; /fp:precise keeps IEEE single-precision semantics

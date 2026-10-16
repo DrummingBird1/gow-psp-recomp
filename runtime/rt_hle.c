@@ -8,6 +8,7 @@
 
 #include "rt_frames.h"
 #include "rt_ge.h"
+#include "rt_host.h"
 #include "rt_kernel.h"
 
 int rt_hle_verbose;
@@ -28,7 +29,7 @@ void rt_log(const char *fmt, ...) {
 typedef struct { uint32_t nid; int resolved; HleFn fn; const char *lib, *name; uint64_t count; } Slot;
 static Slot g_slots[2048];
 
-static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc };
+static const HleEntry *const g_tables[] = { rt_hle_kernel, rt_hle_io, rt_hle_misc, rt_hle_mpeg };
 
 static Slot *slot_for(uint32_t nid, const char *lib, const char *name) {
     uint32_t h = (nid * 2654435761u) & 2047;
@@ -99,6 +100,7 @@ static void hle_DisplaySetFrameBuf(RtCtx *c) {
     if (g_frames == 1 || g_frames % 600 == 0)
         rt_log("[display] frame %llu: framebuffer %08X width %u format %u\n", (unsigned long long)g_frames, A0, A1, A2);
     rt_frames_present(g_frames, k_now, A0, A1, A2);
+    if (rt_host_present(g_frames, A0, A1, A2)) k_stop(RT_ABORT_HLE, 0, (uint32_t)g_frames, "window closed");
     if (rt_max_frames && g_frames >= rt_max_frames) k_stop(RT_ABORT_BUDGET, 0, (uint32_t)g_frames, "frame limit reached");
     if (A0 && prev && A0 != prev) {
         uint64_t now = k_now, wait = g_next_flip > now ? g_next_flip - now : 0;
@@ -130,13 +132,17 @@ static void hle_GeListEnQueue(RtCtx *c) {
 static void hle_GeListSync(RtCtx *c) { RET(0); }  /* PSP_GE_LIST_COMPLETED */
 
 /* --- controller --------------------------------------------------------------- */
+/* SceCtrlData: TimeStamp, Buttons, Lx, Ly, 6 reserved bytes. Every entry gets the current
+ * state (keyboard/gamepad in the window, or the --input script by displayed frame). */
 static void hle_CtrlPeekBufferPositive(RtCtx *c) {
     uint32_t n = A1 ? A1 : 1;
+    uint8_t lx, ly;
+    uint32_t buttons = rt_host_buttons(g_frames, k_now, &lx, &ly);
     for (uint32_t i = 0; i < n; i++) {
         uint32_t p = A0 + i * 16;
         rt_w32(p, (uint32_t)k_now);
-        rt_w32(p + 4, 0);           /* no buttons */
-        rt_w8(p + 8, 0x80); rt_w8(p + 9, 0x80);
+        rt_w32(p + 4, buttons);
+        rt_w8(p + 8, lx); rt_w8(p + 9, ly);
         memset(rt_ptr(p + 10), 0, 6);
     }
     RET(n);

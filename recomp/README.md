@@ -94,6 +94,23 @@ Display lists are executed by `runtime/rt_ge.c` and drawn by the software render
 | `--max-frames N` | Stops after displayed frame N (runs of equal length for comparisons) |
 | `--profile` | Sampling profiler of the main thread; top functions printed at exit (needs the Release PDB) |
 
+Playing in a window (`runtime/rt_host.c`, SDL3):
+
+```bash
+build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_full/image.bin --boot --disc "God of War - Chains of Olympus (USA).chd" --ms0 build/ms0 --window
+```
+
+| Option / key | Effect |
+|---|---|
+| `--window [--scale N] [--fullscreen] [--nearest]` | Shows the game and runs it in real time (the game slows down when the host cannot keep up) |
+| Keyboard | Arrows = D-pad, Z = ✕, X = ○, A = □, S = △, Q/W = L/R, Space or Enter = Start, V = Select, I/J/K/L = analog stick |
+| Gamepad | PSP layout (south button = ✕), left stick = analog stick, both shoulders and triggers = L/R |
+| F11 or Alt+Enter, F12, Esc | Fullscreen, screenshot to `--shots DIR`, quit |
+| `--input "1000:cross:6,t27.5:start:0.3"` | Scripted presses by displayed frame (or `t` + virtual seconds), headless or windowed; buttons `cross circle square triangle up down left right l r start select aup adown aleft aright`, joined with `+` |
+
+Without `--window` the run stays headless and deterministic (virtual time as fast as the host allows).
+`tools\play.cmd` starts Chains of Olympus in a window (extra arguments are passed on, e.g. `--fullscreen`).
+
 The renderer draws on all logical processors (`RT_GE_THREADS=N` overrides); `RT_GE_TRACE_LIST=N`
 prints every primitive of display list N with the pixels it shaded.
 
