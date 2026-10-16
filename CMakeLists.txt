@@ -153,6 +153,7 @@ add_executable(gow_rt
   runtime/rt_audio.c
   runtime/rt_core.c
   runtime/rt_coro.c
+  runtime/rt_debug.c
   runtime/rt_fiber.c
   runtime/rt_frames.c
   runtime/rt_ge.c

@@ -17,6 +17,7 @@
 #endif
 
 #include "rt_audio.h"
+#include "rt_debug.h"
 #include "rt_frames.h"
 #include "rt_ge.h"
 #include "rt_gpu.h"
@@ -167,6 +168,7 @@ static void boot_report(void) {
     rt_atrac_report();
     rt_mpeg_report();
     rt_savedata_report();
+    rt_debug_report();
 }
 
 #ifdef _WIN32
@@ -264,6 +266,7 @@ int main(int argc, char **argv) {
             int ch = i + 3 < argc && argv[i + 3][0] != '-' ? atoi(argv[i + 3]) : 0;
             return rt_mpeg_test(pmf, out, ch);
         }
+        else if (rt_debug_option(argc, argv, &i)) continue;
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     if (extract) {
@@ -278,7 +281,9 @@ int main(int argc, char **argv) {
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...|file]\n"
                         "              [--record-input file] [--save-slot NAME]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
-                        "              [--wav out.wav] [--mute])\n"
+                        "              [--wav out.wav] [--mute]\n"
+                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--level-log] [--load-level NAME@FRAME]\n"
+                        "              [--dump-ram N,N,...|stop:prefix])\n"
                         "       %s --disc game.chd|.iso --extract disc0:/path out.file (a directory is listed)\n"
                         "       %s --movie-test movie.pmf out_prefix [audio channel]\n",
                 argv[0], argv[0], argv[0]);

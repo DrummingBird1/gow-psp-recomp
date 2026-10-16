@@ -24,6 +24,7 @@
 
 #include "rt_internal.h"
 #include "rt_audio.h"
+#include "rt_debug.h"
 #include "rt_frames.h"
 #include "rt_gpu.h"
 #include "rt_host.h"
@@ -224,6 +225,7 @@ static int live_input(uint32_t *b, int *lx, int *ly);  /* keyboard and gamepads,
 
 uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly) {
     int ax = 128, ay = 128;
+    rt_debug_input(frame);
     int first_in_frame = frame != g_read_frame;
     g_read_frame = frame;
     uint32_t b = script_buttons(frame, now_us, &ax, &ay);
