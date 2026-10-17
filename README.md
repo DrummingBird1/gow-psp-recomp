@@ -37,7 +37,7 @@ Bug reports are very welcome: please attach a recorded input file (`--record-inp
 
 You only download **one file**, the launcher. No Python, no manual setup.
 
-1. Download [`GoW_PSP_Launcher-v1.0.1.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.0.1.zip)
+1. Download [`GoW_PSP_Launcher-v1.1.0.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.1.0.zip)
    from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
    one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`.
    Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
@@ -54,9 +54,9 @@ You only download **one file**, the launcher. No Python, no manual setup.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
 > "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
-> PyInstaller programs as a false positive. Check that your download is the real one (v1.0.1 SHA-256):
-> - `GoW_PSP_Launcher-v1.0.1.zip`: `675b4b7d3e93c4a7729e2fe82b39e2f458ef87b37db97d8f645e2c4c5414c7ac`
-> - `GoW_PSP\GoWLauncher.exe`: `13e327854dcb29ad1728b04b98e0cc42798556b0112af69a5a705f76b9e96ec5`
+> PyInstaller programs as a false positive. Check that your download is the real one (v1.1.0 SHA-256):
+> - `GoW_PSP_Launcher-v1.1.0.zip`: `9438f4eb60cfcad6c341cb6b864f9f70b49f2a1d7fd44166b826e861fc92a3cc`
+> - `GoW_PSP\GoWLauncher.exe`: `ac9b96bcca910359af1bf8c4a9ef5f47fa8e710d730706e299945138aed12c2b`
 >
 > (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
 
