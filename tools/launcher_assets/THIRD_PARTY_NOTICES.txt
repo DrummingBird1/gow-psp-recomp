@@ -1,0 +1,16 @@
+GoWLauncher.exe: third-party components
+
+The launcher itself is GPL-3.0-or-later (see LICENSE). It contains:
+
+- Qt 6 and PySide6 (Qt for Python), The Qt Company Ltd., used under the GNU Lesser General Public License v3
+  (LGPL-3.0). Qt and PySide6 are linked dynamically: the Qt/PySide6 DLLs are separate files that the launcher
+  unpacks next to its Python runtime at start, and can be replaced with your own builds of the same version.
+  Source code: https://code.qt.io/cgit/qt/ and https://code.qt.io/cgit/pyside/pyside-setup.git/
+  (or https://download.qt.io/official_releases/QtForPython/). The LGPL-3.0 text: https://www.gnu.org/licenses/lgpl-3.0.txt
+- Python (PSF License), https://www.python.org/
+- Pillow (MIT-CMU License), https://python-pillow.org/
+- Cinzel font, Copyright 2020 The Cinzel Project Authors, SIL Open Font License 1.1 (OFL.txt next to this file).
+- PyInstaller bootloader (GPL-2.0 with the bootloader exception).
+
+At build time, CMake downloads further third-party sources (SDL3, libchdr, OpenH264, PPSSPP's at3_standalone,
+libkirk and PrxDecrypter); they keep their own licenses and are not part of the launcher.

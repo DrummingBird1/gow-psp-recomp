@@ -29,7 +29,7 @@ import toolchain  # noqa: E402
 # them next to itself on the first Build; build/ is made there too.
 FROZEN = getattr(sys, "frozen", False)
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
-CONFIG = ROOT / "build" / "launcher.json"
+CONFIG = Path(os.environ.get("GOW_LAUNCHER_CONFIG") or ROOT / "build" / "launcher.json")
 GAMES = {
     "coo": {"id": "UCUS98653", "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
     "gos": {"id": "UCUS98737", "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
@@ -37,7 +37,7 @@ GAMES = {
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": False,
-    "window_scale": 2, "texture_pack": "", "mute": False,
+    "window_scale": 2, "texture_pack": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
         "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, Esc = quit. Gamepads: PSP layout.")
@@ -153,6 +153,105 @@ def play_command(cfg, game):
     return cmd
 
 
+def run_command(cmd, out=print):
+    """Runs a command, sending its output lines to out; returns (exit code, lines)."""
+    out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
+    p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    lines = []
+    for line in p.stdout:
+        lines.append(line.rstrip())
+        out(line.rstrip())
+    return p.wait(), lines
+
+
+def ensure_disc_tool(out=print, ask=toolchain.ask_console):
+    """Builds gow_disc once (it reads the disc images before any game is built). Returns True when it exists."""
+    if DISC_TOOL.exists():
+        return True
+    tools = toolchain.ensure(ask, out)
+    if not tools:
+        return False
+    unpack_sources(out)
+    cmake = tools["cmake"]
+    for cmd in ([cmake, "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"],
+                [cmake, "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"]):
+        if run_command(cmd, out)[0]:
+            out("failed to build gow_disc")
+            return False
+    return DISC_TOOL.exists()
+
+
+def scan_folder(folder, out=print):
+    """{game: disc image path} for the .chd/.iso files in folder (and its direct subfolders), by disc ID."""
+    ids = {g["id"]: k for k, g in GAMES.items()}
+    found = {}
+    base = Path(folder)
+    cands = [p for pat in ("*.chd", "*.iso", "*/*.chd", "*/*.iso") for p in sorted(base.glob(pat), key=lambda q: str(q).lower())]
+    for f in cands:
+        try:
+            r = subprocess.run([str(DISC_TOOL), "--disc", str(f), "--id"], capture_output=True, text=True, timeout=120,
+                               creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        disc_id = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
+        out(f"{f.name}: {disc_id or 'not a PSP disc'}")
+        if disc_id in ids and ids[disc_id] not in found:
+            found[ids[disc_id]] = str(f)
+    return found
+
+
+def art_dir(game):
+    return ROOT / "build" / "launcher" / game
+
+
+def extract_art(game, disc):
+    """Copies PSP_GAME/PIC1.PNG and ICON0.PNG off the player's disc into build/launcher/<game>/ (never committed)."""
+    d = art_dir(game)
+    d.mkdir(parents=True, exist_ok=True)
+    for name in ("PIC1.PNG", "ICON0.PNG"):
+        if not (d / name).exists():
+            subprocess.run([str(DISC_TOOL), "--disc", disc, "--extract", f"disc0:/PSP_GAME/{name}", str(d / name)],
+                           capture_output=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return {n: d / n for n in ("PIC1.PNG", "ICON0.PNG") if (d / n).exists()}
+
+
+MENU_FRAMES = {"coo": 1200, "gos": 1500}  # the main menu, idle, after a boot with an empty ms0
+MENU_LOOP = 48  # frames rendered for the background loop, every 4th
+
+
+def menu_dir(game):
+    return art_dir(game) / "menu"
+
+
+def menu_frames(game):
+    return sorted(menu_dir(game).glob("*.png"))
+
+
+def render_menu(cfg, game, out=print):
+    """Renders the game's own main menu headless at 4x into build/launcher/<game>/menu/ (never committed): the
+    launcher's live background. Needs the built game and its disc image."""
+    if not exe_path(game).exists():
+        out("render_menu: build the game first")
+        return False
+    disc = check_disc(cfg, game)
+    d = menu_dir(game)
+    ms0 = art_dir(game) / "menu_ms0"
+    shutil.rmtree(ms0, ignore_errors=True)
+    ms0.mkdir(parents=True)
+    d.mkdir(parents=True, exist_ok=True)
+    start = MENU_FRAMES[game]
+    at = [start + 4 * i for i in range(MENU_LOOP)]
+    cmd = [str(exe_path(game)), "--image", str(gen_dir(game) / "image.bin"), "--boot", "--disc", disc, "--ms0", str(ms0),
+           "--renderer", "gpu", "--res-scale", "4", "--mute", "--frames-dir", str(d), "--frames-at", ",".join(map(str, at)),
+           "--max-frames", str(at[-1]), "--cpu-ms", "900000", "--wall-ms", "900000"]
+    code, _ = run_command(cmd, lambda line: None)
+    shutil.rmtree(ms0, ignore_errors=True)
+    ok = code == 0 and len(menu_frames(game)) > 0
+    out(f"render_menu {game}: {'ok' if ok else 'failed'} ({len(menu_frames(game))} frames)")
+    return ok
+
+
 def build_steps(cfg, game, tools=None):
     """Build gow_disc (once), decrypt the EBOOT from the disc image, recompile it into C (skipped when this
     EBOOT was already recompiled), configure, build. A step is (command, condition or None)."""
@@ -231,123 +330,8 @@ def start_game(cfg, game):
 
 
 def gui():
-    import tkinter as tk
-    from tkinter import filedialog, messagebox, ttk
-
-    if FROZEN and os.name == "nt":  # started by double-click: hide the console window the exe opened
-        import ctypes
-        k32 = ctypes.windll.kernel32
-        if k32.GetConsoleProcessList((ctypes.c_uint * 2)(), 2) == 1:
-            ctypes.windll.user32.ShowWindow(k32.GetConsoleWindow(), 0)
-    cfg = load_config()
-    root = tk.Tk()
-    root.title("God of War PSP native ports: launcher")
-    v = {k: (tk.BooleanVar if isinstance(DEFAULTS[k], bool) else tk.StringVar)(value=cfg[k]) for k in
-         ("game", "renderer", "res_scale", "fx_scale", "msaa", "aniso", "fxaa", "sharpen", "hdr", "fps", "vsync", "aspect",
-          "fullscreen", "window_scale", "texture_pack", "mute")}
-    disc, status = tk.StringVar(), tk.StringVar()
-
-    def collect():
-        for k, var in v.items():
-            val = var.get()
-            cfg[k] = val if isinstance(DEFAULTS[k], (bool, str)) else (float(val) if isinstance(DEFAULTS[k], float) else int(float(val)))
-        cfg["disc"][cfg["game"]] = disc.get()
-        save_config(cfg)
-        return cfg
-
-    def on_game(*_):
-        g = v["game"].get()
-        disc.set(cfg["disc"].get(g, ""))
-        status.set("built" if exe_path(g).exists() else "not built yet")
-
-    frm = ttk.Frame(root, padding=10)
-    frm.grid(sticky="nsew")
-    row = 0
-    for key, g in GAMES.items():
-        ttk.Radiobutton(frm, text=g["title"], variable=v["game"], value=key, command=lambda: (collect_game_switch(), on_game())).grid(
-            row=row, column=0, columnspan=3, sticky="w")
-        row += 1
-    prev = {"game": v["game"].get()}
-
-    def collect_game_switch():
-        cfg["disc"][prev["game"]] = disc.get()
-        prev["game"] = v["game"].get()
-
-    def path_row(label, var, types):
-        nonlocal row
-        ttk.Label(frm, text=label).grid(row=row, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=var, width=60).grid(row=row, column=1, sticky="we")
-        ttk.Button(frm, text="...", width=3, command=lambda: var.set(filedialog.askopenfilename(filetypes=types) or var.get())).grid(
-            row=row, column=2)
-        row += 1
-
-    path_row("Disc image", disc, [("PSP disc", "*.chd *.iso"), ("All", "*.*")])
-    ttk.Label(frm, textvariable=status).grid(row=row, column=1, sticky="w")
-    row += 1
-
-    def combo(label, key, values, hint=""):
-        nonlocal row
-        ttk.Label(frm, text=label).grid(row=row, column=0, sticky="w")
-        ttk.Combobox(frm, textvariable=v[key], values=values, width=12).grid(row=row, column=1, sticky="w")
-        if hint:
-            ttk.Label(frm, text=hint, foreground="gray").grid(row=row, column=1, sticky="e")
-        row += 1
-
-    combo("Renderer", "renderer", ["gpu", "soft"], "the options below need gpu")
-    combo("Internal resolution", "res_scale", [1, 2, 3, 4, 6, 8], "x PSP (4 = 1920x1088, 8 = 3840x2176)")
-    combo("Effects resolution", "fx_scale", [0, 1, 2, 4], "0 = same; 1 = the original glow")
-    combo("MSAA", "msaa", [1, 2, 4, 8])
-    combo("Anisotropic filtering", "aniso", [1, 2, 4, 8, 16])
-    combo("Sharpening (0-1)", "sharpen", [0, 0.3, 0.5, 0.8])
-    combo("Frame rate (Hz)", "fps", [60, 120, 144, 165, 240, 1000], "1000 = unlimited (VRR)")
-    combo("Aspect ratio", "aspect", ["native", "16:9", "21:9", "32:9"])
-    combo("Window size", "window_scale", [1, 2, 3, 4])
-    for text, key in (("FXAA", "fxaa"), ("HDR (when the display has it)", "hdr"), ("V-Sync", "vsync"), ("Fullscreen", "fullscreen"),
-                      ("Mute", "mute")):
-        ttk.Checkbutton(frm, text=text, variable=v[key]).grid(row=row, column=1, sticky="w")
-        row += 1
-    ttk.Label(frm, text="Texture pack folder").grid(row=row, column=0, sticky="w")
-    ttk.Entry(frm, textvariable=v["texture_pack"], width=60).grid(row=row, column=1, sticky="we")
-    ttk.Button(frm, text="...", width=3, command=lambda: v["texture_pack"].set(filedialog.askdirectory() or v["texture_pack"].get())).grid(
-        row=row, column=2)
-    row += 1
-    log = tk.Text(frm, height=12, width=100)
-    log.grid(row=row + 1, column=0, columnspan=3, pady=(8, 0))
-
-    def out(line):
-        root.after(0, lambda: (log.insert("end", line + "\n"), log.see("end")))
-
-    def do_build():
-        c, g = collect(), v["game"].get()
-        try:
-            build_steps(c, g)
-        except ValueError as e:
-            messagebox.showerror("Build", str(e))
-            return
-
-        def ask(text):  # called from the build thread: show the consent dialog on the Tk thread and wait
-            answer, done = [False], threading.Event()
-            root.after(0, lambda: (answer.__setitem__(0, messagebox.askyesno("Install build tools", text)), done.set()))
-            done.wait()
-            return answer[0]
-
-        threading.Thread(target=lambda: (run_build(c, g, out, ask), root.after(0, on_game)), daemon=True).start()
-
-    def do_play():
-        try:
-            start_game(collect(), v["game"].get())
-            out("started: " + " ".join(play_command(cfg, v["game"].get())))
-        except ValueError as e:
-            messagebox.showerror("Play", str(e))
-
-    bar = ttk.Frame(frm)
-    bar.grid(row=row, column=0, columnspan=3, pady=(8, 0), sticky="w")
-    ttk.Button(bar, text="Build", command=do_build).pack(side="left")
-    ttk.Button(bar, text="Play", command=do_play).pack(side="left", padx=6)
-    ttk.Label(frm, text=KEYS, wraplength=700, foreground="gray").grid(row=row + 2, column=0, columnspan=3, sticky="w", pady=(6, 0))
-    on_game()
-    root.protocol("WM_DELETE_WINDOW", lambda: (collect(), root.destroy()))
-    root.mainloop()
+    import launcher_qt
+    launcher_qt.run(sys.modules[__name__])
 
 
 def main(argv):
@@ -357,6 +341,8 @@ def main(argv):
         for tool, path in toolchain.detect().items():
             print(f"{tool:7} {path or 'MISSING'}")
         return 0 if all(toolchain.detect().values()) else 1
+    if len(argv) == 2 and argv[0] == "--render-menu" and argv[1] in GAMES:
+        return 0 if render_menu(load_config(), argv[1]) else 1
     if len(argv) == 2 and argv[0] in ("--build", "--play", "--print-command") and argv[1] in GAMES:
         cfg = load_config()
         if argv[0] == "--build":

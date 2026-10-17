@@ -1,5 +1,7 @@
 """Builds GoWLauncher.exe with PyInstaller: tools/launcher.pyw + tools/toolchain.py + recomp/ (run in-process
-with --recomp, so recompiling needs no Python), plus the sources a game build needs, taken from git (only
+with --recomp, so recompiling needs no Python), the window (launcher_qt.py on PySide6/Qt, LGPL-3.0, linked
+dynamically as separate DLLs; launcher_art.py, Pillow,
+the Cinzel font with its OFL text from tools/launcher_assets), plus the sources a game build needs, taken from git (only
 tracked files, so never game data): CMakeLists.txt, LICENSE, cmake/, runtime/, recomp/runtime_funcs.json and
 the re/out tables recomp.py reads. The launcher unpacks them next to itself on the first Build.
 
@@ -40,8 +42,10 @@ def main():
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--console", "--name", "GoWLauncher",
            "--distpath", str(DIST), "--workpath", str(WORK / "pyi"), "--specpath", str(WORK),
            "--paths", str(ROOT / "tools"), "--paths", str(ROOT / "recomp"),
-           "--hidden-import", "recomp", "--hidden-import", "toolchain",
-           "--exclude-module", "unicorn", "--exclude-module", "difftest",
+           "--hidden-import", "recomp", "--hidden-import", "toolchain", "--hidden-import", "launcher_qt",
+           "--hidden-import", "launcher_art", "--exclude-module", "tkinter",
+           "--add-data", f"{ROOT / 'tools' / 'launcher_assets'}{sep}launcher_assets",
+           "--exclude-module", "unicorn", "--exclude-module", "difftest", "--exclude-module", "numpy",
            "--add-data", f"{src}{sep}src", "--add-data", f"{ROOT / 'recomp' / 'runtime_funcs.json'}{sep}.",
            str(ROOT / "tools" / "launcher.pyw")]
     subprocess.run(cmd, cwd=ROOT, check=True)
