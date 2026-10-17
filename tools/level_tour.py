@@ -1,4 +1,5 @@
-"""Automated level tour of Chains of Olympus (docs/phase11-level-tour.md).
+"""Automated level tour of Chains of Olympus and Ghost of Sparta (docs/phase11-level-tour.md,
+docs/phase12-gos-level-tour.md).
 
 For every level (a zone file in disc0:/PSP_GAME/USRDIR/data), boots the port headless, warps
 into the level from the main menu (gow_rt --warp, runtime/rt_debug.c), plays a generic input
@@ -11,8 +12,8 @@ and collects:
   - frame rate of the GPU renderer headless (host time per frame, a separate --renderer gpu run);
   - a contact sheet of frames.
 
-  .venv/Scripts/python -I tools/level_tour.py --out build/tour/run1 [--levels a,b,...] [--jobs 6]
-      [--seconds 90] [--modes gpu,both] [--exe ...] [--disc ...]
+  .venv/Scripts/python -I tools/level_tour.py --out build/tour/run1 [--game coo|gos] [--levels a,b,...]
+      [--jobs 6] [--seconds 90] [--modes gpu,both] [--exe ...] [--disc ...]
 
 Results: <out>/<level>/{gpu,both}/run.log, frames, perf.csv; <out>/<level>/sheet.png;
 <out>/summary.json, <out>/summary.md (one table row per level), <out>/overview.png."""
@@ -31,32 +32,73 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageStat
 
 ROOT = Path(__file__).resolve().parent.parent
-DEF_EXE = ROOT / "build/cmake_tour/Release/gow_rt_UCUS98653_full.exe"
-DEF_IMAGE = ROOT / "build/gen/UCUS98653_full/image.bin"
-DEF_DISC = ROOT / "God of War - Chains of Olympus (USA).chd"
-
-WARP_FRAME = 1000        # the main menu after a boot with an empty ms0
-INPUT_START_S = 20.0     # virtual seconds: the warp happens at ~16.9 s, the level is up by ~18 s
 FPS = 60
-
-# Not levels: menus, fonts, Kratos's models, splash screens.
-NOT_LEVELS = {"engine_assets", "frontend_assets", "gallery_screens", "kratos_anims", "kratos_model",
-              "kratos_costume_01", "kratos_costume_02", "kratos_costume_03", "splash_assets", "splash_screens",
-              "start_screen_demo"}
 LANG = re.compile(r"_(eng|fre|ger|ita|spa)$")
-# Loaded by a main zone next to it (enemy waves, push boxes); warping into one alone is not meaningful.
-ADDON = re.compile(r"(_enemies|_enc(_\d+)?|_pushbox)$")
+
+
+class Game:
+    """What the tour needs to know about a game: its build, when --warp happens after a boot with an
+    empty ms0 (the warp frame, and its virtual time), and which data files are levels."""
+
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+GAMES = {
+    "coo": Game(
+        exe=ROOT / "build/cmake_tour/Release/gow_rt_UCUS98653_full.exe",
+        image=ROOT / "build/gen/UCUS98653_full/image.bin",
+        disc=ROOT / "God of War - Chains of Olympus (USA).chd",
+        warp_frame=1000,     # the main menu after a boot with an empty ms0
+        warp_s=16.9,
+        input_start_s=20.0,  # the level is up by ~18 s
+        # not levels: menus, fonts, Kratos's models, splash screens
+        is_level=lambda n: n not in {"engine_assets", "frontend_assets", "gallery_screens", "kratos_anims", "kratos_model",
+                                     "kratos_costume_01", "kratos_costume_02", "kratos_costume_03", "splash_assets",
+                                     "splash_screens", "start_screen_demo"},
+        # loaded by a main zone next to it (enemy waves, push boxes); warping into one alone is not meaningful
+        addon=re.compile(r"(_enemies|_enc(_\d+)?|_pushbox)$"),
+        menu_levels=("start_screen_demo", "splash_screens", "pi_beach_00"),  # loaded by the menu, not by a level
+        expected_missing=(),
+        warp_via=None,
+    ),
+    "gos": Game(
+        exe=ROOT / "build/cmake_gos_tour/Release/gow_rt_UCUS98737_full.exe",
+        image=ROOT / "build/gen/UCUS98737_full/image.bin",
+        disc=ROOT / "God of War - Ghost of Sparta (USA) (En,Fr,Es).chd",
+        warp_frame=1461,     # the warp waits for the main menu to be idle: frame 1461 after a boot with an empty ms0
+        warp_s=24.81,
+        input_start_s=27.0,  # the level is up by ~25.5 s
+        # levels are AREA_NNN_NAME, plus the menus' arenas and challenges; the rest are enemies, Kratos,
+        # menus and galleries. ATT_000_STARTSCREEN is the disc check (PGD), not a level.
+        is_level=lambda n: n != "att_000_startscreen" and bool(
+            re.match(r"^[a-z]{2,3}_\d{3}", n) or n.startswith(("arena_", "toa_"))
+            or n in ("challenge_of_gods_a", "atb_nis_statueactivate")),
+        addon=re.compile(r"(_enemies|_enemy|_encounter)$"),
+        menu_levels=("start_screen", "splash_screens"),
+        # the game looks for its two DLC packs on the memory stick (docs/phase10-ghost-of-sparta.md)
+        expected_missing=("ms0:/PSP/GAME/UCUS98737/dlcarena.EDAT", "ms0:/PSP/GAME/UCUS98737/dlccostume.EDAT"),
+        # a level file bigger than this does not fit next to the main menu's start_screen (4.3 MB): the game
+        # starts in a small level first and changes to it the way Load Game does (gow_rt --warp-via)
+        warp_via=("att_020_bow", 6_500_000),
+    ),
+}
+G = GAMES["coo"]  # set by main()
+SIZES = {}        # level -> file size, from list_levels
+VIA = set()       # levels always warped into through G.warp_via (--via)
 
 
 def list_levels(exe, disc):
     out = subprocess.run([str(exe), "--disc", str(disc), "--extract", "disc0:/PSP_GAME/USRDIR/data", "-"],
                          capture_output=True, text=True).stdout
-    names = [m.group(1) for m in re.finditer(r"^\s+(\S+)\.bin\s+file", out, re.M)]
+    files = re.findall(r"^\s+(\S+)\.bin\s+file\s.*\((\d+) bytes\)", out, re.M | re.I)
+    SIZES.update((n.lower(), int(size)) for n, size in files)
+    names = [n.lower() for n, _ in files]
     main, addons = [], []
     for n in names:
-        if n in NOT_LEVELS or LANG.search(n):
+        if not G.is_level(n) or LANG.search(n):
             continue
-        (addons if ADDON.search(n) else main).append(n)
+        (addons if G.addon.search(n) else main).append(n)
     return main, addons
 
 
@@ -94,9 +136,9 @@ def run_one(exe, image, disc, level, mode, d, seconds, input_file, timeout_s, bo
     if ms0.exists():
         shutil.rmtree(ms0)
     ms0.mkdir()
-    last = WARP_FRAME + int((INPUT_START_S - 16.9 + seconds) * FPS) + 60
-    shots = list(range(WARP_FRAME + 200, last + 1, 600))
-    ff = WARP_FRAME - 10
+    last = G.warp_frame + int((G.input_start_s - G.warp_s + seconds) * FPS) + 60
+    shots = list(range(G.warp_frame + 200, last + 1, 600))
+    ff = G.warp_frame - 10
     if mode == "both" and both_from:
         shots = [f for f in shots if f >= both_from]
         ff = max(ff, both_from - 60)
@@ -104,6 +146,8 @@ def run_one(exe, image, disc, level, mode, d, seconds, input_file, timeout_s, bo
            "--input", str(input_file), "--max-frames", str(last), "--fast-forward", str(ff),
            "--frames-dir", str(d), "--frames-at", ",".join(map(str, shots)), "--cpu-ms", str(timeout_s * 1000),
            "--wall-ms", str(timeout_s * 1000), "--renderer", mode]
+    if G.warp_via and (SIZES.get(zone(level), 0) > G.warp_via[1] or zone(level) in VIA or "all" in VIA):
+        cmd += ["--warp-via", G.warp_via[0]]
     if mode == "gpu":
         cmd += ["--perf-csv", str(d / "perf.csv")]
     else:
@@ -127,7 +171,7 @@ def parse_log(path):
     r["virtual_s"] = float(m.group(4)) if m else None
     r["traps"] = re.findall(r"^\[trap\].*$", text, re.M)[:5]
     r["unimplemented"] = sorted(set(re.findall(r"\[hle\] UNIMPLEMENTED (\S+?)\(", text)))
-    r["not_found"] = sorted(set(re.findall(r'\[io\] open(?: async)? "([^"]+)" -> not found', text)))
+    r["not_found"] = sorted(set(re.findall(r'\[io\] open(?: async)? "([^"]+)" -> not found', text)) - set(G.expected_missing))
     r["ioctl"] = sorted(set(re.findall(r"\[io\] ioctl fd \d+ cmd ([0-9A-F]+)", text)))
     r["savedata_unimpl"] = sorted(set(re.findall(r"\[savedata\] mode (\S+) \(\d+\) is not implemented", text)))
     r["errors"] = [l for l in re.findall(r"^.*(?:\brt: |bad jump|missing function|unknown|abort).*$", text, re.M)
@@ -233,7 +277,7 @@ def tour_level(a, level, input_file):
         shots = info.get("shots") or []
         info["brightness"], info["stuck_shots"] = frame_stats(d, shots)
         if mode == "gpu":
-            info["perf"] = perf(d / "perf.csv", WARP_FRAME + 200)
+            info["perf"] = perf(d / "perf.csv", G.warp_frame + 200)
         res[mode] = info
     ref = "gpu" if "gpu" in res else "both"  # the GPU run has shots over the whole run
     res["sheet"] = sheet(level, base / ref, res[ref].get("shots") or [], base / "sheet.png") if ref in res else None
@@ -271,7 +315,7 @@ def write_summary(a, results):
         i = g or b
         probs = verdict(r)
         seen = i.get("levels_seen", {})
-        others = [n for n in seen if n not in (zone(r["level"]), "start_screen_demo", "splash_screens", "pi_beach_00")]
+        others = [n for n in seen if n not in (zone(r["level"]),) + G.menu_levels]
         psnr = b.get("psnr") or {}
         pf = g.get("perf") or {}
         lines.append("| {} | {} | {} | {} | {} | {} | {} | {} | {} |".format(
@@ -316,20 +360,28 @@ def main():
     ap.add_argument("--both-from", type=int, default=0,
                     help="in --renderer both runs, draw and compare only from this frame on (the software "
                          "renderer is the slow part; 0 = the whole run, compared at every other shot)")
+    ap.add_argument("--via", default="", help="GoS: levels to start through --warp-via even when they fit next to "
+                                              "the main menu, or \"all\": the hard level change (the one Load Game "
+                                              "takes) starts them in a clean heap, with the save system set up")
     ap.add_argument("--reuse", action="store_true", help="keep runs that already finished (the summary always "
                                                           "includes the other mode's runs found in --out)")
-    ap.add_argument("--exe", default=str(DEF_EXE))
-    ap.add_argument("--image", default=str(DEF_IMAGE))
-    ap.add_argument("--disc", default=str(DEF_DISC))
+    ap.add_argument("--game", choices=sorted(GAMES), default="coo")
+    ap.add_argument("--exe")
+    ap.add_argument("--image")
+    ap.add_argument("--disc")
     a = ap.parse_args()
+    global G
+    G = GAMES[a.game]
+    a.exe, a.image, a.disc = (str(Path(x).resolve()) for x in (a.exe or G.exe, a.image or G.image, a.disc or G.disc))
     a.modes = a.modes.split(",")
+    VIA.update(x for x in a.via.split(",") if x)
     main_levels, addons = list_levels(a.exe, a.disc)
     levels = a.levels.split(",") if a.levels else main_levels + (addons if a.addons else [])
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "levels.json").write_text(json.dumps({"main": main_levels, "addons": addons}, indent=1))
     input_file = out / "input.txt"
-    input_file.write_text(make_input(INPUT_START_S, a.seconds).replace(",", "\n") + "\n")
+    input_file.write_text(make_input(G.input_start_s, a.seconds).replace(",", "\n") + "\n")
     print(f"{len(levels)} levels, {a.jobs} at a time, modes {a.modes}, {a.seconds:.0f} s each -> {out}", flush=True)
     results = {}
     with cf.ThreadPoolExecutor(a.jobs) as ex:

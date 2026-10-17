@@ -26,6 +26,7 @@
 | 2026-10-16 | שלב 9: שמירות, הקלטת קלט ו-replay | שמירה וטעינה דרך קוד השמירה של המשחק; משחק בחלון שהוקלט חוזר ב-headless עם פריימים ו-WAV זהים ([פירוט](phase9-saves-replay.md)) |
 | 2026-10-16 | שלב 10: Ghost of Sparta | פענוח PGD, תיקון במהדר, ‏coroutines: מהתפריט הראשי ועד קרב בשלב הראשון (Atlantis), בחלון ב-60 FPS עם סאונד וקלט; ‏CoO לא השתנה ([פירוט](phase10-ghost-of-sparta.md)) |
 | 2026-10-16 | שלב 11: סיור אוטומטי בכל השלבים (CoO) | ‏`--warp`/`--god`: כל 75 האזורים שבמשחק ו-84 נקודות spawn רצו בלי קריסה ובלי HLE חסר; ‏16 אזורים לא נגישים עוצרים בטעינה, גם ב-PPSSPP: שאריות מהפיתוח, לא באג של ה-port ([פירוט](phase11-level-tour.md)) |
+| 2026-10-17 | שלב 12: סיור אוטומטי בכל השלבים (GoS) | ‏`--warp` דרך הקוד של New Game, ‏`--warp-via` דרך ההחלפה של Load Game, ‏`--god`: כל 192 קבצי השלבים רצו בלי HLE חסר, ‏190/192 בדרך התפריט ו-192/192 דרך Load Game; ארבעה מזבחות שמירה נשמרו ונטענו; כל האזורים מעל 88 FPS ב-headless. פתוח: שמירה חלקית אחרי warp, ונקודת spawn אחת ([פירוט](phase12-gos-level-tour.md)) |
 
 ## 2026-10-16: ה-boot של Chains of Olympus, ובדיקות האימות
 
@@ -355,3 +356,31 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 ![ריצת המקלדת בחלון](../media/screenshots/2026-10-16_37_gos_window_keyboard_session.png)
 
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`). רצף ה-boot נשמר מה-framebuffer של ה-PSP על ידי הריצה עצמה (`--frames-dir`, ‏`--renderer gpu`). הספקטרוגרמה נוצרה מה-WAV של ריצת החלון עם `tools/audio_report.py`, והלוג הוא פלט אמיתי דרך `tools/render_terminal.py`.
+
+## 2026-10-17: סיור אוטומטי בכל השלבים של Ghost of Sparta (שלב 12)
+
+נעשה על commit `7b6d63e` (שלב 11). הפירוט ב-[phase12-gos-level-tour.md](phase12-gos-level-tour.md).
+
+**מה נבנה:**
+- **‏`--warp` ל-GoS** (`runtime/rt_debug.c`): ל-GoS אין פונקציה אחת שמתחילה משחק באזור, כמו ב-CoO. ה-warp כותב את שם האזור להגדרה של השלב הראשון של המשחק (`char[64]` ב-`0x08C061B0`, ‏`"att_010_stern"`), טוען אותו מאחורי התפריט הראשי ומעביר את התפריט למצב "התחל משחק". משם הכול הוא הקוד של New Game.
+- **‏`--warp-via LEVEL` (חדש):** המשחק מתחיל באזור קטן, ומשם עובר לאזור המבוקש בהחלפה הקשה של המשחק עצמו (`0x088E8BFC`), שפורקת קודם את כל האזורים. כך נראה גם Load Game.
+- **‏`--god`:** ה-component של הבריאות של Kratos ב-GoS (vtable ‏`0x08C21C08`), באותם היסטים של CoO.
+- **הכתובות של כל משחק בטבלה משלו** ב-`rt_debug.c`. ‏`tools/level_tour.py --game gos`, ‏`--via`; ‏`tools/hle_calls.py --game`; ‏`tools/hle_audit.py --calls-game`.
+- **הגרף של השלבים מהקבצים:** ‏167 אזורים בשרשרת אחת מ-`att_010_stern`, ‏22 מהתפריטים ו-3 שלא מוזכרים בשום מקום.
+
+**התוצאות:**
+- **כל 192 קבצי השלבים** (180 אזורים ו-12 תוספות) רצו 90 שניות עם תסריט קלט כללי, ב-GPU וב-both, ועוד פעם דרך Load Game. ועוד 116 נקודות spawn ושלושה סרטונים של 200 שניות.
+- **אין אף פונקציית HLE חסרה, ואין קובץ שלא נמצא.** אף שלב מאוחר לא קורא לפונקציה שההתחלה לא קוראת לה.
+- **בדרך התפריט עברו 190 מתוך 192.** ב-`cog_020_gauntlet` וב-`scb_020_arena` נגמר ה-heap של המשחק, כי `start_screen` של התפריט עוד בזיכרון. **דרך Load Game עברו כל 192.**
+- **ארבעה מזבחות שמירה** ("Temple of Athena", ‏"Heraklion", ‏"Death Trap", ‏"Temple of Thanatos"): המשחק שמר, ו-Load Game החזיר את Kratos למזבח.
+- **‏PSNR בין ה-renderers:** ‏576 השוואות, חציון 35.6 dB. **קצב:** כל 177 האזורים שבמשחק מעל 88 FPS ב-headless, חציון 147.8.
+- **פתוח:** בדרך התפריט שתי שמירות יצאו חלקיות (388 בתים, בלי האזור), ו-Load Game שלהן נופל. אותם מזבחות דרך Load Game נותנים שמירה מלאה. ‏`scb_010_climb` מנקודת spawn 1 נעצר בקריאה לכתובת 0 אחרי חזרה לנקודת ביקורת.
+- **CoO לא השתנה:** ‏34/34 פריימים זהים ל-`rec_v9` ב-renderer התוכנה, ‏WAV זהה, ו-`level_tour.py --game coo` עובר כמו קודם.
+
+![כל 180 האזורים של GoS לפי הסדר](../media/screenshots/2026-10-17_41_gos_level_tour_overview.png)
+
+![ארבע נקודות השמירה: המזבח, מסך השמירה, ואחרי Load Game](../media/screenshots/2026-10-17_42_gos_save_and_load.png)
+
+![‏`--warp spa_060_lion` בחלון](../media/screenshots/2026-10-17_43_gos_window_warp_sparta.png)
+
+התמונות של האזורים ושל השמירות נשמרו מה-framebuffer של ה-PSP על ידי הריצות עצמן (`--frames-dir`, ‏`--renderer gpu`). צילום החלון נלקח מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).

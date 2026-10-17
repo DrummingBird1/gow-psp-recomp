@@ -10,7 +10,7 @@ It also counts the call sites of each import stub in the recompiled code and, wi
 (tools/hle_calls.py output), which runs called it.
 
   .venv/Scripts/python -I tools/hle_audit.py [--games UCUS98653,UCUS98737] [--calls build/tour/hle_calls.json]
-      [--md out.md] [--json out.json]"""
+      [--calls-game UCUS98653] [--md out.md] [--json out.json]"""
 import argparse
 import glob
 import json
@@ -64,7 +64,8 @@ def call_sites(game):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--games", default="UCUS98653,UCUS98737")
-    ap.add_argument("--calls", help="tools/hle_calls.py output (UCUS98653 runs)")
+    ap.add_argument("--calls", help="tools/hle_calls.py output")
+    ap.add_argument("--calls-game", default="UCUS98653", help="the game whose runs --calls holds")
     ap.add_argument("--md", help="write a markdown table of the stubs and missing functions here")
     ap.add_argument("--json", help="write the whole classification as JSON here")
     a = ap.parse_args()
@@ -79,7 +80,7 @@ def main():
             h, f = names.get(imp["name"], (None, ""))
             kind, val = classify(h, bodies)
             key = f"{imp['library']}::{imp['name']}"
-            called = {lv: r["calls"][key] for lv, r in runs.items() if key in r["calls"]} if game == "UCUS98653" else {}
+            called = {lv: r["calls"][key] for lv, r in runs.items() if key in r["calls"]} if game == a.calls_game else {}
             rows.append({"library": imp["library"], "name": imp["name"], "nid": imp["nid"], "stub": imp["stub"],
                          "kind": kind, "returns": val, "handler": h or "", "file": f,
                          "call_sites": sites.get(imp["stub"][2:].upper(), 0), "called_in": called})

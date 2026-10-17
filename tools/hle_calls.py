@@ -1,7 +1,7 @@
 """Which HLE functions a stretch of the game calls: runs gow_rt with --trace-hle (every call is
 logged) and keeps only the distinct functions with their call counts, so the log never hits the disk.
 
-  .venv/Scripts/python -I tools/hle_calls.py --out build/tour/hle_calls.json \
+  .venv/Scripts/python -I tools/hle_calls.py --out build/tour/hle_calls.json [--game coo|gos] \
       [--levels a,b,...] [--seconds 40] [--jobs 2] [--baseline-input build/rec_v9/input.txt --baseline-frames 6800]
 
 Each level is reached with --warp (runtime/rt_debug.c) and played with tools/level_tour.py's generic
@@ -43,20 +43,27 @@ def run(exe, image, disc, args, frames):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
-    ap.add_argument("--levels", default="pi_king_fight,mar_02_village,ht07_throne_room,charon_galley_1,"
-                                        "tar_caves_04_maintitan,poh_persephone_chamber,ef_03_crash_landing,"
-                                        "foa_deathknight_arena,ec_3_eos_chamber,cog_01")
+    ap.add_argument("--game", choices=sorted(lt.GAMES), default="coo")
+    ap.add_argument("--levels", help="default: 10 levels from all over the game")
     ap.add_argument("--seconds", type=float, default=40)
     ap.add_argument("--jobs", type=int, default=2)
     ap.add_argument("--baseline-input")
     ap.add_argument("--baseline-frames", type=int, default=6800)
-    ap.add_argument("--exe", default=str(lt.DEF_EXE))
-    ap.add_argument("--image", default=str(lt.DEF_IMAGE))
-    ap.add_argument("--disc", default=str(lt.DEF_DISC))
+    ap.add_argument("--exe")
+    ap.add_argument("--image")
+    ap.add_argument("--disc")
     a = ap.parse_args()
+    g = lt.GAMES[a.game]
+    a.exe, a.image, a.disc = a.exe or g.exe, a.image or g.image, a.disc or g.disc
+    a.levels = a.levels or {
+        "coo": "pi_king_fight,mar_02_village,ht07_throne_room,charon_galley_1,tar_caves_04_maintitan,"
+               "poh_persephone_chamber,ef_03_crash_landing,foa_deathknight_arena,ec_3_eos_chamber,cog_01",
+        "gos": "att_090_thanatos,vol_035_titan,ash_030_athena,brt_040_medusa,ice_100_mom,spa_060_lion,"
+               "pas_050_midas,atb_130_lanaeus,dth_120_deimos,arena_atlantis",
+    }[a.game]
     inp = Path(a.out).with_suffix(".input.txt")
-    inp.write_text(lt.make_input(lt.INPUT_START_S, a.seconds).replace(",", "\n") + "\n")
-    frames = lt.WARP_FRAME + int((lt.INPUT_START_S - 16.9 + a.seconds) * lt.FPS)
+    inp.write_text(lt.make_input(g.input_start_s, a.seconds).replace(",", "\n") + "\n")
+    frames = g.warp_frame + int((g.input_start_s - g.warp_s + a.seconds) * lt.FPS)
     jobs = {lv: ["--warp", lv, "--god", "--input", str(inp)] for lv in a.levels.split(",")}
     if a.baseline_input:
         jobs["(baseline: boot, menu, new game, first level)"] = ["--input", a.baseline_input]
