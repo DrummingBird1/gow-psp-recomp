@@ -65,9 +65,9 @@ You need your own disc image (.chd or .iso) of the US release. No game content i
 1. Run GoWLauncher.exe. It keeps everything it creates (builds, saves, settings) in the
    GoW_PSP_data folder next to it.
 2. Choose the folder with your disc images.
-3. If build tools are missing, the launcher offers once to install them (Visual Studio Build
-   Tools with C++, about 6 GB, and CMake, via winget). It asks first.
-4. Press Build (one time per game), then Play.
+3. Press Build (one time per game), then Play. The first time it asks to download its
+   portable build tools (llvm-mingw, CMake, Ninja; about 246 MB, once) into GoW_PSP_data.
+   No Visual Studio, no administrator rights, nothing installed in Windows.
 
 Windows warning: GoWLauncher.exe is unsigned (built with PyInstaller), so SmartScreen may say
 "Windows protected your PC": click "More info", then "Run anyway". Some antivirus programs flag

@@ -8,11 +8,12 @@ in build/launcher.json (your paths stay on your machine; build/ is not in git).
     python tools/launcher.pyw --build coo|gos     build without the window (recompile + CMake)
     python tools/launcher.pyw --play coo|gos      start with the saved settings
     python tools/launcher.pyw --print-command coo|gos
-    python tools/launcher.pyw --check-tools       show where Python, CMake and Visual Studio were found
+    python tools/launcher.pyw --check-tools       show which build tools were found
 
-Building needs Python 3, CMake and Visual Studio with C++: Build finds them and, if some are missing, offers to
-install them with winget (tools/toolchain.py; GOW_SIMULATE_MISSING=all shows the commands without installing). The EBOOT is decrypted from the
-disc image into build/eboot/ by gow_disc (built once into build/cmake_tools)."""
+Building needs a C/C++ toolchain and CMake. By default the launcher downloads a portable one once (llvm-mingw, CMake,
+Ninja; pinned SHA-256, after asking) into build/toolchain and builds with it into build/mingw_*; Visual Studio's C++
+tools (build/cmake_*) stay supported and are the fallback (tools/toolchain.py: GOW_TOOLCHAIN, GOW_SIMULATE_MISSING).
+The EBOOT is decrypted from the disc image into build/eboot/ by gow_disc (built once)."""
 import hashlib
 import json
 import os
@@ -25,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.0.1"
+VERSION = "1.1.0"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.
@@ -75,9 +76,39 @@ def save_config(cfg):
     CONFIG.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
 
 
+# Build folders per toolchain: the portable one (Ninja, single-config) and Visual Studio (multi-config, Release/).
+FLAVOURS = {
+    "portable": {"tools": "build/mingw_tools", "coo": "build/mingw_full", "gos": "build/mingw_gos_full", "sub": ""},
+    "msvc": {"tools": "build/cmake_tools", "coo": "build/cmake_full", "gos": "build/cmake_gos_full", "sub": "Release"},
+}
+TOOLCHAIN_DIR = ROOT / "build" / "toolchain"
+
+
+def built_file(kind, key, name):
+    f = FLAVOURS[kind]
+    return ROOT / f[key] / f["sub"] / name
+
+
+def newest(paths):
+    """The most recently built of these files, or the first when none exists yet."""
+    have = [p for p in paths if p.exists()]
+    return max(have, key=lambda p: p.stat().st_mtime) if have else paths[0]
+
+
 def exe_path(game):
-    g = GAMES[game]
-    return ROOT / g["build"] / "Release" / f"gow_rt_{g['id']}_full.exe"
+    return newest([built_file(k, game, f"gow_rt_{GAMES[game]['id']}_full.exe") for k in FLAVOURS])
+
+
+def disc_tool():
+    return newest([built_file(k, "tools", "gow_disc.exe") for k in FLAVOURS])
+
+
+def configure_args(tools):
+    """Extra CMake configure arguments for this toolchain."""
+    if tools.get("kind") != "portable":
+        return []
+    return ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}",
+            f"-DCMAKE_C_COMPILER={tools['cc']}", f"-DCMAKE_CXX_COMPILER={tools['cxx']}"]
 
 
 def gen_dir(game):
@@ -118,8 +149,6 @@ def run_recomp(args):
     return recomp.main()
 
 
-TOOLS_BUILD = ROOT / "build" / "cmake_tools"
-DISC_TOOL = TOOLS_BUILD / "Release" / "gow_disc.exe"
 
 
 def eboot_path(game):
@@ -188,11 +217,11 @@ def clean_cmake_dir(build_dir, out=print):
     shutil.rmtree(d / "CMakeFiles", ignore_errors=True)
 
 
-def run_command(cmd, out=print):
+def run_command(cmd, out=print, env=None):
     """Runs a command, sending its output lines to out; returns (exit code, lines)."""
     out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
     p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env)
     lines = []
     for line in p.stdout:
         lines.append(line.rstrip())
@@ -202,24 +231,29 @@ def run_command(cmd, out=print):
 
 def ensure_disc_tool(out=print, ask=toolchain.ask_console):
     """Builds gow_disc once (it reads the disc images before any game is built). Returns True when it exists."""
-    if DISC_TOOL.exists():
+    if disc_tool().exists():
         return True
-    tools = toolchain.ensure(ask, out)
+    tools = toolchain.ensure(ask, out, TOOLCHAIN_DIR)
     if not tools:
         return False
     unpack_sources(out)
-    cmake = tools["cmake"]
-    for cmd in ([cmake, "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"],
-                [cmake, "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"]):
-        had_cache = is_configure(cmd) and (TOOLS_BUILD / "CMakeCache.txt").exists()
-        code = run_command(cmd, out)[0]
+    tools_build = ROOT / FLAVOURS[tools["kind"]]["tools"]
+    for cmd in disc_tool_steps(tools):
+        had_cache = is_configure(cmd) and (tools_build / "CMakeCache.txt").exists()
+        code = run_command(cmd, out, tools.get("env"))[0]
         if code and had_cache:
-            clean_cmake_dir(TOOLS_BUILD, out)
-            code = run_command(cmd, out)[0]
+            clean_cmake_dir(tools_build, out)
+            code = run_command(cmd, out, tools.get("env"))[0]
         if code:
             out("failed to build gow_disc")
             return False
-    return DISC_TOOL.exists()
+    return disc_tool().exists()
+
+
+def disc_tool_steps(tools):
+    cmake, tools_build = tools["cmake"], ROOT / FLAVOURS[tools["kind"]]["tools"]
+    return [[cmake, "-S", str(ROOT), "-B", str(tools_build), "-DGOW_TOOLS_ONLY=ON"] + configure_args(tools),
+            [cmake, "--build", str(tools_build), "--config", "Release", "--target", "gow_disc", "--parallel"]]
 
 
 def scan_folder(folder, out=print):
@@ -230,7 +264,7 @@ def scan_folder(folder, out=print):
     cands = [p for pat in ("*.chd", "*.iso", "*/*.chd", "*/*.iso") for p in sorted(base.glob(pat), key=lambda q: str(q).lower())]
     for f in cands:
         try:
-            r = subprocess.run([str(DISC_TOOL), "--disc", str(f), "--id"], capture_output=True, text=True, timeout=120,
+            r = subprocess.run([str(disc_tool()), "--disc", str(f), "--id"], capture_output=True, text=True, timeout=120,
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired):
             continue
@@ -251,7 +285,7 @@ def extract_art(game, disc):
     d.mkdir(parents=True, exist_ok=True)
     for name in ("PIC1.PNG", "ICON0.PNG"):
         if not (d / name).exists():
-            subprocess.run([str(DISC_TOOL), "--disc", disc, "--extract", f"disc0:/PSP_GAME/{name}", str(d / name)],
+            subprocess.run([str(disc_tool()), "--disc", disc, "--extract", f"disc0:/PSP_GAME/{name}", str(d / name)],
                            capture_output=True, timeout=120, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     return {n: d / n for n in ("PIC1.PNG", "ICON0.PNG") if (d / n).exists()}
 
@@ -301,10 +335,10 @@ def build_steps(cfg, game, tools=None):
     eboot = eboot_path(game)
     stamp = gen_dir(game) / "eboot.sha256"
     steps = []
-    if not DISC_TOOL.exists():
-        steps.append(([cmake, "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"], None))
-        steps.append(([cmake, "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"], None))
-    steps.append(([str(DISC_TOOL), "--disc", disc, "--id", "--decrypt-eboot", str(eboot)], None))
+    dt = disc_tool() if disc_tool().exists() else built_file(tools.get("kind", "msvc"), "tools", "gow_disc.exe")
+    if not dt.exists():
+        steps += [(cmd, None) for cmd in disc_tool_steps(tools)]
+    steps.append(([str(dt), "--disc", disc, "--id", "--decrypt-eboot", str(eboot)], None))
 
     def needs_recomp():
         digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
@@ -314,8 +348,9 @@ def build_steps(cfg, game, tools=None):
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
                    "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
                    "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
-    steps.append(([cmake, "-S", str(ROOT), "-B", str(ROOT / g["build"]), f"-DGAME={g['id']}_full"], None))
-    steps.append(([cmake, "--build", str(ROOT / g["build"]), "--config", "Release", "--parallel"], None))
+    build = ROOT / FLAVOURS[tools.get("kind", "msvc")][game]
+    steps.append(([cmake, "-S", str(ROOT), "-B", str(build), f"-DGAME={g['id']}_full"] + configure_args(tools), None))
+    steps.append(([cmake, "--build", str(build), "--config", "Release", "--parallel"], None))
     return steps, stamp
 
 
@@ -325,10 +360,20 @@ def run_build(cfg, game, out=print, ask=toolchain.ask_console):
     except ValueError as e:
         out(str(e))
         return False
-    tools = toolchain.ensure(ask, out)
+    tools = toolchain.ensure(ask, out, TOOLCHAIN_DIR)
     if not tools:
         return False
     unpack_sources(out)
+    if build_with(cfg, game, tools, out):
+        return True
+    msvc = toolchain.detect()
+    if tools.get("kind") == "portable" and all(msvc.values()) and toolchain.mode() != "portable":
+        out("The portable build failed; trying again with Visual Studio's C++ tools.")
+        return build_with(cfg, game, dict(msvc, kind="msvc"), out)
+    return False
+
+
+def build_with(cfg, game, tools, out=print):
     try:
         steps, stamp = build_steps(cfg, game, tools)
     except ValueError as e:
@@ -342,14 +387,14 @@ def run_build(cfg, game, out=print, ask=toolchain.ask_console):
             continue
         build_dir = Path(cmd[cmd.index("-B") + 1]) if is_configure(cmd) else None
         had_cache = build_dir is not None and (build_dir / "CMakeCache.txt").exists()
-        code, lines = run_command(cmd, out)
+        code, lines = run_command(cmd, out, tools.get("env"))
         if code and had_cache:
             clean_cmake_dir(build_dir, out)
-            code, lines = run_command(cmd, out)
+            code, lines = run_command(cmd, out, tools.get("env"))
         if code:
             out(f"failed (exit {code})")
             return False
-        if cmd[0] == str(DISC_TOOL) and (not lines or lines[0].strip() != GAMES[game]["id"]):
+        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != GAMES[game]["id"]):
             out(f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} ({GAMES[game]['title']})")
             return False
         if cond is not None:  # the recompile step
@@ -385,9 +430,12 @@ def main(argv):
     if argv and argv[0] == "--recomp":
         return run_recomp(argv[1:])
     if argv == ["--check-tools"]:
-        for tool, path in toolchain.detect().items():
+        msvc, portable = toolchain.detect(), toolchain.find_portable(TOOLCHAIN_DIR)
+        print(f"toolchain mode: {toolchain.mode()}")
+        print(f"portable {'ready in ' + str(TOOLCHAIN_DIR) if portable else 'not downloaded (' + str(toolchain.PORTABLE_MB) + ' MB, on first Build)'}")
+        for tool, path in msvc.items():
             print(f"{tool:7} {path or 'MISSING'}")
-        return 0 if all(toolchain.detect().values()) else 1
+        return 0 if portable or all(msvc.values()) else 1
     if len(argv) == 2 and argv[0] == "--render-menu" and argv[1] in GAMES:
         return 0 if render_menu(load_config(), argv[1]) else 1
     if len(argv) == 2 and argv[0] in ("--build", "--play", "--print-command") and argv[1] in GAMES:

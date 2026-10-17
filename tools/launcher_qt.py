@@ -1066,7 +1066,7 @@ class Window(QWidget):
     def load_found_discs(self):
         for g in self.L.GAMES:
             d = self.cfg["disc"].get(g, "")
-            if d and Path(d).is_file() and not self.no_art and self.L.DISC_TOOL.exists():
+            if d and Path(d).is_file() and not self.no_art and self.L.disc_tool().exists():
                 self.load_art(g, d)
 
     def load_art(self, g, disc):
@@ -1154,7 +1154,7 @@ class Window(QWidget):
         self.collect()
         first = self.view == "welcome"
         self.busy = True
-        if not self.L.DISC_TOOL.exists():
+        if not self.L.disc_tool().exists():
             self.prep("Preparing the disc reader (one time, about 2 minutes)")
             self.prep_prog.set(0.05, "Building gow_disc")
         threading.Thread(target=self.scan_thread, args=(d, first), daemon=True).start()
@@ -1207,7 +1207,7 @@ class Window(QWidget):
             return
         self.busy = True
         if first_run or self.view == "prep":
-            self.prep(f"Preparing {self.L.GAMES[g]['title']} (one time, about 10 minutes)")
+            self.prep(f"Preparing {self.L.GAMES[g]['title']} (one time, a few minutes)")
         gen = len(list(self.L.gen_dir(g).glob("*.c"))) or 120
         self.pstate = {"stage": "Starting", "n": 0, "total": gen + len(list((self.L.ROOT / "runtime").glob("*.c*"))), "p": 0.0}
         self.refresh()
@@ -1217,7 +1217,7 @@ class Window(QWidget):
         self.log(line)
         st = self.pstate
         if line.startswith("> "):
-            if str(self.L.DISC_TOOL) in line:
+            if "gow_disc.exe" in line:
                 st["stage"], st["p"] = "Decrypting", 0.01
             elif "--recomp" in line or "recomp.py" in line:
                 st["stage"], st["p"] = "Recompiling", 0.04
@@ -1225,6 +1225,11 @@ class Window(QWidget):
                 st["stage"], st["p"] = "Compiling", 0.2
             elif " -S " in line:
                 st["stage"], st["p"] = "Configuring", 0.16
+        elif line.startswith("downloading "):
+            st["stage"], st["p"] = "Downloading build tools", 0.005
+        elif st["stage"] == "Compiling" and re.match(r"^\[(\d+)/(\d+)\] ", line):  # Ninja (portable toolchain)
+            done, total = map(int, re.match(r"^\[(\d+)/(\d+)\] ", line).groups())
+            st["p"] = 0.2 + 0.74 * done / max(1, total)
         elif st["stage"] == "Compiling" and re.match(r"^\s+[\w.\-]+\.(c|cpp)$", line):
             st["n"] += 1
             st["p"] = 0.2 + 0.74 * min(1.0, st["n"] / max(1, st["total"]))

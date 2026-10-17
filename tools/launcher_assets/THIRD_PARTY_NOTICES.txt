@@ -14,3 +14,13 @@ The launcher itself is GPL-3.0-or-later (see LICENSE). It contains:
 
 At build time, CMake downloads further third-party sources (SDL3, libchdr, OpenH264, PPSSPP's at3_standalone,
 libkirk and PrxDecrypter); they keep their own licenses and are not part of the launcher.
+Portable build tools. On the first Build, after asking, the launcher downloads these from the projects' official
+GitHub releases (checked against pinned SHA-256 hashes) into GoW_PSP_data\build\toolchain. They are not part of the
+launcher download, and each folder keeps its own license files:
+- llvm-mingw 20261006 (https://github.com/mstorsjo/llvm-mingw): LLVM, Clang, lld, libc++, compiler-rt under the
+  Apache License 2.0 with LLVM Exceptions; mingw-w64 headers and runtime (https://www.mingw-w64.org/) under the
+  Zope Public License 2.1, the MIT license and public-domain terms (see its LICENSE files). The games built with it
+  link parts of the mingw-w64 runtime and the LLVM runtime libraries statically; both licenses allow that without
+  extra conditions on the result (the LLVM Exceptions cover compiled code).
+- CMake 4.4.4 (https://cmake.org/), BSD 3-Clause License.
+- Ninja 1.13.2 (https://ninja-build.org/), Apache License 2.0.

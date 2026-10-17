@@ -1,15 +1,26 @@
-"""Finds the build tools the launcher needs (Python, CMake, Visual Studio C++ tools) and, with the player's
-consent, installs the missing ones with winget (docs/phase14-plan.md, task 3).
+"""The build tools the launcher needs.
 
+Default for players: a portable toolchain the launcher downloads once, with the player's consent, into its data
+folder (build/toolchain): llvm-mingw (Clang, lld, mingw-w64 headers and libraries), CMake and Ninja, each from its
+official GitHub release and checked against a pinned SHA-256. No administrator rights, nothing installed in Windows.
+
+Also supported (developers, and the fallback when the portable path fails): Visual Studio's C++ tools with CMake,
+found on the PC or, with consent, installed with winget (docs/phase14-plan.md, task 3).
+
+    GOW_TOOLCHAIN=portable|msvc|auto     which one to use; default portable for GoWLauncher.exe, auto (Visual Studio
+                                         when it is installed, else portable) when run from source
     python tools/toolchain.py            report what is found
     GOW_SIMULATE_MISSING=all|python,cmake,vs[,winget]   pretend these are missing; installs are then only
                                          printed (dry run); "winget" also pretends winget is missing
     GOW_DRY_RUN=1                        print the winget commands instead of running them
 """
+import hashlib
 import os
 import shutil
 import subprocess
 import sys
+import urllib.request
+import zipfile
 from pathlib import Path
 
 VC_COMPONENT = "Microsoft.VisualStudio.Component.VC.Tools.x86.x64"
@@ -21,6 +32,108 @@ TOOLS = {
            "override": "--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"},
 }
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+# The portable toolchain: official release archives, pinned by SHA-256 (licenses: tools/launcher_assets/
+# THIRD_PARTY_NOTICES.txt). "skip" leaves out parts a 64-bit Windows build never uses (other targets, Python).
+PORTABLE = [
+    {"name": "llvm-mingw 20261006 (Clang, lld, mingw-w64)", "dir": "llvm-mingw",
+     "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/llvm-mingw-20261006-ucrt-x86_64.zip",
+     "sha256": "317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a", "size": 190836485,
+     "skip": ("aarch64-w64-mingw32/", "armv7-w64-mingw32/", "i686-w64-mingw32/", "python/")},
+    {"name": "CMake 4.4.4", "dir": "cmake",
+     "url": "https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-windows-x86_64.zip",
+     "sha256": "bace36e94b31c68ab6fa295f26dfa11219e0701cf7c94b0284a7d1cb13dac536", "size": 54400562,
+     "skip": ("doc/", "man/")},
+    {"name": "Ninja 1.13.2", "dir": "ninja",
+     "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
+     "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65", "size": 291570, "skip": ()},
+]
+PORTABLE_MB = round(sum(p["size"] for p in PORTABLE) / 1e6)
+
+
+def mode():
+    m = os.environ.get("GOW_TOOLCHAIN", "").strip().lower()
+    if m in ("portable", "msvc", "auto"):
+        return m
+    return "portable" if getattr(sys, "frozen", False) else "auto"
+
+
+def _one_subdir(d):
+    """The archive's top folder (llvm-mingw-20261006-ucrt-x86_64/...), or d itself."""
+    subs = [p for p in d.iterdir() if p.is_dir()] if d.is_dir() else []
+    return subs[0] if len(subs) == 1 and not any(p.is_file() and not p.name.startswith(".") for p in d.iterdir()) else d
+
+
+def find_portable(root):
+    """{"kind": "portable", cmake, ninja, cc, cxx, env} when the toolchain under root is complete, else None."""
+    root = Path(root)
+    if "portable" in simulated_missing() or not all((root / p["dir"] / ".complete").read_text(errors="replace").strip() == p["sha256"]
+                                                     if (root / p["dir"] / ".complete").is_file() else False for p in PORTABLE):
+        return None
+    llvm, cmake = _one_subdir(root / "llvm-mingw"), _one_subdir(root / "cmake")
+    tools = {"kind": "portable", "cmake": str(cmake / "bin" / "cmake.exe"), "ninja": str(root / "ninja" / "ninja.exe"),
+             "cc": str(llvm / "bin" / "clang.exe"), "cxx": str(llvm / "bin" / "clang++.exe"), "python": find_python()}
+    if not all(Path(tools[k]).is_file() for k in ("cmake", "ninja", "cc", "cxx")):
+        return None
+    # the compiler's own folder first (lld, llvm-rc), nothing from a Visual Studio prompt
+    tools["env"] = dict(os.environ, PATH=os.pathsep.join([str(llvm / "bin"), str(root / "ninja"), os.environ.get("PATH", "")]))
+    for v in ("INCLUDE", "LIB", "LIBPATH", "VCINSTALLDIR", "CC", "CXX"):
+        tools["env"].pop(v, None)
+    return tools
+
+
+def download_portable(root, out=print):
+    """Downloads, checks (SHA-256) and unpacks the portable toolchain into root. True when complete."""
+    root = Path(root)
+    for p in PORTABLE:
+        dest = root / p["dir"]
+        if (dest / ".complete").is_file() and (dest / ".complete").read_text().strip() == p["sha256"]:
+            continue
+        archive = root / (p["dir"] + ".zip.part")
+        root.mkdir(parents=True, exist_ok=True)
+        out(f"downloading {p['name']} ({p['size'] / 1e6:.0f} MB) from {p['url']}")
+        h, done, shown = hashlib.sha256(), 0, -1
+        try:
+            req = urllib.request.Request(p["url"], headers={"User-Agent": "GoWLauncher"})
+            with urllib.request.urlopen(req, timeout=60) as r, open(archive, "wb") as f:
+                while True:
+                    block = r.read(1 << 20)
+                    if not block:
+                        break
+                    f.write(block)
+                    h.update(block)
+                    done += len(block)
+                    pct = done * 100 // max(p["size"], 1)
+                    if pct // 10 != shown:
+                        shown = pct // 10
+                        out(f"  {p['dir']}: {min(pct, 100)}% ({done / 1e6:.0f} MB)")
+        except OSError as e:
+            out(f"download failed: {e}")
+            return False
+        if h.hexdigest() != p["sha256"]:
+            archive.unlink(missing_ok=True)
+            out(f"{p['name']}: wrong SHA-256 ({h.hexdigest()}), expected {p['sha256']}; not used")
+            return False
+        out(f"  checked SHA-256, unpacking into {dest}")
+        shutil.rmtree(dest, ignore_errors=True)
+        with zipfile.ZipFile(archive) as z:
+            for m in z.infolist():
+                rel = m.filename.split("/", 1)[1] if "/" in m.filename.rstrip("/") else ""
+                if rel and rel.startswith(p["skip"]):
+                    continue
+                z.extract(m, dest)
+        archive.unlink(missing_ok=True)
+        (dest / ".complete").write_text(p["sha256"])
+    return find_portable(root) is not None
+
+
+def portable_consent_text():
+    lines = [f"Building the games needs a C/C++ compiler. Download the portable build tools now (about {PORTABLE_MB} MB, "
+             "once; about 550 MB unpacked)?", ""]
+    lines += [f"  - {p['name']}" for p in PORTABLE]
+    lines += ["", "They come from the projects' official GitHub releases, are checked against pinned SHA-256 hashes and stay "
+              "in the launcher's GoW_PSP_data folder. Nothing is installed in Windows and no administrator rights are needed."]
+    return "\n".join(lines)
 
 
 def simulated_missing():
@@ -111,8 +224,8 @@ FINDERS = {"python": find_python, "cmake": find_cmake, "vs": find_vs}
 
 
 def detect():
-    """{tool: path or None}; tools named in GOW_SIMULATE_MISSING report None. The frozen launcher runs the
-    recompiler itself, so it needs no Python."""
+    """Visual Studio path: {tool: path or None}; tools named in GOW_SIMULATE_MISSING report None. The frozen
+    launcher runs the recompiler itself, so it needs no Python."""
     sim = simulated_missing()
     if getattr(sys, "frozen", False):
         return {t: (sys.executable if t == "python" else None if t in sim or "all" in sim else FINDERS[t]()) for t in TOOLS}
@@ -181,16 +294,40 @@ def install(missing, out=print):
     return True
 
 
-def ensure(ask, out=print):
-    """Detects the tools; if some are missing, asks ask(text) -> bool and installs them. Returns {tool: path} or None."""
+def ensure(ask, out=print, root=None):
+    """The tools for a build: the portable toolchain under root (downloaded once after ask(text) -> bool), or Visual
+    Studio (GOW_TOOLCHAIN, see the top). Returns a dict (cmake, python, kind, ...) or None."""
+    m = mode()
+    msvc = detect()
+    has_msvc = all(msvc.values())
+    if m == "msvc" or (m == "auto" and has_msvc) or root is None:
+        return ensure_msvc(ask, out)
+    tools = find_portable(root)
+    if tools:
+        return tools
+    if ask(portable_consent_text()):
+        if download_portable(root, out):
+            return find_portable(root)
+        out("The portable build tools could not be set up.")
+    else:
+        out("Not downloaded: the portable build tools. Building needs them (or Visual Studio).")
+    if has_msvc:
+        out("Using Visual Studio's C++ tools instead.")
+        return dict(msvc, kind="msvc")
+    return None
+
+
+def ensure_msvc(ask, out=print):
+    """Visual Studio path: detects the tools; if some are missing, asks ask(text) -> bool and installs them with
+    winget. Returns {tool: path, kind: "msvc"} or None."""
     found = detect()
     missing = [t for t, p in found.items() if not p]
     if not missing:
-        return found
+        return dict(found, kind="msvc")
     if not ask(consent_text(missing)):
         out("Not installed: " + ", ".join(TOOLS[t]["name"] for t in missing) + ". Building needs them.")
         return None
-    return detect() if install(missing, out) else None
+    return dict(detect(), kind="msvc") if install(missing, out) else None
 
 
 def ask_console(text):
