@@ -205,6 +205,7 @@ add_executable(gow_rt
   runtime/rt_thread.c
   runtime/rt_vfpu.c
   runtime/rt_selftest.c
+  $<$<PLATFORM_ID:Windows>:runtime/gow_rt.rc>
   ${GEN_SOURCES})
 set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 11)
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")

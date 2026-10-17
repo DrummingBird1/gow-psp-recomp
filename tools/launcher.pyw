@@ -123,6 +123,9 @@ def play_command(cfg, game):
     cmd = [str(exe_path(game)), "--image", str(gen_dir(game) / "image.bin"), "--boot", "--disc", cfg["disc"].get(game, ""),
            "--ms0", str(ROOT / g["ms0"]), "--window", "--scale", str(cfg["window_scale"]), "--shots", str(ROOT / "build" / "screenshots"),
            "--renderer", cfg["renderer"]]
+    icon = art_dir(game) / "ICON0.PNG"  # the game's own icon, off the player's disc (extract_art); else the exe's
+    if icon.exists():
+        cmd += ["--icon", str(icon)]
     if cfg["fullscreen"]:
         cmd.append("--fullscreen")
     if cfg["mute"]:

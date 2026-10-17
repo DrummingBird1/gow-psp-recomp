@@ -369,6 +369,11 @@ int rt_host_init(const HostOptions *o) {
     int win_w = g_o.gpu && rt_gpu_opt.aspect > 0 ? (int)(DISP_H * scale * rt_gpu_opt.aspect + 0.5f) : DISP_W * scale;  /* --aspect */
     g_win = SDL_CreateWindow("God of War (PSP native port)", win_w, DISP_H * scale, SDL_WINDOW_RESIZABLE);
     if (!g_win) { fprintf(stderr, "[host] SDL_CreateWindow: %s\n", SDL_GetError()); return 0; }
+    if (g_o.icon) {  /* otherwise Windows takes the exe's own icon (runtime/gow_rt.rc) */
+        SDL_Surface *ic = SDL_LoadPNG(g_o.icon);
+        if (ic) { SDL_SetWindowIcon(g_win, ic); SDL_DestroySurface(ic); }
+        else fprintf(stderr, "[host] --icon %s: %s\n", g_o.icon, SDL_GetError());
+    }
     if (g_o.gpu) {
         /* the hardware renderer presents to the window itself */
         rt_gpu_opt.nearest = g_o.nearest;

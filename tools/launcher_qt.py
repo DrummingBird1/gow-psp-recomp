@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt,
                             QTimer, QUrl, Signal, Property)
-from PySide6.QtGui import (QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QLinearGradient,
+from PySide6.QtGui import (QIcon, QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QLinearGradient,
                            QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QRegion, QShortcut)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGraphicsDropShadowEffect,
                                QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
@@ -260,10 +260,11 @@ class Card(QWidget):
         g.setColorAt(0.45, QColor(0, 0, 0, 60))
         g.setColorAt(1, QColor(0, 0, 0, 225 - int(35 * v)))
         p.fillRect(r, g)
-        if self.icon is not None:
+        icon = self.icon if self.icon is not None else self.app.app_icon  # the disc's ICON0.PNG, else ours
+        if icon is not None and not icon.isNull():
             ih = 52
-            iw = self.icon.width() * ih / self.icon.height()
-            p.drawPixmap(QRectF(r.left() + 16, r.top() + 16, iw, ih), self.icon, QRectF(self.icon.rect()))
+            iw = icon.width() * ih / icon.height()
+            p.drawPixmap(QRectF(r.left() + 16, r.top() + 16, iw, ih), icon, QRectF(icon.rect()))
         p.setClipping(False)
         title = self.app.L.GAMES[self.game]["title"].replace("God of War: ", "")
         f = QFont("Cinzel", 17)
@@ -354,6 +355,7 @@ class Window(QWidget):
         self.L = L
         self.cfg = L.load_config()
         self.no_art = env_on("GOW_NO_DISC_ART")
+        self.app_icon = QPixmap(str(assets_dir() / "icon.png"))
         self.no_menu = self.no_art or env_on("GOW_NO_MENU_BG")
         self.reduce_motion = bool(self.cfg.get("reduce_motion", False))
         self.bridge = Bridge()
@@ -1276,7 +1278,11 @@ class Window(QWidget):
 
 
 def run(L):
+    if sys.platform == "win32":  # its own taskbar entry and icon, not grouped with python.exe
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("DrummingBird1.GoWPSP.Launcher")
     app = QApplication.instance() or QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(assets_dir() / "icon.ico")))
     for f in assets_dir().glob("Cinzel*.ttf"):
         QFontDatabase.addApplicationFont(str(f))
     w = Window(L)
@@ -1291,15 +1297,22 @@ def run(L):
         Path(rec).mkdir(parents=True, exist_ok=True)
         frames, t_start = [], [0.0]
         c2 = w.cards[list(w.cards)[1]]
+        length = float(os.environ.get("GOW_UI_RECORD_SECONDS", "9"))
         script = [(2.0, lambda: c2.hover_to(1.0)), (3.3, lambda: c2.hover_to(0.0)), (4.2, w.toggle_options),
                   (6.0, lambda: w.adv_btn.setChecked(True)), (7.4, w.toggle_options)]
+        if length > 9:  # a longer tour, repeated: cards, switching games, options, the welcome page
+            cycle = [(1.5, lambda: c2.hover_to(1.0)), (3.0, lambda: c2.hover_to(0.0)), (4.0, lambda: w.cycle_game(1)),
+                     (7.0, lambda: w.cycle_game(-1)), (9.5, w.toggle_options), (11.5, lambda: w.adv_btn.setChecked(True)),
+                     (14.0, lambda: w.adv_btn.setChecked(False)), (15.0, w.toggle_options),
+                     (17.0, lambda: w.show_view("welcome")), (21.0, lambda: w.show_view("main"))]
+            script = [(k * 23.0 + t, f) for k in range(int(length // 23) + 1) for t, f in cycle if k * 23.0 + t < length]
 
         def grab():
             el = time.monotonic() - t_start[0]
             while script and el >= script[0][0]:
                 script.pop(0)[1]()
             frames.append((el, w.grab().toImage().scaledToWidth(1100, Qt.TransformationMode.SmoothTransformation)))
-            if el >= 9.0:
+            if el >= length:
                 tm.stop()
                 with open(Path(rec) / "times.txt", "w") as f:
                     for i, (e, im) in enumerate(frames):
@@ -1308,5 +1321,5 @@ def run(L):
                 app.quit()
         tm = QTimer(w)
         tm.timeout.connect(grab)
-        QTimer.singleShot(800, lambda: (t_start.__setitem__(0, time.monotonic()), tm.start(16)))
+        QTimer.singleShot(800, lambda: (t_start.__setitem__(0, time.monotonic()), tm.start(16 if length <= 9 else 40)))
     app.exec()

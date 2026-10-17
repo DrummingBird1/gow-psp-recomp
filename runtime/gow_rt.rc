@@ -1,0 +1,2 @@
+// The game executable's icon (original art, tools/make_icon.py); SDL also uses it for the window.
+1 ICON "gow_rt.ico"
