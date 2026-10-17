@@ -17,11 +17,11 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Same Python as the local build (3.15.0): the exe runs recomp.py in-process, and the byte-identical recomp
       # output was verified with this version.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.15.0"
 
@@ -65,7 +65,7 @@ jobs:
           Get-Content build/launcher_dist/SHA256SUMS.txt
 
       # The release download: GoW_PSP_Launcher-v<VERSION>.zip (one GoW_PSP/ folder with the exe and README.txt)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: GoW_PSP_Launcher-${{ github.ref_name }}-${{ github.sha }}
           path: |
@@ -73,7 +73,7 @@ jobs:
             build/launcher_dist/SHA256SUMS.txt
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: GoWLauncher-${{ github.ref_name }}-${{ github.sha }}
           path: build/launcher_dist/GoWLauncher.exe
