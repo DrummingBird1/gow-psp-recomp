@@ -1,0 +1,27 @@
+name: Feature request
+description: An idea for the ports or the launcher
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Open-ended ideas and questions fit better in [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions).
+        **Never attach game files** or screenshots / videos of the game.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [Chains of Olympus, Ghost of Sparta, Both games, Launcher, Build / tooling, Documentation]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: What should happen, and why it would help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
