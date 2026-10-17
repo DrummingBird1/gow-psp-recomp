@@ -48,12 +48,49 @@ and tell the user after each one:
 3. **One-file launcher** (task 2): freeze `tools/launcher.pyw` + `recomp/` with PyInstaller into `GoWLauncher.exe`. It
    must produce the same `build/gen/<ID>_full/*.c` files, byte for byte, as running `recomp/recomp.py` directly.
 4. **Launcher UX** (task 4): pick the game folder, detect each game's disc image (UCUS98653 / UCUS98737), Build with
-   progress, Play.
+   progress, Play. Follow "Launcher design" below; show the user a screenshot before moving on.
 5. **Release workflow** (task 5): a GitHub Actions workflow that builds `GoWLauncher.exe` (no game data in CI); update
    `CHANGELOG.md` (a v0.2.0 entry) and the README quick start (download the launcher, point it at the game folder).
 
 Phase 14 is done only when, on a fresh Windows user profile with only `GoWLauncher.exe` and the disc image, both games
 build and reach gameplay, and the software-renderer check below still passes. Show the user, and wait for their go.
+
+## Launcher design (task 4)
+
+Today's `tools/launcher.pyw` works but is a plain grey form with raw numbers. Keep its logic (`play_command`,
+`build_steps`, `build/launcher.json`) and redo the window like this:
+
+- **Look:** dark theme (ttk `clam` styled): background `#121212`, panels `#1c1c1c`, text `#f0efec`, secondary text
+  `#a8a69e`, accent red `#b3261e` (Play button, selection), gold `#c9a227` (headings). Segoe UI 10 pt, headings 12 pt,
+  title 20 pt bold. Make the process DPI-aware on Windows (`ctypes.windll.shcore.SetProcessDpiAwareness(1)`) so the text
+  is sharp at 150 % scaling. **No game logos, box art or the game's font** (trademarks and copyright): a text title,
+  "God of War PSP: native PC ports (unofficial)".
+- **Top:** the two games as two large cards side by side (title + status line: "Ready to play", "Needs building",
+  "No disc image found"). Below them one field, **Game folder**: the launcher finds the `.chd`/`.iso` of each game in it
+  (by the disc's ID, not the file name) and fills both cards.
+- **Presets** (one row of buttons; the chosen one highlighted; changing any option below switches to "Custom"):
+
+  | Preset | Resolution | MSAA | Anisotropic | Other |
+  |---|---|---|---|---|
+  | Original | x1 (480x272) | off | off | the PSP's look |
+  | Balanced | x4 (1920x1088) | off | 8x | |
+  | High | x6 (2880x1632) | 4x | 16x | |
+  | Ultra | x8 (3840x2176) | 4x | 16x | |
+
+- **Main options**, with words, not raw numbers: Resolution ("x1 480x272 (PSP)", "x2 960x544", "x3 1440x816",
+  "x4 1920x1088 (1080p)", "x6 2880x1632", "x8 3840x2176 (4K)"); Anti-aliasing ("Off", "MSAA 2x/4x/8x", "FXAA");
+  Frame rate ("60 (original)", "120", "144", "165", "240", "Unlimited (VRR)" = `--fps 1000`); Aspect ratio ("Original",
+  "21:9", "32:9"); HDR ("Auto", "Off"); Fullscreen; Window size.
+- **Advanced** (collapsed by default): Renderer (Hardware / Software (accurate, slow)), Effects resolution
+  ("Match resolution" = 0, "Original glow" = 1), Anisotropic filtering, Sharpening (slider 0-1), V-Sync, Texture pack
+  folder, Mute.
+- **Bottom:** a big red **Play** button (disabled with a reason in its tooltip until the game is ready), a **Build**
+  button that turns into a progress bar with the current step ("Decrypting", "Recompiling", "Compiling 37/113",
+  "Linking"), and a "Show log" link that opens the full log in its own window. A footer line with the keys and links to
+  the GitHub page and the license.
+- Keep window size and position in `build/launcher.json`. Every control reachable with the keyboard.
+- **Optional, only if cheap:** key mapping. The runtime has the keys fixed in `runtime/rt_host.c` (`live_input`); it would
+  need a `--keymap file` option there first.
 
 ## Step 3: launch (only after the user approves the finished phase 14)
 
