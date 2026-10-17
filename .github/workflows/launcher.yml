@@ -51,11 +51,26 @@ jobs:
       - name: No-Git check
         run: python tools/check_no_git.py --full
 
+      # SHA256SUMS.txt for the release: the ZIP and the exe inside it (sha256sum format; check with `sha256sum -c`
+      # next to the ZIP, or compare with PowerShell's Get-FileHash)
+      - name: SHA256SUMS.txt
+        shell: pwsh
+        run: |
+          $zip = Get-Item build/launcher_dist/GoW_PSP_Launcher-v*.zip
+          Expand-Archive $zip.FullName build/sums_check -Force
+          $exe = Get-Item build/sums_check/GoW_PSP/GoWLauncher.exe
+          $lines = @("$((Get-FileHash $zip.FullName).Hash.ToLower())  $($zip.Name)",
+                     "$((Get-FileHash $exe.FullName).Hash.ToLower())  GoW_PSP/GoWLauncher.exe")
+          Set-Content build/launcher_dist/SHA256SUMS.txt ($lines -join "`n") -NoNewline -Encoding ascii
+          Get-Content build/launcher_dist/SHA256SUMS.txt
+
       # The release download: GoW_PSP_Launcher-v<VERSION>.zip (one GoW_PSP/ folder with the exe and README.txt)
       - uses: actions/upload-artifact@v4
         with:
           name: GoW_PSP_Launcher-${{ github.ref_name }}-${{ github.sha }}
-          path: build/launcher_dist/GoW_PSP_Launcher-v*.zip
+          path: |
+            build/launcher_dist/GoW_PSP_Launcher-v*.zip
+            build/launcher_dist/SHA256SUMS.txt
           if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
