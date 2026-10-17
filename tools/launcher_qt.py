@@ -540,7 +540,7 @@ class Window(QWidget):
         if e.type() == e.Type.WindowStateChange:
             if self.isMinimized():
                 self.timer.stop()
-            elif not self.timer.isActive():
+            elif not self.timer.isActive() and not self.game_running():
                 self.timer.start(FRAME_MS)
 
     def paintEvent(self, e):
@@ -1100,6 +1100,8 @@ class Window(QWidget):
         st = self.game_state(g)
         if self.busy:
             return "Wait for the build to finish."
+        if self.game_running():
+            return "The game is running."
         if st == "No disc image found":
             return f"No disc image of {self.L.GAMES[g]['title']} in the game folder."
         if st == "Needs building":
@@ -1268,11 +1270,39 @@ class Window(QWidget):
             return
         g = self.cfg.get("game", "coo")
         try:
-            self.L.start_game(self.collect(), g)
+            self.game_proc = self.L.start_game(self.collect(), g)
             self.log("started: " + subprocess.list2cmdline(self.L.play_command(self.cfg, g)))
             self.log(f"game log (attach it to bug reports): {self.L.game_log(g)}")
         except ValueError as e:
             QMessageBox.critical(self, "Play", str(e))
+            return
+        # While the game runs the launcher costs nothing: no animation, minimized (a maximized launcher animating
+        # its background competed with the game on a weaker PC: movie stutter). It comes back when the game exits.
+        self.was_maximized = self.isMaximized()
+        self.timer.stop()
+        self.showMinimized()
+        self.refresh()
+        self.game_watch = QTimer(self)
+        self.game_watch.timeout.connect(self.check_game)
+        self.game_watch.start(500)
+
+    def game_running(self):
+        return getattr(self, "game_proc", None) is not None and self.game_proc.poll() is None
+
+    def check_game(self):
+        if self.game_running():
+            return
+        code = self.game_proc.returncode if getattr(self, "game_proc", None) else 0
+        self.game_watch.stop()
+        self.game_proc = None
+        self.log(f"game exited (code {code})")
+        self.showMaximized() if getattr(self, "was_maximized", False) else self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        if not self.timer.isActive():
+            self.timer.start(FRAME_MS)
+        self.cache_dirty = True
+        self.refresh()
 
     def open_license(self):
         f = self.L.ROOT / "LICENSE"
