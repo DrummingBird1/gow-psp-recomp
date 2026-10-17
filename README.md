@@ -15,10 +15,15 @@ up to 4K internal resolution, MSAA, anisotropic filtering, HDR10, 120+ FPS and 2
 
 You need your own UMD copy of the game, as a disc image (`.chd` or `.iso`).
 
-1. Install Python 3. The launcher finds CMake and Visual Studio (2022 or later, C++ tools) and offers to install
-   any missing build tool with winget, after asking you.
-2. Run `python tools/launcher.pyw`: pick the game and its disc image, press **Build** (decrypts the EBOOT from the
-   disc, recompiles it into C and builds it; about 10 minutes the first time), choose the graphics options, press **Play**.
+1. Download `GoWLauncher.exe` (from a release, or the `launcher` workflow artifact on GitHub Actions) and put it in an
+   empty folder; it keeps its files next to itself. It finds CMake and Visual Studio (2022 or later, C++ tools) and
+   offers to install any missing build tool with winget, after asking you. No Python needed.
+2. Run it, point it at the folder with your disc images: it detects which game each one is. Press **Build** (decrypts
+   the EBOOT from the disc, recompiles it into C and builds it; about 10 minutes the first time), choose the graphics
+   options, press **Play**.
+
+From source instead: install Python 3 and the packages in `tools/requirements-dev.txt`, then run
+`python tools/launcher.pyw`.
 
 The launcher keeps your paths in `build/launcher.json`. Keys: arrows = D-pad, Z = ✕, X = ○, A = □, S = △, Q/W = L/R,
 Space/Enter = Start, V = Select, I/J/K/L = analog stick, F11 fullscreen, F12 screenshot; gamepads use the PSP layout.
