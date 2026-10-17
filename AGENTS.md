@@ -89,6 +89,30 @@ Today's `tools/launcher.pyw` works but is a plain grey form with raw numbers. Ke
   "Linking"), and a "Show log" link that opens the full log in its own window. A footer line with the keys and links to
   the GitHub page and the license.
 - Keep window size and position in `build/launcher.json`. Every control reachable with the keyboard.
+
+**Make it feel like God of War, legally.** The user's goal: the launcher should look as close to the games as possible
+and be as simple as possible. Nothing from the games may be in the repository or the download, but the player's own disc
+is on their PC, so the launcher can take the art from there at run time:
+
+- **Game cards from the player's disc:** after the game folder is chosen, extract each game's `PSP_GAME/PIC1.PNG`
+  (480x272 background art) and `PSP_GAME/ICON0.PNG` (144x80 icon) with `gow_rt --disc <image> --extract
+  disc0:/PSP_GAME/PIC1.PNG <out>` into `build/launcher/<game>/` (never committed) and use them as the card backgrounds
+  and icons. After the first build, also render the game's own main menu headless at high resolution
+  (`--renderer gpu --res-scale 4 --frames-at 1500 --max-frames 1500`, GoS; find the menu frame for CoO) and use it,
+  darkened and blurred, as the window background behind the selected game. Before the disc is chosen, show the plain
+  dark theme.
+- **Typography:** bundle the free "Cinzel" font (SIL Open Font License, Roman inscription capitals, close to the games'
+  titles; include its OFL text next to it) for the title, headings and buttons; Segoe UI for small text. On Windows load
+  it privately with `ctypes.windll.gdi32.AddFontResourceExW(path, 0x10, 0)` before creating the Tk fonts.
+- **Ornament, drawn by code:** a thin gold Greek-key (meander) border along the top and bottom of the window and around
+  the selected card, a dark stone/marble texture generated with noise (Pillow), a soft red glow behind the Play button.
+  Generated at run time or as small PNGs made by a script in the repository (original work, not taken from the games).
+- **Simple first run:** a three-step flow instead of a form: 1. "Choose the folder with your games", 2. "Preparing
+  <game> (one time, about 10 minutes)" with the progress bar, 3. the game card with a big **Play**. The options sit
+  behind a gear button, and the starting preset is picked for the PC: a discrete GPU → High, otherwise Balanced; HDR on
+  when the display has it; frame rate = the display's refresh rate when it is 120 Hz or more.
+- **Toolkit:** if Tkinter cannot reach this look (images behind controls, rounded cards, hover effects), switching to a
+  toolkit that can (e.g. `customtkinter`, MIT, or PySide6, LGPL) is fine; keep the frozen exe small and say what it adds.
 - **Optional, only if cheap:** key mapping. The runtime has the keys fixed in `runtime/rt_host.c` (`live_input`); it would
   need a `--keymap file` option there first.
 
