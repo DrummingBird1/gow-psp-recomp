@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.1.1 (2026-10-17)
+## v1.1.5 (2026-10-17)
 
 - **Fix: building failed on PCs without Git** (`could not find git for clone of libchdr-populate`). libchdr and
   SDL3 now download as pinned archives (SHA-256) instead of Git clones, and the launcher hides Git from CMake so it
