@@ -13,15 +13,27 @@ if(NOT GEN_SOURCES AND NOT GOW_TOOLS_ONLY)
   message(FATAL_ERROR "No generated sources in ${GEN_DIR}; run recomp/recomp.py first")
 endif()
 
-# libchdr (BSD-3-Clause) reads the user's CHD disc images; pinned to a reviewed commit
+# Third-party sources are downloaded once into GOW_DEPS_DIR and shared by every build folder (the launcher has three:
+# cmake_tools, cmake_full, cmake_gos_full); before, each one cloned and downloaded everything again.
+# Git checkouts are pinned to a commit (the folder name carries it), single files to their SHA-256.
+set(GOW_DEPS_DIR "${CMAKE_SOURCE_DIR}/build/deps" CACHE PATH "Shared download folder for third-party sources")
 include(FetchContent)
+macro(gow_fetch_git name repo commit)
+  string(TOUPPER "${name}" _gow_upper)
+  set(_gow_src "${GOW_DEPS_DIR}/${name}-${commit}")
+  if(EXISTS "${_gow_src}/.gow_complete")
+    set(FETCHCONTENT_SOURCE_DIR_${_gow_upper} "${_gow_src}")  # already checked out: no clone
+  endif()
+  FetchContent_Declare(${name} GIT_REPOSITORY ${repo} GIT_TAG ${commit} SOURCE_DIR "${_gow_src}")
+  FetchContent_MakeAvailable(${name})
+  file(TOUCH "${_gow_src}/.gow_complete")
+endmacro()
+
+# libchdr (BSD-3-Clause) reads the user's CHD disc images; pinned to a reviewed commit
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CHDR_WANT_TESTS OFF CACHE BOOL "" FORCE)
 set(INSTALL_STATIC_LIBS OFF CACHE BOOL "" FORCE)
-FetchContent_Declare(libchdr
-  GIT_REPOSITORY https://github.com/rtissera/libchdr.git
-  GIT_TAG 47d794151b2b64f6aba60304e6480f4f5a2bc24b)
-FetchContent_MakeAvailable(libchdr)
+gow_fetch_git(libchdr https://github.com/rtissera/libchdr.git 47d794151b2b64f6aba60304e6480f4f5a2bc24b)
 
 # SDL3 (zlib license): the game window, keyboard and gamepad input; pinned to release 3.4.16
 option(GOW_WINDOW "Build the SDL3 window and input (gow_rt --window)" ON)
@@ -30,16 +42,13 @@ if(GOW_WINDOW AND NOT GOW_TOOLS_ONLY)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
   set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-  FetchContent_Declare(SDL3
-    GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
-    GIT_TAG fa2c02bb6e21974a89ea9824bc53c9932abe5f9c)
-  FetchContent_MakeAvailable(SDL3)
+  gow_fetch_git(SDL3 https://github.com/libsdl-org/SDL.git fa2c02bb6e21974a89ea9824bc53c9932abe5f9c)
 endif()
 
 # ATRAC3/ATRAC3+ decoder for sceAtrac3plus: PPSSPP's ext/at3_standalone (FFmpeg's decoders
 # extracted to build alone, LGPL-2.1+), downloaded from tag v1.20.4 and checked by SHA-256.
 # The sources stay unmodified; runtime/at3shim stands in for the few PPSSPP headers they include.
-set(AT3_DIR "${CMAKE_BINARY_DIR}/_deps/at3_standalone")
+set(AT3_DIR "${GOW_DEPS_DIR}/at3_standalone")
 set(AT3_URL "https://raw.githubusercontent.com/hrydgard/ppsspp/v1.20.4/ext/at3_standalone")
 set(AT3_FILES
   at3_decoders.h=ed0bfaf3f6e5e952a6c292ca45b5699e19baf76d0110a1e185a0626d3e5d642f
@@ -103,7 +112,7 @@ endif()
 # H.264 decoder for the PSMF movies (sceMpeg): OpenH264's decoder (Cisco, BSD-2-Clause), built
 # from source without its assembly. cmake/openh264-v2.6.0.sha256 lists the files of tag v2.6.0
 # it needs, each downloaded and checked by SHA-256 (the release archive is 60 MB of test streams).
-set(H264_DIR "${CMAKE_BINARY_DIR}/_deps/openh264")
+set(H264_DIR "${GOW_DEPS_DIR}/openh264")
 set(H264_URL "https://raw.githubusercontent.com/cisco/openh264/v2.6.0")
 file(STRINGS cmake/openh264-v2.6.0.sha256 H264_MANIFEST REGEX "^[0-9a-f]+  ")
 set(H264_FILES)
@@ -128,7 +137,7 @@ endif()
 # ext/libkirk (KIRK engine by Draan et al., GPL-3.0+; amctrl by tpu; AES and SHA-1 public domain;
 # bn/ec by Segher Boessenkool, GPL-2.0/3.0), downloaded from tag v1.20.4 and checked by SHA-256.
 # It holds the PSP's crypto keys, so it is never part of this repository.
-set(KIRK_DIR "${CMAKE_BINARY_DIR}/_deps/libkirk")
+set(KIRK_DIR "${GOW_DEPS_DIR}/libkirk")
 set(KIRK_URL "https://raw.githubusercontent.com/hrydgard/ppsspp/v1.20.4/ext/libkirk")
 set(KIRK_FILES
   AES.c=3e0321521c1985aceac86d0b5388ab5256a58b94b82092ef48c658756b19d09f
@@ -155,7 +164,7 @@ endif()
 # EBOOT decryption (gow_disc --decrypt-eboot): PPSSPP's Core/ELF/PrxDecrypter.cpp (GPL-2.0+, Copyright (c)
 # 2012- PPSSPP Project), downloaded from tag v1.20.4 and checked by SHA-256 like libkirk, because it holds
 # the PSP's module keys; runtime/prxshim stands in for the PPSSPP headers it includes.
-set(PRX_DIR "${CMAKE_BINARY_DIR}/_deps/ppsspp_prx")
+set(PRX_DIR "${GOW_DEPS_DIR}/ppsspp_prx")
 set(PRX_URL "https://raw.githubusercontent.com/hrydgard/ppsspp/v1.20.4/Core/ELF")
 set(PRX_FILES
   PrxDecrypter.cpp=9bea13a3867b7b7e60b26f648bfcf650ce96e9f0da2203949cf1f9c2df54659b
@@ -228,4 +237,14 @@ if(MSVC)
 else()
   target_compile_options(gow_rt PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
   target_link_libraries(gow_rt PRIVATE m)
+endif()
+
+# MSBuild compiles one file at a time per project unless /MP is set, and gow_rt only starts compiling once the
+# libraries it links are built: SDL3 alone took about 35 s that way. /MP only parallelises, the objects are the same.
+if(MSVC)
+  foreach(lib SDL3-static chdr-static chdr-lzma miniz zstd at3_standalone openh264_dec libkirk prx_decrypt)
+    if(TARGET ${lib})
+      target_compile_options(${lib} PRIVATE /MP)
+    endif()
+  endforeach()
 endif()

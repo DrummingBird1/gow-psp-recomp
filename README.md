@@ -47,7 +47,8 @@ You only download **one file**, the launcher. No Python, no manual setup.
 3. If build tools are missing, the launcher offers once to install them for you with winget: Visual Studio Build Tools
    with C++ (about 6 GB) and CMake. It asks before installing anything. *Honest note: this automatic install has not yet
    been tested on a PC without Visual Studio; please report how it goes.*
-4. Press **Build** and wait for the one-time build (about 4 minutes per game).
+4. Press **Build** and wait for the one-time build (about 3 minutes for the first game, under 2 for the second, on a
+   20-thread CPU).
 5. Pick a graphics preset and press **Play**.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
