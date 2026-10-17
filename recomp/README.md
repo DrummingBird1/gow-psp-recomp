@@ -2,6 +2,8 @@
 
 Translates the decrypted EBOOT of God of War: Chains of Olympus / Ghost of Sparta into C,
 which is compiled together with a minimal runtime into a native Windows executable.
+The decrypted EBOOT (`re/dumps/<ID>_EBOOT.BIN` below) comes from your own disc image via `gow_disc --decrypt-eboot`
+(the launcher does this into `build/eboot/`; see the main README's research setup). A PPSSPP dump is no longer needed.
 
 > Generated output (`build/gen/**`, `image.bin`) and the dumps contain Sony's code.
 > Personal use only; do not distribute.

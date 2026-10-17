@@ -47,6 +47,12 @@ You only download **one file**, `GoWLauncher.exe`. No Python, no manual setup.
 4. Press **Build** and wait for the one-time build (about 4 minutes per game).
 5. Pick a graphics preset and press **Play**.
 
+> **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
+> "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
+> PyInstaller programs as a false positive. Check that your download is the real one: the SHA-256 of the v1.0.0
+> `GoWLauncher.exe` is `dac0c7b3ec97aeb4da71d5c2bbed99e0200ed3751319307b75f0334f0efa350c`
+> (PowerShell: `Get-FileHash GoWLauncher.exe`). Each release lists its hash in the release notes.
+
 Why build on your PC? The game code is generated from your own disc, so it can't be distributed; the launcher
 compiles it locally, once.
 
@@ -70,7 +76,8 @@ py -3 -m venv .venv
 .venv/Scripts/python tools/build_launcher.py        # GoWLauncher.exe (PyInstaller)
 ```
 
-Details: [`recomp/README.md`](recomp/README.md). The research setup (Ghidra, PPSSPP references) is below.
+Details: [`recomp/README.md`](recomp/README.md). The research setup (Ghidra, PPSSPP references) is under
+[Research and development](#research-and-development).
 
 ## How it works
 
@@ -100,26 +107,14 @@ redrawn on the PC's GPU, it can render at any resolution and frame rate.
 
 Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `re/ppsspp-*`, `media/` (screenshots and recordings; see [`docs/progress.md`](docs/progress.md)).
 
-## Setup on a new machine
-
-1. Tools: Ghidra 12.1.3 + ghidra-allegrex v21.4, JDK 21, PPSSPP (to dump the decrypted EBOOT), Python 3, CMake, Visual Studio with C++.
-2. Dump `EBOOT.BIN` with PPSSPP (`DumpFileTypes = 3`) into `re/dumps/`.
-3. Python environment for the tests: `py -3 -m venv .venv` then `.venv/Scripts/python -m pip install unicorn`.
-4. PPSSPP reference sources used by `build_nid_db.mjs` (optional, re-fetchable):
-   `Core/HLE/*.cpp` (and, for the movies, `Core/HW/MediaEngine.*` and `Core/HW/MpegDemux.*`) into `re/ppsspp-hle/`, `Core/MIPS/MIPSInt.cpp` and `MIPSTables.cpp` into `re/ppsspp-mips/`,
-   and the GE references (`GPU/Software/*`, `GPU/GPUState.*`, `GPU/ge_constants.h`, `GPU/Common/VertexDecoderCommon.*`,
-   `GPU/Common/TextureDecoder.*`, `GPU/GPUCommon*.cpp`) into `re/ppsspp-gpu/`, and the audio references
-   (`Core/HW/SasAudio.*`, `Core/HW/SasReverb.*`, `Core/HW/Atrac3Standalone.*`, `Core/HLE/AtracCtx2.h`,
-   `Core/Util/AtracTrack.*`, `ext/at3_standalone/`) into `re/ppsspp-audio/` (tag v1.20.4).
-5. For progress screenshots and recordings: `.venv/Scripts/python.exe -m pip install pillow numpy`, and ffmpeg.
-
-See [`recomp/README.md`](recomp/README.md) for the recompile/build/test commands and
-[`docs/`](docs/) for results.
-
 ### Setup on a new machine
 
-1. Tools: Ghidra 12.1.3 + ghidra-allegrex v21.4, JDK 21, PPSSPP (to dump the decrypted EBOOT), Python 3, CMake, Visual Studio with C++.
-2. Dump `EBOOT.BIN` with PPSSPP (`DumpFileTypes = 3`) into `re/dumps/`.
+1. Tools: Ghidra 12.1.3 + ghidra-allegrex v21.4, JDK 21, Python 3, CMake, Visual Studio with C++.
+2. Decrypted EBOOT: the launcher does this for you (into `build/eboot/`). By hand, build `gow_disc`
+   (`cmake -S . -B build/cmake_tools -DGOW_TOOLS_ONLY=ON` then `cmake --build build/cmake_tools --config Release`) and run
+   `build/cmake_tools/Release/gow_disc.exe --disc <your disc>.chd --decrypt-eboot re/dumps/UCUS98653_EBOOT.BIN`
+   (`UCUS98737_EBOOT.BIN` for Ghost of Sparta). A PPSSPP dump (`DumpFileTypes = 3`) gives the same bytes and is no
+   longer needed.
 3. Python environment for the tests: `py -3 -m venv .venv` then `.venv/Scripts/python -m pip install unicorn`.
 4. PPSSPP reference sources used by `build_nid_db.mjs` (optional, re-fetchable):
    `Core/HLE/*.cpp` (and, for the movies, `Core/HW/MediaEngine.*` and `Core/HW/MpegDemux.*`) into `re/ppsspp-hle/`, `Core/MIPS/MIPSInt.cpp` and `MIPSTables.cpp` into `re/ppsspp-mips/`,
@@ -134,7 +129,8 @@ See [`recomp/README.md`](recomp/README.md) for the recompile/build/test commands
 
 ## Contributing
 
-Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). **Never attach or commit game files.** Releases
+Questions, ideas and help: [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions). Bugs:
+[Issues](https://github.com/DrummingBird1/gow-psp-recomp/issues). Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). **Never attach or commit game files.** Releases
 follow semantic versioning and are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Credits

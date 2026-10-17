@@ -3,6 +3,8 @@
 Thanks for helping! Issues and pull requests are welcome: bugs in a level, rendering differences, missing HLE
 functions, performance, the launcher, Linux support.
 
+Questions and ideas go to [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions); Issues are for bugs.
+
 ## Ground rules
 
 > **Never attach game files** to issues, pull requests or discussions: no disc images, EBOOTs, saves from the game
