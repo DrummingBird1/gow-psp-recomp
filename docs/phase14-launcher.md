@@ -27,8 +27,10 @@ Test folder after both builds: 606 MB.
 Notes:
 - The very first attempt failed at CMake configure of the game ("No CMAKE_C_COMPILER could be found", although the
   compiler-id program had been built). It followed an earlier aborted run in the same folder; after emptying the
-  folder and starting again from scratch, configure and both builds passed. Not reproduced since; if a player hits it,
-  deleting `build/cmake_full` (or `build/cmake_gos_full`) and pressing Build again is the workaround.
+  folder and starting again from scratch, configure and both builds passed. Not reproduced since (killing a configure at 1.5,
+  3 and 5 s did not break the next one); the likely cause is two configures in the same folder at once. Since commit
+  5b2a856 the launcher handles it: a configure that fails while the build folder already has a CMake cache is retried
+  once after removing `CMakeCache.txt` and `CMakeFiles` (logged).
 - `Start-Process -Wait` in PowerShell waits for descendants (MSBuild node processes outlive the build), so time the
   launcher process itself.
 
