@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(gow_recomp C CXX)
 
+# GOW_TOOLS_ONLY builds just gow_disc (disc ID, EBOOT decryption), which the launcher needs before
+# the game is recompiled; it needs no generated sources.
+option(GOW_TOOLS_ONLY "Build only gow_disc, without generated sources" OFF)
+
 # Generated sources come from recomp/recomp.py --out build/gen/<GAME>
 set(GAME "UCUS98653" CACHE STRING "Game ID whose generated sources are built")
 set(GEN_DIR "${CMAKE_SOURCE_DIR}/build/gen/${GAME}")
 file(GLOB GEN_SOURCES CONFIGURE_DEPENDS "${GEN_DIR}/*.c")
-if(NOT GEN_SOURCES)
+if(NOT GEN_SOURCES AND NOT GOW_TOOLS_ONLY)
   message(FATAL_ERROR "No generated sources in ${GEN_DIR}; run recomp/recomp.py first")
 endif()
 
@@ -21,7 +25,7 @@ FetchContent_MakeAvailable(libchdr)
 
 # SDL3 (zlib license): the game window, keyboard and gamepad input; pinned to release 3.4.16
 option(GOW_WINDOW "Build the SDL3 window and input (gow_rt --window)" ON)
-if(GOW_WINDOW)
+if(GOW_WINDOW AND NOT GOW_TOOLS_ONLY)
   set(SDL_SHARED OFF CACHE BOOL "" FORCE)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
@@ -146,6 +150,37 @@ if(MSVC)
   target_compile_definitions(libkirk PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
   target_compile_options(libkirk PRIVATE -O2 -w)
+endif()
+
+# EBOOT decryption (gow_disc --decrypt-eboot): PPSSPP's Core/ELF/PrxDecrypter.cpp (GPL-2.0+, Copyright (c)
+# 2012- PPSSPP Project), downloaded from tag v1.20.4 and checked by SHA-256 like libkirk, because it holds
+# the PSP's module keys; runtime/prxshim stands in for the PPSSPP headers it includes.
+set(PRX_DIR "${CMAKE_BINARY_DIR}/_deps/ppsspp_prx")
+set(PRX_URL "https://raw.githubusercontent.com/hrydgard/ppsspp/v1.20.4/Core/ELF")
+set(PRX_FILES
+  PrxDecrypter.cpp=9bea13a3867b7b7e60b26f648bfcf650ce96e9f0da2203949cf1f9c2df54659b
+  PrxDecrypter.h=9021115e71851bc2ae80d37f6532a9ab07990715d8a42478bc7e0bc219bdb9a4)
+fetch_pinned_files(ppsspp_prx "${PRX_DIR}/Core/ELF" "${PRX_URL}" "${PRX_FILES}" PRX_SOURCES)
+add_library(prx_decrypt STATIC ${PRX_SOURCES} runtime/rt_prx.cpp)
+target_include_directories(prx_decrypt PRIVATE "${PRX_DIR}" runtime/prxshim runtime)
+target_link_libraries(prx_decrypt PRIVATE libkirk)
+set_target_properties(prx_decrypt PROPERTIES CXX_STANDARD 17)
+if(MSVC)
+  target_compile_options(prx_decrypt PRIVATE /W0)
+else()
+  target_compile_options(prx_decrypt PRIVATE -O2 -w)
+endif()
+
+add_executable(gow_disc runtime/gow_disc.c)
+set_target_properties(gow_disc PROPERTIES C_STANDARD 11)
+target_include_directories(gow_disc PRIVATE runtime)
+target_link_libraries(gow_disc PRIVATE chdr-static prx_decrypt libkirk)
+if(MSVC)
+  target_compile_definitions(gow_disc PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(GOW_TOOLS_ONLY)
+  return()
 endif()
 
 add_executable(gow_rt

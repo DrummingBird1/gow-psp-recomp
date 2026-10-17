@@ -13,13 +13,11 @@ up to 4K internal resolution, MSAA, anisotropic filtering, HDR10, 120+ FPS and 2
 
 ## Quick start (play from your own disc)
 
-You need your own UMD copy of the game, as a disc image (`.chd` or `.iso`) and a decrypted `EBOOT.BIN`.
+You need your own UMD copy of the game, as a disc image (`.chd` or `.iso`).
 
 1. Install Python 3, CMake and Visual Studio (2022 or later) with "Desktop development with C++".
-2. Dump the decrypted `EBOOT.BIN` with [PPSSPP](https://www.ppsspp.org/): set `DumpFileTypes = 3` in `ppsspp.ini`,
-   start the game once, and take the file from PPSSPP's `memstick/PSP/SYSTEM/DUMP/`.
-3. Run `python tools/launcher.pyw`: pick the game, the disc image and the `EBOOT.BIN`, press **Build**
-   (recompiles the EBOOT into C and builds it; about 10 minutes the first time), choose the graphics options, press **Play**.
+2. Run `python tools/launcher.pyw`: pick the game and its disc image, press **Build** (decrypts the EBOOT from the
+   disc, recompiles it into C and builds it; about 10 minutes the first time), choose the graphics options, press **Play**.
 
 The launcher keeps your paths in `build/launcher.json`. Keys: arrows = D-pad, Z = ✕, X = ○, A = □, S = △, Q/W = L/R,
 Space/Enter = Start, V = Select, I/J/K/L = analog stick, F11 fullscreen, F12 screenshot; gamepads use the PSP layout.

@@ -1,6 +1,6 @@
 """Launcher for the native PC ports of God of War: Chains of Olympus and Ghost of Sparta.
 
-Picks the game, builds it from your own copy (the decrypted EBOOT.BIN, dumped with PPSSPP), sets the
+Picks the game, builds it from your own disc image (the EBOOT is decrypted from it), sets the
 graphics options of the hardware renderer (docs/phase13-graphics.md) and starts it. Settings are kept
 in build/launcher.json (your paths stay on your machine; build/ is not in git).
 
@@ -9,7 +9,8 @@ in build/launcher.json (your paths stay on your machine; build/ is not in git).
     python tools/launcher.pyw --play coo|gos      start with the saved settings
     python tools/launcher.pyw --print-command coo|gos
 
-Building needs Python 3, CMake and Visual Studio with C++ (see README.md)."""
+Building needs Python 3, CMake and Visual Studio with C++ (see README.md); the EBOOT is decrypted from the
+disc image into build/eboot/ by gow_disc (built once into build/cmake_tools)."""
 import hashlib
 import json
 import os
@@ -25,7 +26,7 @@ GAMES = {
     "gos": {"id": "UCUS98737", "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
 }
 DEFAULTS = {
-    "game": "coo", "disc": {}, "eboot": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
+    "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": False,
     "window_scale": 2, "texture_pack": "", "mute": False,
 }
@@ -54,6 +55,23 @@ def exe_path(game):
 
 def gen_dir(game):
     return ROOT / "build" / "gen" / f"{GAMES[game]['id']}_full"
+
+
+TOOLS_BUILD = ROOT / "build" / "cmake_tools"
+DISC_TOOL = TOOLS_BUILD / "Release" / "gow_disc.exe"
+
+
+def eboot_path(game):
+    """Where the EBOOT decrypted from the disc image goes (build/ is not in git)."""
+    return ROOT / "build" / "eboot" / f"{GAMES[game]['id']}_EBOOT.BIN"
+
+
+def check_disc(cfg, game):
+    """The disc image of this game; raises ValueError when it is missing (run_build checks its disc ID)."""
+    disc = cfg["disc"].get(game, "")
+    if not disc or not Path(disc).is_file():
+        raise ValueError("Choose the disc image (.chd or .iso) of this game.")
+    return disc
 
 
 def play_command(cfg, game):
@@ -93,45 +111,65 @@ def play_command(cfg, game):
 
 
 def build_steps(cfg, game):
-    """Recompile the EBOOT into C (skipped when this EBOOT was already recompiled), configure, build."""
-    g, eboot = GAMES[game], cfg["eboot"].get(game, "")
-    if not eboot or not Path(eboot).is_file():
-        raise ValueError("Choose the decrypted EBOOT.BIN of this game first (dump it with PPSSPP, see README.md).")
-    digest = hashlib.sha256(Path(eboot).read_bytes()).hexdigest()
+    """Build gow_disc (once), decrypt the EBOOT from the disc image, recompile it into C (skipped when this
+    EBOOT was already recompiled), configure, build. A step is (command, condition or None)."""
+    g, disc = GAMES[game], check_disc(cfg, game)
+    eboot = eboot_path(game)
     stamp = gen_dir(game) / "eboot.sha256"
     steps = []
-    if not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest:
-        steps.append([sys.executable, "-I", str(ROOT / "recomp" / "recomp.py"), "--elf", eboot,
-                      "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
-                      "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
-                      "--difftest", "0", "--boot", "0", "--all"])
-    steps.append(["cmake", "-S", str(ROOT), "-B", str(ROOT / g["build"]), f"-DGAME={g['id']}_full"])
-    steps.append(["cmake", "--build", str(ROOT / g["build"]), "--config", "Release", "--parallel"])
-    return steps, stamp, digest
+    if not DISC_TOOL.exists():
+        steps.append((["cmake", "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"], None))
+        steps.append((["cmake", "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"], None))
+    steps.append(([str(DISC_TOOL), "--disc", disc, "--id", "--decrypt-eboot", str(eboot)], None))
+
+    def needs_recomp():
+        digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
+        return not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest
+
+    steps.append(([sys.executable, "-I", str(ROOT / "recomp" / "recomp.py"), "--elf", str(eboot),
+                   "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
+                   "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
+                   "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
+    steps.append((["cmake", "-S", str(ROOT), "-B", str(ROOT / g["build"]), f"-DGAME={g['id']}_full"], None))
+    steps.append((["cmake", "--build", str(ROOT / g["build"]), "--config", "Release", "--parallel"], None))
+    return steps, stamp
 
 
 def run_build(cfg, game, out=print):
-    steps, stamp, digest = build_steps(cfg, game)
-    for cmd in steps:
+    try:
+        steps, stamp = build_steps(cfg, game)
+    except ValueError as e:
+        out(str(e))
+        return False
+    eboot = eboot_path(game)
+    eboot.parent.mkdir(parents=True, exist_ok=True)
+    for cmd, cond in steps:
+        if cond is not None and not cond():
+            out("recompiled C is up to date for this EBOOT, skipping recomp.py")
+            continue
         out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
         p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        lines = []
         for line in p.stdout:
+            lines.append(line.rstrip())
             out(line.rstrip())
         if p.wait():
             out(f"failed (exit {p.returncode})")
             return False
-        if "recomp.py" in cmd[2]:
-            stamp.write_text(digest)
+        if cmd[0] == str(DISC_TOOL) and (not lines or lines[0].strip() != GAMES[game]["id"]):
+            out(f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} ({GAMES[game]['title']})")
+            return False
+        if len(cmd) > 2 and "recomp.py" in cmd[2]:
+            stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())
     out(f"built {exe_path(game)}")
     return True
 
 
 def start_game(cfg, game):
     if not exe_path(game).exists():
-        raise ValueError("Not built yet: choose the EBOOT and press Build.")
-    if not cfg["disc"].get(game) or not Path(cfg["disc"][game]).is_file():
-        raise ValueError("Choose the disc image (.chd or .iso) of this game.")
+        raise ValueError("Not built yet: choose the disc image and press Build.")
+    check_disc(cfg, game)
     (ROOT / GAMES[game]["ms0"]).mkdir(parents=True, exist_ok=True)
     (ROOT / "build" / "screenshots").mkdir(parents=True, exist_ok=True)
     log = open(ROOT / "build" / f"launcher_{game}.log", "w", encoding="utf-8", errors="replace")
@@ -148,21 +186,19 @@ def gui():
     v = {k: (tk.BooleanVar if isinstance(DEFAULTS[k], bool) else tk.StringVar)(value=cfg[k]) for k in
          ("game", "renderer", "res_scale", "fx_scale", "msaa", "aniso", "fxaa", "sharpen", "hdr", "fps", "vsync", "aspect",
           "fullscreen", "window_scale", "texture_pack", "mute")}
-    disc, eboot, status = tk.StringVar(), tk.StringVar(), tk.StringVar()
+    disc, status = tk.StringVar(), tk.StringVar()
 
     def collect():
         for k, var in v.items():
             val = var.get()
             cfg[k] = val if isinstance(DEFAULTS[k], (bool, str)) else (float(val) if isinstance(DEFAULTS[k], float) else int(float(val)))
         cfg["disc"][cfg["game"]] = disc.get()
-        cfg["eboot"][cfg["game"]] = eboot.get()
         save_config(cfg)
         return cfg
 
     def on_game(*_):
         g = v["game"].get()
         disc.set(cfg["disc"].get(g, ""))
-        eboot.set(cfg["eboot"].get(g, ""))
         status.set("built" if exe_path(g).exists() else "not built yet")
 
     frm = ttk.Frame(root, padding=10)
@@ -176,7 +212,6 @@ def gui():
 
     def collect_game_switch():
         cfg["disc"][prev["game"]] = disc.get()
-        cfg["eboot"][prev["game"]] = eboot.get()
         prev["game"] = v["game"].get()
 
     def path_row(label, var, types):
@@ -188,7 +223,6 @@ def gui():
         row += 1
 
     path_row("Disc image", disc, [("PSP disc", "*.chd *.iso"), ("All", "*.*")])
-    path_row("Decrypted EBOOT.BIN", eboot, [("EBOOT", "*.BIN"), ("All", "*.*")])
     ttk.Label(frm, textvariable=status).grid(row=row, column=1, sticky="w")
     row += 1
 
