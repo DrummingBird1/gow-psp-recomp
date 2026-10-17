@@ -153,6 +153,20 @@ def play_command(cfg, game):
     return cmd
 
 
+def is_configure(cmd):
+    return len(cmd) > 2 and cmd[1] == "-S" and "-B" in cmd
+
+
+def clean_cmake_dir(build_dir, out=print):
+    """Removes CMake's cache and probe results from a build folder (the sources and fetched dependencies stay).
+    A configure that was interrupted, or ran twice at once in the same folder, can leave a cache that fails
+    every later configure (e.g. "No CMAKE_C_COMPILER could be found" although the compiler is there)."""
+    d = Path(build_dir)
+    out(f"configure failed with an existing CMake cache in {d}: removing CMakeCache.txt and CMakeFiles, retrying once")
+    (d / "CMakeCache.txt").unlink(missing_ok=True)
+    shutil.rmtree(d / "CMakeFiles", ignore_errors=True)
+
+
 def run_command(cmd, out=print):
     """Runs a command, sending its output lines to out; returns (exit code, lines)."""
     out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
@@ -176,7 +190,12 @@ def ensure_disc_tool(out=print, ask=toolchain.ask_console):
     cmake = tools["cmake"]
     for cmd in ([cmake, "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"],
                 [cmake, "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"]):
-        if run_command(cmd, out)[0]:
+        had_cache = is_configure(cmd) and (TOOLS_BUILD / "CMakeCache.txt").exists()
+        code = run_command(cmd, out)[0]
+        if code and had_cache:
+            clean_cmake_dir(TOOLS_BUILD, out)
+            code = run_command(cmd, out)[0]
+        if code:
             out("failed to build gow_disc")
             return False
     return DISC_TOOL.exists()
@@ -300,15 +319,14 @@ def run_build(cfg, game, out=print, ask=toolchain.ask_console):
         if cond is not None and not cond():
             out("recompiled C is up to date for this EBOOT, skipping recomp.py")
             continue
-        out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
-        p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
-                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        lines = []
-        for line in p.stdout:
-            lines.append(line.rstrip())
-            out(line.rstrip())
-        if p.wait():
-            out(f"failed (exit {p.returncode})")
+        build_dir = Path(cmd[cmd.index("-B") + 1]) if is_configure(cmd) else None
+        had_cache = build_dir is not None and (build_dir / "CMakeCache.txt").exists()
+        code, lines = run_command(cmd, out)
+        if code and had_cache:
+            clean_cmake_dir(build_dir, out)
+            code, lines = run_command(cmd, out)
+        if code:
+            out(f"failed (exit {code})")
             return False
         if cmd[0] == str(DISC_TOOL) and (not lines or lines[0].strip() != GAMES[game]["id"]):
             out(f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} ({GAMES[game]['title']})")
