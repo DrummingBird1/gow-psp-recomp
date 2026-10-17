@@ -1,5 +1,10 @@
 # God of War PSP: native PC ports (unofficial)
 
+[![Latest release](https://img.shields.io/github/v/release/DrummingBird1/gow-psp-recomp)](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest)
+[![CI](https://github.com/DrummingBird1/gow-psp-recomp/actions/workflows/launcher.yml/badge.svg?branch=main)](https://github.com/DrummingBird1/gow-psp-recomp/actions/workflows/launcher.yml)
+[![License: GPL-3.0](https://img.shields.io/github/license/DrummingBird1/gow-psp-recomp)](LICENSE)
+[![Downloads](https://img.shields.io/github/downloads/DrummingBird1/gow-psp-recomp/total)](https://github.com/DrummingBird1/gow-psp-recomp/releases)
+
 Play **God of War: Chains of Olympus** and **God of War: Ghost of Sparta** natively on Windows, recompiled from your own
 PSP disc, with 4K, MSAA, HDR and high frame rates.
 
