@@ -15,16 +15,21 @@ endif()
 
 # Third-party sources are downloaded once into GOW_DEPS_DIR and shared by every build folder (the launcher has three:
 # cmake_tools, cmake_full, cmake_gos_full); before, each one cloned and downloaded everything again.
-# Git checkouts are pinned to a commit (the folder name carries it), single files to their SHA-256.
+# Each source is a pinned GitHub archive of one commit (the folder name carries it), checked by SHA-256; single
+# files by their SHA-256. No Git needed: players' PCs usually have none (tools/check_no_git.py guards this).
 set(GOW_DEPS_DIR "${CMAKE_SOURCE_DIR}/build/deps" CACHE PATH "Shared download folder for third-party sources")
 include(FetchContent)
-macro(gow_fetch_git name repo commit)
+macro(gow_fetch_archive name repo commit sha256)
   string(TOUPPER "${name}" _gow_upper)
   set(_gow_src "${GOW_DEPS_DIR}/${name}-${commit}")
   if(EXISTS "${_gow_src}/.gow_complete")
-    set(FETCHCONTENT_SOURCE_DIR_${_gow_upper} "${_gow_src}")  # already checked out: no clone
+    set(FETCHCONTENT_SOURCE_DIR_${_gow_upper} "${_gow_src}")  # already downloaded: reuse
   endif()
-  FetchContent_Declare(${name} GIT_REPOSITORY ${repo} GIT_TAG ${commit} SOURCE_DIR "${_gow_src}")
+  FetchContent_Declare(${name}
+    URL "https://github.com/${repo}/archive/${commit}.tar.gz"
+    URL_HASH SHA256=${sha256}
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    SOURCE_DIR "${_gow_src}")
   FetchContent_MakeAvailable(${name})
   file(TOUCH "${_gow_src}/.gow_complete")
 endmacro()
@@ -33,7 +38,8 @@ endmacro()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(CHDR_WANT_TESTS OFF CACHE BOOL "" FORCE)
 set(INSTALL_STATIC_LIBS OFF CACHE BOOL "" FORCE)
-gow_fetch_git(libchdr https://github.com/rtissera/libchdr.git 47d794151b2b64f6aba60304e6480f4f5a2bc24b)
+gow_fetch_archive(libchdr rtissera/libchdr 47d794151b2b64f6aba60304e6480f4f5a2bc24b
+  ee1131e748a2c7d7559b7054540ebe49637433901f92071560df52e369f7c7af)  # zlib/zstd/lzma are in its deps/, no submodules
 
 # SDL3 (zlib license): the game window, keyboard and gamepad input; pinned to release 3.4.16
 option(GOW_WINDOW "Build the SDL3 window and input (gow_rt --window)" ON)
@@ -42,7 +48,8 @@ if(GOW_WINDOW AND NOT GOW_TOOLS_ONLY)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
   set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-  gow_fetch_git(SDL3 https://github.com/libsdl-org/SDL.git fa2c02bb6e21974a89ea9824bc53c9932abe5f9c)
+  gow_fetch_archive(SDL3 libsdl-org/SDL fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+    d246967187a4f37cc850608dbaf5cff9d1df4d731259903d25539755cdfcc657)
 endif()
 
 # ATRAC3/ATRAC3+ decoder for sceAtrac3plus: PPSSPP's ext/at3_standalone (FFmpeg's decoders
