@@ -114,7 +114,7 @@ static uint32_t g_tbuf_size, g_voff;
 static uint64_t g_frame;
 static int g_xfer_gpu;  /* the block transfer in progress was made on the GPU */
 static struct {
-    uint64_t frames, draws, verts, passes, uploads, upload_bytes, pipelines, targets, snapshots, target_uploads, gpu_copies,
+    uint64_t frames, draws, merged, verts, passes, uploads, upload_bytes, pipelines, targets, snapshots, target_uploads, gpu_copies,
         readbacks, submits, resolves, fills, gpu_wait_ns, gpu_wait_max, acquire_ns, acquire_max, acquire_slow;
 } g_st;
 
@@ -796,6 +796,18 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
     c->fu.zrange[1] = d->maxz / 65535.0f;
     c->first = (uint32_t)g_nverts;
     c->count = n;
+    SDL_Rect sc = c->scissor;
+    /* the PSP draws in many short strips: a draw with the same state as the command just
+     * before it (same target, pipeline, texture, sampler and uniforms) extends that command */
+    Cmd *p = g_ncmds >= 2 ? c - 1 : NULL;
+    if (p && p->kind == CMD_DRAW && p->first + p->count == c->first && p->target == c->target && p->pipe == c->pipe &&
+        p->tex == c->tex && p->sampler == c->sampler && p->stencil == c->stencil && p->stencil_ref == c->stencil_ref &&
+        !memcmp(&p->scissor, &c->scissor, sizeof(c->scissor)) && !memcmp(&p->blend_const, &c->blend_const, sizeof(c->blend_const)) &&
+        !memcmp(&p->fu, &c->fu, sizeof(c->fu))) {
+        p->count += n;
+        g_ncmds--;
+        g_st.merged++;
+    }
     grow((void **)&g_verts, &g_vcap, g_nverts + n, sizeof(GpuVertex));
     GpuVertex *o = g_verts + g_nverts;
     memcpy(o, v, n * sizeof(GpuVertex));
@@ -810,7 +822,7 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
     }
     g_nverts += n;
     int wx0 = imax(x1, (int)bx0), wy0 = imax(y1, (int)by0), wx1 = imin(x2 + 1, (int)bx1 + 1), wy1 = imin(y2 + 1, (int)by1 + 1);
-    if (c->scissor.w && c->scissor.h) mark_written(t, wx0, wy0, wx1, wy1);
+    if (sc.w && sc.h) mark_written(t, wx0, wy0, wx1, wy1);
     if (skey && (d->clear_stencil || ((d->sfail || d->zfail || d->zpass) && (~d->skeep & 0xFF)))) t->stencil_dirty = 1;
     t->drawn_frame = g_frame;
     t->fmt = (int)d->fb_fmt;
@@ -1231,8 +1243,9 @@ int rt_gpu_read_target(uint32_t addr, uint32_t stride, uint32_t fmt, uint8_t *rg
 
 void rt_gpu_report(void) {
     if (!g_dev) return;
-    printf("[gpu] %llu frames: %llu draws, %llu vertices, %llu render passes, %llu texture uploads (%.1f MB), %llu pipelines\n",
-           (unsigned long long)g_st.frames, (unsigned long long)g_st.draws, (unsigned long long)g_st.verts,
+    printf("[gpu] %llu frames: %llu draws (%llu merged into the one before), %llu vertices, %llu render passes, %llu texture uploads (%.1f MB), "
+           "%llu pipelines\n",
+           (unsigned long long)g_st.frames, (unsigned long long)g_st.draws, (unsigned long long)g_st.merged, (unsigned long long)g_st.verts,
            (unsigned long long)g_st.passes, (unsigned long long)g_st.uploads, g_st.upload_bytes / 1048576.0,
            (unsigned long long)g_st.pipelines);
     printf("[gpu] %llu render targets, %llu render-to-texture snapshots, %llu uploads into targets, %llu GPU copies, "

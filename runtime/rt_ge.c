@@ -5,10 +5,30 @@
 #include <string.h>
 
 #include "rt_ge_internal.h"
+#include "rt_frames.h"
 
 Ge ge;
 GeStats ge_stats;
 int rt_ge_skip_draw;
+int ge_setup_dirty = 1;
+
+/* Commands that never change what ge_draw_prim derives per draw: control flow, addresses, and
+ * state the renderer reads per vertex or per use (bones, morph weights, texgen matrix,
+ * transfers, CLUT loads). Any other command that writes a new value marks the setup dirty. */
+static uint8_t g_setup_neutral[256];
+static void init_setup_neutral(void) {
+    static const uint8_t cmds[] = {
+        GE_CMD_NOP, GE_CMD_VADDR, GE_CMD_IADDR, GE_CMD_PRIM, GE_CMD_BEZIER, GE_CMD_SPLINE, GE_CMD_BOUNDINGBOX,
+        GE_CMD_JUMP, GE_CMD_BJUMP, GE_CMD_CALL, GE_CMD_RET, GE_CMD_END, GE_CMD_SIGNAL, GE_CMD_FINISH, GE_CMD_BASE,
+        GE_CMD_OFFSETADDR, GE_CMD_ORIGIN, GE_CMD_BONEMATRIXNUMBER, GE_CMD_BONEMATRIXDATA, GE_CMD_TGENMATRIXNUMBER,
+        GE_CMD_TGENMATRIXDATA, GE_CMD_WORLDMATRIXNUMBER, GE_CMD_VIEWMATRIXNUMBER, GE_CMD_PROJMATRIXNUMBER,
+        GE_CMD_CLUTADDR, GE_CMD_CLUTADDRUPPER, GE_CMD_LOADCLUT, GE_CMD_TRANSFERSRC, GE_CMD_TRANSFERSRCW,
+        GE_CMD_TRANSFERDST, GE_CMD_TRANSFERDSTW, GE_CMD_TRANSFERSTART, GE_CMD_TRANSFERSRCPOS, GE_CMD_TRANSFERDSTPOS,
+        GE_CMD_TRANSFERSIZE, GE_CMD_TEXFLUSH, GE_CMD_TEXSYNC,
+    };
+    for (size_t i = 0; i < sizeof(cmds); i++) g_setup_neutral[cmds[i]] = 1;
+    for (int i = 0; i < 8; i++) g_setup_neutral[GE_CMD_MORPHWEIGHT0 + i] = 1;
+}
 
 static float ge_float(uint32_t op) { uint32_t b = op << 8; float f; memcpy(&f, &b, 4); return f; }
 
@@ -63,6 +83,8 @@ static void run_list(uint32_t list, uint32_t stall) {
     stall &= 0x0FFFFFFFu;
     ge.offset = 0;
     ge_stats.lists++;
+    if (!g_setup_neutral[GE_CMD_NOP]) init_setup_neutral();
+    ge_setup_dirty = 1;
     for (uint32_t steps = 0; steps < 4000000; steps++) {
         if (stall && pc == stall) { ge_stats.stalls++; return; }
         uint32_t op = rt_r32(pc), cmd = op >> 24, data = op & 0xFFFFFF;
@@ -105,6 +127,9 @@ static void run_list(uint32_t list, uint32_t stall) {
             if (cmd >= GE_CMD_MORPHWEIGHT0 && cmd <= GE_CMD_MORPHWEIGHT0 + 7) ge.morph[cmd - GE_CMD_MORPHWEIGHT0] = ge_float(op);
             break;
         }
+        if (!g_setup_neutral[cmd] && (op != ge.cmd[cmd] || cmd == GE_CMD_WORLDMATRIXDATA || cmd == GE_CMD_VIEWMATRIXDATA ||
+                                      cmd == GE_CMD_PROJMATRIXDATA))
+            ge_setup_dirty = 1;
         ge.cmd[cmd] = op;
         prev = op;
         pc += 4;
@@ -121,8 +146,10 @@ static void run_list(uint32_t list, uint32_t stall) {
 
 /* Lists run to completion when enqueued; queued drawing is finished before returning. */
 void rt_ge_run(uint32_t list, uint32_t stall) {
+    uint64_t t0 = rt_frames_host_us();
     run_list(list, stall);
     ge_flush(FLUSH_LIST_END);
+    rt_perf_us[RT_PERF_GE] += rt_frames_host_us() - t0;
 }
 
 static const char *prim_names[8] = { "points", "lines", "line strip", "triangles", "tri strip", "tri fan", "sprites", "keep" };
@@ -137,8 +164,9 @@ void rt_ge_report(void) {
     printf("[ge] %u lists, %u prims (%llu vertices), %u through-mode, %u clears, %u lit, %u skinned, %u morphed, %u patches, %u transfers, %u stalls, %u runaway\n",
            ge_stats.lists, ge_stats.prims, (unsigned long long)ge_stats.vertices, ge_stats.through, ge_stats.clears, ge_stats.lit,
            ge_stats.skinned, ge_stats.morphed, ge_stats.patches, ge_stats.transfers, ge_stats.stalls, ge_stats.runaway);
-    printf("  renderer: %llu vertices transformed, %llu triangles queued, %llu pixels shaded, %llu written; %llu flushes of %llu queued primitives\n",
-           (unsigned long long)ge_stats.verts_xformed, (unsigned long long)ge_stats.tris_raster,
+    printf("  renderer: %llu vertices transformed, %llu draws reused the previous setup, %llu triangles queued, %llu pixels shaded, "
+           "%llu written; %llu flushes of %llu queued primitives\n",
+           (unsigned long long)ge_stats.verts_xformed, (unsigned long long)ge_stats.setups_reused, (unsigned long long)ge_stats.tris_raster,
            (unsigned long long)ge_stats.px_shaded, (unsigned long long)ge_stats.px_written,
            (unsigned long long)ge_stats.flushes, (unsigned long long)ge_stats.jobs);
     printf("  flushes by reason: list end %llu, texture %llu, target %llu, transfer %llu, clut %llu, trace %llu\n",

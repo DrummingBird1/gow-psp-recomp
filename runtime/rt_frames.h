@@ -16,6 +16,11 @@ typedef struct {
     int from_gpu;           /* snapshots and video are read back from the GPU (--renderer gpu) */
 } FrameOptions;
 
+/* --perf-csv: host time spent in parts of the runtime since the last displayed frame (us) */
+enum { RT_PERF_GE, RT_PERF_PRESENT, RT_PERF_IO, RT_PERF_PARTS };
+extern uint64_t rt_perf_us[RT_PERF_PARTS];
+uint64_t rt_frames_host_us(void);
+
 extern uint32_t rt_max_frames;  /* --max-frames: the run stops after this displayed frame */
 extern uint32_t rt_fast_forward;  /* --fast-forward: nothing is drawn before this displayed frame */
 

@@ -30,6 +30,7 @@
 
 #include "amctrl.h"  /* PPSSPP ext/libkirk: pgd_open, pgd_decrypt_block */
 #include "rt_kernel.h"
+#include "rt_frames.h"
 
 #define SECTOR 2048u
 #define MAX_FD 64
@@ -79,9 +80,10 @@ static uint32_t disc_read_raw(uint64_t off, uint8_t *dst, uint32_t len);
 /* Reads from the image. The game waits for nothing while the host reads, so a slow read
  * (an external drive waking up, say) is a stall in the window: those are logged. */
 static uint32_t disc_read(uint64_t off, uint8_t *dst, uint32_t len) {
-    uint64_t t0 = host_ms();
+    uint64_t t0 = host_ms(), u0 = rt_frames_host_us();
     uint32_t got = disc_read_raw(off, dst, len);
     uint64_t ms = host_ms() - t0;
+    rt_perf_us[RT_PERF_IO] += rt_frames_host_us() - u0;
     if (ms >= 50) rt_log("[io] slow disc read: %u bytes at sector 0x%llx took %llu ms of host time\n", len,
                          (unsigned long long)(off / SECTOR), (unsigned long long)ms);
     return got;

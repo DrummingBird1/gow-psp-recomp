@@ -59,7 +59,7 @@ enum { FLUSH_LIST_END, FLUSH_TEXTURE, FLUSH_TARGET, FLUSH_TRANSFER, FLUSH_CLUT, 
 typedef struct { uint32_t key, count; } GeCount;
 typedef struct {
     uint32_t lists, prims, through, clears, lit, skinned, morphed, patches, transfers, stalls, runaway, signals;
-    uint64_t vertices, verts_xformed, tris_raster, px_shaded, px_written, flushes, jobs;
+    uint64_t vertices, verts_xformed, tris_raster, px_shaded, px_written, flushes, jobs, setups_reused;
     uint64_t flush_why[FLUSH_REASONS];
     uint32_t prim_type[8];
     uint32_t cmds[256];
@@ -68,6 +68,9 @@ typedef struct {
 
 extern Ge ge;
 extern GeStats ge_stats;
+/* set when a command since the last PRIM may have changed state that ge_draw_prim derives
+ * once per draw (transform, lighting and raster setup); otherwise that setup is reused */
+extern int ge_setup_dirty;
 
 uint32_t ge_rel(uint32_t data);
 

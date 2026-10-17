@@ -20,6 +20,7 @@
 #include "psp_rt.h"
 #include "rt_frames.h"
 #include "rt_gpu.h"
+#include "rt_ge_internal.h"
 
 #define DISP_W 480
 #define DISP_H 272
@@ -56,6 +57,9 @@ static uint64_t host_us(void) {
     return (uint64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
 #endif
 }
+
+uint64_t rt_perf_us[RT_PERF_PARTS];
+uint64_t rt_frames_host_us(void) { return host_us(); }
 
 /* PSP framebuffer formats: 0 = 565, 1 = 5551, 2 = 4444, 3 = 8888 (red in the low bits) */
 static void to_rgb(uint8_t *out, uint32_t addr, uint32_t stride, uint32_t format) {
@@ -224,7 +228,7 @@ void rt_frames_init(const FrameOptions *o) {
     open_stream(&g_streams[0], g_o.video, 0);
     open_stream(&g_streams[1], g_o.video_host, 1);
     if (g_o.perf_csv && (g_csv = fopen(g_o.perf_csv, "w")) != NULL)
-        fprintf(g_csv, "frame,virtual_ms,host_ms,host_frame_ms\n");
+        fprintf(g_csv, "frame,virtual_ms,host_ms,host_frame_ms,ge_ms,present_ms,io_ms,prims,verts\n");
     g_t0 = g_tprev = host_us();
 }
 
@@ -247,7 +251,14 @@ void rt_frames_present(uint64_t frame, uint64_t now_us, uint32_t addr, uint32_t 
         if (ft > g_ft_max) g_ft_max = ft;
         g_ft_hist[ft >= FT_BUCKETS - 1 ? FT_BUCKETS - 1 : (int)ft]++;
     }
-    if (g_csv) fprintf(g_csv, "%llu,%.3f,%.3f,%.3f\n", (unsigned long long)frame, now_us / 1000.0, (t - g_t0) / 1000.0, ft);
+    if (g_csv) {
+        static uint64_t prims0, verts0;
+        fprintf(g_csv, "%llu,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%llu,%llu\n", (unsigned long long)frame, now_us / 1000.0, (t - g_t0) / 1000.0, ft,
+                rt_perf_us[RT_PERF_GE] / 1000.0, rt_perf_us[RT_PERF_PRESENT] / 1000.0, rt_perf_us[RT_PERF_IO] / 1000.0,
+                (unsigned long long)(ge_stats.prims - prims0), (unsigned long long)(ge_stats.verts_xformed - verts0));
+        prims0 = ge_stats.prims; verts0 = ge_stats.verts_xformed;
+    }
+    memset(rt_perf_us, 0, sizeof(rt_perf_us));
     g_now = now_us;
     if (g_o.from_gpu) return;  /* captured in rt_frames_after_present, once the GPU drew it */
     capture(frame, addr, stride, format);

@@ -372,7 +372,11 @@ void rt_host_shutdown(void) {
 /* PSP framebuffer -> texture. 8888 is uploaded directly (red in the low byte = XBGR8888). */
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) {
     g_last_frame = frame;
-    if (rt_gpu_active()) rt_gpu_present(addr, stride, format);
+    if (rt_gpu_active()) {
+        uint64_t t0 = rt_frames_host_us();
+        rt_gpu_present(addr, stride, format);
+        rt_perf_us[RT_PERF_PRESENT] += rt_frames_host_us() - t0;
+    }
     if (!g_win) return 0;
     if (addr && stride) { g_shot_addr = addr; g_shot_stride = stride; g_shot_format = format; }
     if (!g_ren) {

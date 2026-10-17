@@ -1794,7 +1794,6 @@ static int outside_z(const Vtx *v, int *pos, int *neg) {
 }
 
 static void submit_tri(const Vtx *v0, const Vtx *v1, const Vtx *v2, const Vtx *prov, int cull) {
-    Vtx t[3] = { *v0, *v1, *v2 };
     if (!R.through) {
         if (v0->outside || v1->outside || v2->outside) return;
         if (v0->cw < 0 && v1->cw < 0 && v2->cw < 0) return;
@@ -1803,6 +1802,13 @@ static void submit_tri(const Vtx *v0, const Vtx *v1, const Vtx *v2, const Vtx *p
         if (pos + neg > 0 && !X.clamp) return;
         if (pos >= 3 || neg >= 3) return;
     }
+    int clips = !R.through && (v0->cz < -v0->cw || v1->cz < -v1->cw || v2->cz < -v2->cw);
+    if (R.gouraud && !clips) {
+        if (cull == CULL_CW) draw_oriented(v2, v1, v0, cull);
+        else draw_oriented(v0, v1, v2, cull);
+        return;
+    }
+    Vtx t[3] = { *v0, *v1, *v2 };
     if (!R.gouraud)
         for (int i = 0; i < 3; i++) { memcpy(t[i].c0, prov->c0, sizeof(t[i].c0)); memcpy(t[i].c1, prov->c1, sizeof(t[i].c1)); }
     if (cull == CULL_CW) { Vtx s = t[0]; t[0] = t[2]; t[2] = s; }
@@ -1880,8 +1886,9 @@ static size_t g_vcap, g_mapcap;
 void ge_draw_prim(uint32_t op) {
     uint32_t count = op & 0xFFFF, prim = (op >> 16) & 7;
     if (count == 0) return;
-    VFmt f;
-    vfmt_init(&f, D(GE_CMD_VERTEXTYPE));
+    static VFmt f;
+    static uint32_t f_vt = 0xFFFFFFFFu;
+    if (D(GE_CMD_VERTEXTYPE) != f_vt) { f_vt = D(GE_CMD_VERTEXTYPE); vfmt_init(&f, f_vt); }
     uint32_t isize = f.idx ? 1u << (f.idx - 1) : 0;
     const uint8_t *vbase = rt_ptr(ge.vaddr), *ibase = f.idx ? rt_ptr(ge.iaddr) : NULL;
     if (f.idx) ge.iaddr += count * isize;
@@ -1890,8 +1897,16 @@ void ge_draw_prim(uint32_t op) {
     if (f.pos == 0) return;  /* vertices without a position are culled */
     if (prim == 7) prim = 3;
 
-    setup_transform(&f);
-    setup_raster(&g_cur, f.through);
+    /* kept from the previous draw when no command since changed their inputs (ge_setup_dirty,
+     * rt_ge.c). They go together: setup_raster reads the transform's uvgen. push_state only
+     * rewrites fields of g_cur that it recomputes for every draw anyway. */
+    if (ge_setup_dirty) {
+        setup_transform(&f);
+        setup_raster(&g_cur, f.through);
+        ge_setup_dirty = 0;
+    } else {
+        ge_stats.setups_reused++;
+    }
     static int trace_list = -1;
     if (trace_list < 0) { const char *e = getenv("RT_GE_TRACE_LIST"); trace_list = e ? atoi(e) : 0; }
     int tracing = trace_list && (int)ge_stats.lists == trace_list;
@@ -1924,7 +1939,8 @@ void ge_draw_prim(uint32_t op) {
     /* screen box and texture-coordinate range of the draw, for the hazard check */
     int bbox[4] = { 1 << 30, -(1 << 30), 1 << 30, -(1 << 30) }, bb_ok = 1, sr_ok = g_cur.tex && !(X.uvgen == 1 && !f.through);
     float sr[4] = { 1e30f, -1e30f, 1e30f, -1e30f };
-    for (uint32_t i = lo; i <= hi; i++) {
+    int ranges = g_soft || rtt_tracing();  /* only the software queue and the RTT trace use them */
+    for (uint32_t i = lo; ranges && i <= hi; i++) {
         const Vtx *v = &g_vtx[i - lo];
         if (v->outside || (!f.through && v->cz < -v->cw)) bb_ok = 0;
         else {
