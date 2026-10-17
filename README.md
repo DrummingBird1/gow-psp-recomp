@@ -142,7 +142,7 @@ redrawn on the PC's GPU, it can render at any resolution and frame rate.
 
 | Path | Contents |
 |---|---|
-| `docs/` | Feasibility report and phase write-ups |
+| `docs/` | Player FAQ, feasibility report and phase write-ups ([index](docs/README.md)) |
 | `re/scripts/` | Ghidra scripts (analysis export, metrics, import naming, function seeding) and `build_nid_db.mjs` |
 | `re/out/` | Analysis results: metrics, function lists, imports, NID table (no game code) |
 | `recomp/` | Recompiler (Python): loader/relocator, decoder, C emitter, driver, differential tests |
