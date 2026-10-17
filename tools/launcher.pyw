@@ -8,8 +8,10 @@ in build/launcher.json (your paths stay on your machine; build/ is not in git).
     python tools/launcher.pyw --build coo|gos     build without the window (recompile + CMake)
     python tools/launcher.pyw --play coo|gos      start with the saved settings
     python tools/launcher.pyw --print-command coo|gos
+    python tools/launcher.pyw --check-tools       show where Python, CMake and Visual Studio were found
 
-Building needs Python 3, CMake and Visual Studio with C++ (see README.md); the EBOOT is decrypted from the
+Building needs Python 3, CMake and Visual Studio with C++: Build finds them and, if some are missing, offers to
+install them with winget (tools/toolchain.py; GOW_SIMULATE_MISSING=all shows the commands without installing). The EBOOT is decrypted from the
 disc image into build/eboot/ by gow_disc (built once into build/cmake_tools)."""
 import hashlib
 import json
@@ -18,6 +20,9 @@ import subprocess
 import sys
 import threading
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import toolchain  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "build" / "launcher.json"
@@ -110,34 +115,44 @@ def play_command(cfg, game):
     return cmd
 
 
-def build_steps(cfg, game):
+def build_steps(cfg, game, tools=None):
     """Build gow_disc (once), decrypt the EBOOT from the disc image, recompile it into C (skipped when this
     EBOOT was already recompiled), configure, build. A step is (command, condition or None)."""
     g, disc = GAMES[game], check_disc(cfg, game)
+    tools = tools or {}
+    cmake, python = tools.get("cmake") or "cmake", tools.get("python") or sys.executable
     eboot = eboot_path(game)
     stamp = gen_dir(game) / "eboot.sha256"
     steps = []
     if not DISC_TOOL.exists():
-        steps.append((["cmake", "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"], None))
-        steps.append((["cmake", "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"], None))
+        steps.append(([cmake, "-S", str(ROOT), "-B", str(TOOLS_BUILD), "-DGOW_TOOLS_ONLY=ON"], None))
+        steps.append(([cmake, "--build", str(TOOLS_BUILD), "--config", "Release", "--target", "gow_disc", "--parallel"], None))
     steps.append(([str(DISC_TOOL), "--disc", disc, "--id", "--decrypt-eboot", str(eboot)], None))
 
     def needs_recomp():
         digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
         return not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest
 
-    steps.append(([sys.executable, "-I", str(ROOT / "recomp" / "recomp.py"), "--elf", str(eboot),
+    steps.append(([python, "-I", str(ROOT / "recomp" / "recomp.py"), "--elf", str(eboot),
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
                    "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
                    "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
-    steps.append((["cmake", "-S", str(ROOT), "-B", str(ROOT / g["build"]), f"-DGAME={g['id']}_full"], None))
-    steps.append((["cmake", "--build", str(ROOT / g["build"]), "--config", "Release", "--parallel"], None))
+    steps.append(([cmake, "-S", str(ROOT), "-B", str(ROOT / g["build"]), f"-DGAME={g['id']}_full"], None))
+    steps.append(([cmake, "--build", str(ROOT / g["build"]), "--config", "Release", "--parallel"], None))
     return steps, stamp
 
 
-def run_build(cfg, game, out=print):
+def run_build(cfg, game, out=print, ask=toolchain.ask_console):
     try:
-        steps, stamp = build_steps(cfg, game)
+        check_disc(cfg, game)
+    except ValueError as e:
+        out(str(e))
+        return False
+    tools = toolchain.ensure(ask, out)
+    if not tools:
+        return False
+    try:
+        steps, stamp = build_steps(cfg, game, tools)
     except ValueError as e:
         out(str(e))
         return False
@@ -265,7 +280,14 @@ def gui():
         except ValueError as e:
             messagebox.showerror("Build", str(e))
             return
-        threading.Thread(target=lambda: (run_build(c, g, out), root.after(0, on_game)), daemon=True).start()
+
+        def ask(text):  # called from the build thread: show the consent dialog on the Tk thread and wait
+            answer, done = [False], threading.Event()
+            root.after(0, lambda: (answer.__setitem__(0, messagebox.askyesno("Install build tools", text)), done.set()))
+            done.wait()
+            return answer[0]
+
+        threading.Thread(target=lambda: (run_build(c, g, out, ask), root.after(0, on_game)), daemon=True).start()
 
     def do_play():
         try:
@@ -285,6 +307,10 @@ def gui():
 
 
 def main(argv):
+    if argv == ["--check-tools"]:
+        for tool, path in toolchain.detect().items():
+            print(f"{tool:7} {path or 'MISSING'}")
+        return 0 if all(toolchain.detect().values()) else 1
     if len(argv) == 2 and argv[0] in ("--build", "--play", "--print-command") and argv[1] in GAMES:
         cfg = load_config()
         if argv[0] == "--build":

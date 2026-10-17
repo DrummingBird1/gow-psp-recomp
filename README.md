@@ -15,7 +15,8 @@ up to 4K internal resolution, MSAA, anisotropic filtering, HDR10, 120+ FPS and 2
 
 You need your own UMD copy of the game, as a disc image (`.chd` or `.iso`).
 
-1. Install Python 3, CMake and Visual Studio (2022 or later) with "Desktop development with C++".
+1. Install Python 3. The launcher finds CMake and Visual Studio (2022 or later, C++ tools) and offers to install
+   any missing build tool with winget, after asking you.
 2. Run `python tools/launcher.pyw`: pick the game and its disc image, press **Build** (decrypts the EBOOT from the
    disc, recompiles it into C and builds it; about 10 minutes the first time), choose the graphics options, press **Play**.
 
