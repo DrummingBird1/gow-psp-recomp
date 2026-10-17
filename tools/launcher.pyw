@@ -36,8 +36,9 @@ GAMES = {
 }
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
-    "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": False,
+    "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
         "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, Esc = quit. Gamepads: PSP layout.")
@@ -46,9 +47,14 @@ KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, 
 def load_config():
     cfg = dict(DEFAULTS)
     try:
-        cfg.update(json.loads(CONFIG.read_text(encoding="utf-8")))
+        saved = json.loads(CONFIG.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        pass
+        saved = {}
+    if saved and saved.get("settings_version", 1) < 2:
+        # v1.0.0 saved every setting, so its "fullscreen": false was the old default, not a choice: switch to the
+        # new default (fullscreen) once; the Fullscreen option and F11 still switch back to a window.
+        saved["fullscreen"], saved["settings_version"] = True, 2
+    cfg.update(saved)
     return cfg
 
 
