@@ -1258,6 +1258,7 @@ class Window(QWidget):
         try:
             self.L.start_game(self.collect(), g)
             self.log("started: " + subprocess.list2cmdline(self.L.play_command(self.cfg, g)))
+            self.log(f"game log (attach it to bug reports): {self.L.game_log(g)}")
         except ValueError as e:
             QMessageBox.critical(self, "Play", str(e))
 
