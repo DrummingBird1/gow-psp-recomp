@@ -44,11 +44,12 @@ You only download **one file**, the launcher. No Python, no manual setup.
    even a launcher started straight from Downloads adds only that one folder.
 2. Run `GoWLauncher.exe` and choose the folder with **your own disc images** (`.chd` or `.iso`). It detects each game by its disc ID,
    not by the file name.
-3. If build tools are missing, the launcher offers once to install them for you with winget: Visual Studio Build Tools
-   with C++ (about 6 GB) and CMake. It asks before installing anything. *Honest note: this automatic install has not yet
-   been tested on a PC without Visual Studio; please report how it goes.*
-4. Press **Build** and wait for the one-time build (about 3 minutes for the first game, under 2 for the second, on a
-   20-thread CPU).
+3. Press **Build**. The first time, the launcher asks to download its portable build tools (**about 246 MB**, once;
+   about 550 MB unpacked): [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (Clang compiler), CMake and Ninja,
+   from their official releases, checked against pinned SHA-256 hashes. They stay in `GoW_PSP_data`; **no Visual
+   Studio, no administrator rights, nothing installed in Windows.**
+4. Wait for the one-time build: about 4 minutes for the first game (including the download) and under 3 for the
+   second, on a 20-thread CPU.
 5. Pick a graphics preset and press **Play**.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
@@ -75,8 +76,11 @@ I/J/K/L = analog stick, F11 fullscreen, F12 screenshot, Esc quit. Gamepads use t
 
 ## Build from source
 
-Install the tools yourself: Python 3.15, CMake, and Visual Studio 2022 or later (or its Build Tools) with the C++
-workload. Then:
+Install Python 3.15. For the compiler, either let the launcher download its portable toolchain (llvm-mingw, CMake,
+Ninja; `GOW_TOOLCHAIN=portable`, or `python tools/check_portable_toolchain.py`), or install CMake and Visual Studio
+2022 or later (or its Build Tools) with the C++ workload; run from source, the launcher uses Visual Studio when it
+finds it (`GOW_TOOLCHAIN=auto`, the default; `msvc` forces it). Both produce identical software-renderer output.
+Then:
 
 ```bash
 py -3 -m venv .venv

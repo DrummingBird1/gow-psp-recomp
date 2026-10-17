@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **No Visual Studio needed:** the launcher downloads a portable toolchain once (llvm-mingw, CMake, Ninja; 246 MB,
+  pinned SHA-256, after asking) and builds both games with it; no administrator rights, nothing installed in Windows.
+  Visual Studio stays supported and is the fallback. Same software-renderer output (34/34, same WAV); results in
+  `docs/phase15-portable-toolchain.md`.
+- CI downloads the portable toolchain and builds `gow_disc` with it.
+
 ## v1.0.1 (2026-10-17)
 
 Still a preview: every level loads and runs and saves work, but neither game has had a full playthrough yet.
