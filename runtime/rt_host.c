@@ -302,6 +302,10 @@ static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
 static uint64_t g_skips_made, g_skipped_us;  /* virtual-time skips at a high frame rate (rt_host_idle) */
 static int g_anchored;
+/* PSP buttons the game must not see until they are released: the press that answered the quit
+ * question (otherwise it would also reach the game behind it) */
+static uint32_t g_eat;
+static uint64_t g_quit_hold;  /* when gamepad Back+Start started being held together */
 static uint32_t g_rgba[DISP_W * DISP_H];
 static uint32_t g_shot_addr, g_shot_stride, g_shot_format;
 
@@ -335,14 +339,82 @@ static void screenshot(void) {
     if (ok) printf("[host] screenshot %s\n", path);
 }
 
+/* "Quit the game?" over the game window. The game (and its sound) waits while it is open:
+ * this runs on the game's own thread. Enter / Y / gamepad Cross: yes; Esc / N / Circle: no. */
+static void draw_confirm(SDL_Renderer *r, int w, int h) {
+    SDL_SetRenderDrawColor(r, 16, 16, 16, 255);
+    SDL_RenderClear(r);
+    SDL_SetRenderDrawColor(r, 200, 160, 60, 255);
+    SDL_FRect fr = { 2, 2, (float)w - 4, (float)h - 4 };
+    SDL_RenderRect(r, &fr);
+    SDL_SetRenderScale(r, 2, 2);
+    SDL_SetRenderDrawColor(r, 255, 255, 255, 255);
+    SDL_RenderDebugText(r, (w / 2 - 15 * 16) / 4.0f + 30, 12, "Quit the game?");
+    SDL_SetRenderScale(r, 1, 1);
+    SDL_SetRenderDrawColor(r, 220, 220, 220, 255);
+    SDL_RenderDebugText(r, 20, 64, "Yes: Enter or gamepad Cross (A)");
+    SDL_RenderDebugText(r, 20, 84, "No:  Esc or gamepad Circle (B)");
+    SDL_RenderPresent(r);
+}
+
+static int confirm_quit(void) {
+    printf("[host] quit question opened\n");
+    rt_audio_pause(1);
+    int ww = 0, wh = 0, w = 300, h = 110, answer = -1;
+    SDL_GetWindowSize(g_win, &ww, &wh);
+    SDL_Window *pop = SDL_CreatePopupWindow(g_win, (ww - w) / 2, (wh - h) / 2, w, h, SDL_WINDOW_POPUP_MENU);
+    SDL_Renderer *r = pop ? SDL_CreateRenderer(pop, NULL) : NULL;
+    if (!r) {  /* no popup: fall back to the system message box (keyboard / mouse only) */
+        if (pop) SDL_DestroyWindow(pop);
+        pop = NULL;
+        const SDL_MessageBoxButtonData b[] = {
+            { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Yes" }, { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "No" } };
+        const SDL_MessageBoxData d = { SDL_MESSAGEBOX_INFORMATION, g_win, "God of War", "Quit the game?", 2, b, NULL };
+        int id = 0;
+        answer = SDL_ShowMessageBox(&d, &id) && id == 1;
+    }
+    while (answer < 0) {
+        draw_confirm(r, w, h);
+        SDL_Event e;
+        if (!SDL_WaitEventTimeout(&e, 100)) continue;
+        do {
+            switch (e.type) {
+            case SDL_EVENT_QUIT: answer = 1; break;
+            case SDL_EVENT_KEY_DOWN:
+                if (e.key.repeat) break;
+                if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_Y) answer = 1;
+                else if (e.key.key == SDLK_ESCAPE || e.key.key == SDLK_N) answer = 0;
+                else if (e.key.key == SDLK_F4 && (e.key.mod & SDL_KMOD_ALT)) answer = 1;
+                break;
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+                if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) answer = 1;
+                else if (e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) answer = 0;
+                break;
+            case SDL_EVENT_GAMEPAD_ADDED: open_pad(e.gdevice.which); break;
+            case SDL_EVENT_GAMEPAD_REMOVED: close_pad(e.gdevice.which); break;
+            default: break;
+            }
+        } while (answer < 0 && SDL_PollEvent(&e));
+    }
+    if (r) SDL_DestroyRenderer(r);
+    if (pop) SDL_DestroyWindow(pop);
+    g_eat = 0xFFFFFFFFu;  /* whatever is held when the box closes waits for its release */
+    g_anchored = 0;       /* the wall clock went on without the game: start pacing afresh */
+    rt_audio_pause(0);
+    printf("[host] quit question: %s\n", answer ? "yes, quitting" : "no, back to the game");
+    return answer;
+}
+
 static void pump(void) {
     SDL_Event e;
+    int ask = 0;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
-        case SDL_EVENT_QUIT: g_quit = 1; break;
+        case SDL_EVENT_QUIT: g_quit = 1; break;  /* the close button, and Alt+F4 */
         case SDL_EVENT_KEY_DOWN:
             if (e.key.repeat) break;
-            if (e.key.key == SDLK_ESCAPE) g_quit = 1;
+            if (e.key.key == SDLK_F4 && (e.key.mod & SDL_KMOD_ALT)) g_quit = 1;
+            else if (e.key.key == SDLK_ESCAPE) ask = 1;
             else if (e.key.key == SDLK_F11 || (e.key.key == SDLK_RETURN && (e.key.mod & SDL_KMOD_ALT))) {
                 g_fullscreen = !g_fullscreen;
                 SDL_SetWindowFullscreen(g_win, g_fullscreen);
@@ -353,6 +425,14 @@ static void pump(void) {
         default: break;
         }
     }
+    /* gamepad: hold Back + Start for 2 s to quit */
+    int held = 0;
+    for (int i = 0; i < 8; i++)
+        if (g_pads[i] && SDL_GetGamepadButton(g_pads[i], SDL_GAMEPAD_BUTTON_BACK) && SDL_GetGamepadButton(g_pads[i], SDL_GAMEPAD_BUTTON_START)) held = 1;
+    if (!held) g_quit_hold = 0;
+    else if (!g_quit_hold) g_quit_hold = now_us();
+    else if (now_us() - g_quit_hold >= 2000000 && !g_quit) { printf("[host] Back+Start held: quitting\n"); g_quit = 1; }
+    if (ask && !g_quit && confirm_quit()) g_quit = 1;
     g_last_pump = now_us();
 }
 
@@ -364,6 +444,7 @@ int rt_host_init(const HostOptions *o) {
     SDL_SetMainReady();
     if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
+    SDL_SetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "1");  /* Alt+F4 closes the window, as in any Windows program */
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { fprintf(stderr, "[host] SDL_Init: %s\n", SDL_GetError()); return 0; }
     int scale = g_o.scale > 0 ? g_o.scale : 2;
     int win_w = g_o.gpu && rt_gpu_opt.aspect > 0 ? (int)(DISP_H * scale * rt_gpu_opt.aspect + 0.5f) : DISP_W * scale;  /* --aspect */
@@ -380,7 +461,7 @@ int rt_host_init(const HostOptions *o) {
         if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit\n", win_w, DISP_H * scale);
+               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit\n", win_w, DISP_H * scale);
         g_title_t = now_us();
         pump();
         return 1;
@@ -397,7 +478,7 @@ int rt_host_init(const HostOptions *o) {
     SDL_RenderClear(g_ren);
     SDL_RenderPresent(g_ren);
     printf("[host] window %dx%d (%s renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-           "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
+           "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
     g_title_t = now_us();
     pump();
     return 1;
@@ -549,6 +630,8 @@ static int live_input(uint32_t *out_b, int *lx, int *ly) {
             if (abs(x) > 6000 || abs(y) > 6000) { ax = (x + 32768) >> 8; ay = (y + 32768) >> 8; }
         }
     }
+    g_eat &= b;  /* a released button is the game's again */
+    b &= ~g_eat;
     *out_b = b;
     *lx = ax;
     *ly = ay;

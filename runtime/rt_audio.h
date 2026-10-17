@@ -17,6 +17,8 @@ void rt_audio_advance(uint64_t upto_us);
 void rt_audio_host_sync(void);
 void rt_audio_shutdown(uint64_t now_us);
 void rt_audio_report(void);
+/* Pauses / resumes the sound device (the quit question in the window). */
+void rt_audio_pause(int on);
 void rt_sas_report(void);    /* rt_sas.c */
 void rt_atrac_report(void);  /* rt_atrac.c */
 

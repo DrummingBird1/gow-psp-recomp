@@ -123,6 +123,12 @@ void rt_audio_host_sync(void) {
     }
 }
 
+void rt_audio_pause(int on) {
+    if (!g_stream) return;
+    if (on) SDL_PauseAudioStreamDevice(g_stream);
+    else SDL_ResumeAudioStreamDevice(g_stream);
+}
+
 static void sdl_close(void) {
     if (!g_stream) return;
     SDL_DestroyAudioStream(g_stream);
@@ -133,6 +139,7 @@ static void sdl_close(void) {
 static int sdl_open(void) { fprintf(stderr, "[audio] this build has no SDL3: no sound in real time\n"); return 1; }
 static void sdl_put(const int16_t *s, uint32_t frames) { (void)s; (void)frames; }
 void rt_audio_host_sync(void) {}
+void rt_audio_pause(int on) { (void)on; }
 static void sdl_close(void) {}
 #endif
 
