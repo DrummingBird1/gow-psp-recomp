@@ -111,8 +111,11 @@ FINDERS = {"python": find_python, "cmake": find_cmake, "vs": find_vs}
 
 
 def detect():
-    """{tool: path or None}; tools named in GOW_SIMULATE_MISSING report None."""
+    """{tool: path or None}; tools named in GOW_SIMULATE_MISSING report None. The frozen launcher runs the
+    recompiler itself, so it needs no Python."""
     sim = simulated_missing()
+    if getattr(sys, "frozen", False):
+        return {t: (sys.executable if t == "python" else None if t in sim or "all" in sim else FINDERS[t]()) for t in TOOLS}
     return {t: (None if t in sim or "all" in sim else FINDERS[t]()) for t in TOOLS}
 
 

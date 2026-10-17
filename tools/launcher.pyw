@@ -16,6 +16,7 @@ disc image into build/eboot/ by gow_disc (built once into build/cmake_tools)."""
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -24,7 +25,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-ROOT = Path(__file__).resolve().parent.parent
+# Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks
+# them next to itself on the first Build; build/ is made there too.
+FROZEN = getattr(sys, "frozen", False)
+ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent.parent
 CONFIG = ROOT / "build" / "launcher.json"
 GAMES = {
     "coo": {"id": "UCUS98653", "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
@@ -60,6 +64,40 @@ def exe_path(game):
 
 def gen_dir(game):
     return ROOT / "build" / "gen" / f"{GAMES[game]['id']}_full"
+
+
+def unpack_sources(out=print):
+    """Frozen only: copies the bundled sources (CMakeLists.txt, runtime/, cmake/, re/out tables) next to the exe
+    when they are missing or from another launcher version."""
+    if not FROZEN:
+        return
+    src = Path(sys._MEIPASS) / "src"
+    manifest = (src / "manifest.txt").read_text(encoding="utf-8")
+    stamp = ROOT / "build" / "launcher_sources.txt"
+    if stamp.exists() and stamp.read_text(encoding="utf-8") == manifest:
+        return
+    out("unpacking the build sources next to the launcher")
+    for line in manifest.splitlines():
+        rel = line.split("  ", 1)[1]
+        dst = ROOT / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src / rel, dst)
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    stamp.write_text(manifest, encoding="utf-8")
+
+
+def recomp_command(python):
+    """recomp/recomp.py, run by Python, or by the frozen launcher itself (--recomp: no Python needed)."""
+    if FROZEN:
+        return [sys.executable, "--recomp"]
+    return [python, "-I", str(ROOT / "recomp" / "recomp.py")]
+
+
+def run_recomp(args):
+    """--recomp: recomp.py's main, in this process (the frozen launcher carries recomp/)."""
+    import recomp
+    sys.argv = ["recomp.py"] + args
+    return recomp.main()
 
 
 TOOLS_BUILD = ROOT / "build" / "cmake_tools"
@@ -133,7 +171,7 @@ def build_steps(cfg, game, tools=None):
         digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
         return not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest
 
-    steps.append(([python, "-I", str(ROOT / "recomp" / "recomp.py"), "--elf", str(eboot),
+    steps.append((recomp_command(python) + ["--elf", str(eboot),
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
                    "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
                    "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
@@ -151,6 +189,7 @@ def run_build(cfg, game, out=print, ask=toolchain.ask_console):
     tools = toolchain.ensure(ask, out)
     if not tools:
         return False
+    unpack_sources(out)
     try:
         steps, stamp = build_steps(cfg, game, tools)
     except ValueError as e:
@@ -175,7 +214,7 @@ def run_build(cfg, game, out=print, ask=toolchain.ask_console):
         if cmd[0] == str(DISC_TOOL) and (not lines or lines[0].strip() != GAMES[game]["id"]):
             out(f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} ({GAMES[game]['title']})")
             return False
-        if len(cmd) > 2 and "recomp.py" in cmd[2]:
+        if cond is not None:  # the recompile step
             stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())
     out(f"built {exe_path(game)}")
     return True
@@ -195,6 +234,11 @@ def gui():
     import tkinter as tk
     from tkinter import filedialog, messagebox, ttk
 
+    if FROZEN and os.name == "nt":  # started by double-click: hide the console window the exe opened
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        if k32.GetConsoleProcessList((ctypes.c_uint * 2)(), 2) == 1:
+            ctypes.windll.user32.ShowWindow(k32.GetConsoleWindow(), 0)
     cfg = load_config()
     root = tk.Tk()
     root.title("God of War PSP native ports: launcher")
@@ -307,6 +351,8 @@ def gui():
 
 
 def main(argv):
+    if argv and argv[0] == "--recomp":
+        return run_recomp(argv[1:])
     if argv == ["--check-tools"]:
         for tool, path in toolchain.detect().items():
             print(f"{tool:7} {path or 'MISSING'}")

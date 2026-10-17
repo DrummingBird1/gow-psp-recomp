@@ -1,0 +1,2 @@
+# Building GoWLauncher.exe (tools/build_launcher.py)
+pyinstaller==6.22.3
