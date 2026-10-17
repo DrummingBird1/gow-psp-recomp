@@ -19,7 +19,7 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
   [phase write-ups](docs/), the [launcher acceptance test](docs/phase14-launcher.md) and the [changelog](CHANGELOG.md).
 - Windows only for now (Linux / Steam Deck planned).
 
-Bug reports are very welcome: please attach a recorded input file (`--record-input`), **never game files or screenshots of the game**.
+Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log and input files the launcher writes), **never game files or screenshots of the game**.
 
 ## Features
 
@@ -62,7 +62,14 @@ You only download **one file**, the launcher. No Python, no manual setup.
 
 The game starts in fullscreen (F11 or Alt+Enter switches to a window; the launcher's Fullscreen option sets the
 default) without a console window. What it prints goes to `GoW_PSP_data\build\launcher_coo.log` (or
-`launcher_gos.log`); attach that file to bug reports.
+`launcher_gos.log`), and your button presses of that session to `launcher_coo_input.txt` (or
+`launcher_gos_input.txt`). Both are overwritten by the next Play, so copy them right after the bug happens.
+
+### Reporting a bug
+
+Open an [issue](https://github.com/DrummingBird1/gow-psp-recomp/issues/new/choose), say which level and what happens, and
+attach those two files from `GoW_PSP_data\build\`. They hold only text: the game's log and your key presses.
+Mention whether you started from a new game or a save. Never attach game files, saves or screenshots of the game.
 
 Why build on your PC? The game code is generated from your own disc, so it can't be distributed; the launcher
 compiles it locally, once.

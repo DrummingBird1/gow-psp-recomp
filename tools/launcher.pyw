@@ -414,13 +414,20 @@ def start_game(cfg, game):
     # gow_rt is a console program (so developers see its log in a terminal); started from here it gets no console
     # window, and its output goes to game_log(game) instead, for bug reports.
     log = open(game_log(game), "w", encoding="utf-8", errors="replace")
-    return subprocess.Popen(play_command(cfg, game), cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+    # every Play also records the button presses (a few KB), so a bug report can include them without a command line
+    cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game))]
+    return subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def game_log(game):
     """What the game printed during the last Play (build/launcher_<game>.log)."""
     return ROOT / "build" / f"launcher_{game}.log"
+
+
+def game_input_log(game):
+    """The button presses of the last Play (build/launcher_<game>_input.txt, the --input format)."""
+    return ROOT / "build" / f"launcher_{game}_input.txt"
 
 
 def gui():

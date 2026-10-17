@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         **Never attach game files**: no disc images, EBOOTs, generated C, memory dumps, or screenshots / videos of the
-        game. They will be deleted. Describe what you see in words and attach the recorded input instead.
+        game. They will be deleted. Describe what you see in words and attach the log and input files instead.
   - type: dropdown
     id: game
     attributes:
@@ -18,7 +18,7 @@ body:
     id: version
     attributes:
       label: Version
-      description: Release (e.g. v1.0.0) or commit
+      description: Launcher release (e.g. v1.1.5, shown in the ZIP's README.txt) or commit
     validations:
       required: true
   - type: textarea
@@ -31,13 +31,15 @@ body:
   - type: textarea
     id: input
     attributes:
-      label: Recorded input
+      label: Log and recorded input
       description: |
-        Start the game with `--record-input input.txt` (with an empty save folder, or say which save you used),
-        reproduce the bug, and attach `input.txt` here. It only holds your button presses.
+        Right after the bug, attach `GoW_PSP_data\build\launcher_coo.log` and `launcher_coo_input.txt`
+        (`launcher_gos.*` for Ghost of Sparta). The next Play overwrites them. They only hold the game's log and
+        your button presses. Say whether you started a new game or loaded a save. From the command line, use
+        `--record-input input.txt` instead.
   - type: textarea
     id: settings
     attributes:
-      label: Settings and log
-      description: The command line (`tools/launcher.pyw --print-command coo|gos` or the launcher's log), GPU, Windows version.
+      label: PC and settings
+      description: GPU, Windows version, display scaling, the graphics preset or options you changed; keyboard or which gamepad.
       render: text
