@@ -37,6 +37,12 @@ void rt_host_record_close(void);
 /* A headless replay needs rt_host_idle too: the recording has virtual-time skips (--fps). */
 int rt_host_wants_idle(void);
 
+/* Movie skipping (rt_mpeg.c asks, rt_host.c answers): a movie is showing pictures, and has the
+ * player pressed a skip key (Enter, Space, a mouse button, gamepad Start or Cross) since? Only
+ * live input in the window skips; scripted runs stay deterministic. */
+void rt_host_movie_playing(int on);
+int rt_host_take_movie_skip(void);
+
 /* The display's refresh (rt_hle.c): 59.94 Hz, or --fps N. */
 void rt_display_set_hz(double hz);
 double rt_display_hz(void);

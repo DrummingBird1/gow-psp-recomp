@@ -302,9 +302,10 @@ static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
 static uint64_t g_skips_made, g_skipped_us;  /* virtual-time skips at a high frame rate (rt_host_idle) */
 static int g_anchored;
-/* PSP buttons the game must not see until they are released: the press that answered the quit
- * question (otherwise it would also reach the game behind it) */
+/* PSP buttons the game must not see until they are released: the press that skipped a movie or
+ * answered the quit question (otherwise it would also reach the menu behind it) */
 static uint32_t g_eat;
+static int g_movie_on, g_skip_req;
 static uint64_t g_quit_hold;  /* when gamepad Back+Start started being held together */
 static uint32_t g_rgba[DISP_W * DISP_H];
 static uint32_t g_shot_addr, g_shot_stride, g_shot_format;
@@ -337,6 +338,24 @@ static void screenshot(void) {
         ok = rt_frames_write_png(path, g_shot_addr, g_shot_stride, g_shot_format);
     }
     if (ok) printf("[host] screenshot %s\n", path);
+}
+
+void rt_host_movie_playing(int on) {
+    if (on != g_movie_on) g_skip_req = 0;
+    g_movie_on = on;
+}
+
+int rt_host_take_movie_skip(void) {
+    int r = g_skip_req;
+    g_skip_req = 0;
+    return r;
+}
+
+static void movie_skip_press(uint32_t bits) {
+    if (!g_movie_on || g_skip_req) return;
+    g_skip_req = 1;
+    g_eat |= bits;  /* only the press that skipped is kept from the game */
+    printf("[host] movie skipped by the player\n");
 }
 
 /* "Quit the game?" over the game window. The game (and its sound) waits while it is open:
@@ -419,6 +438,12 @@ static void pump(void) {
                 g_fullscreen = !g_fullscreen;
                 SDL_SetWindowFullscreen(g_win, g_fullscreen);
             } else if (e.key.key == SDLK_F12) screenshot();
+            else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE) movie_skip_press(PSP_START);
+            break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN: movie_skip_press(0); break;
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) movie_skip_press(PSP_START);
+            else if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) movie_skip_press(PSP_CROSS);
             break;
         case SDL_EVENT_GAMEPAD_ADDED: open_pad(e.gdevice.which); break;
         case SDL_EVENT_GAMEPAD_REMOVED: close_pad(e.gdevice.which); break;
@@ -461,7 +486,7 @@ int rt_host_init(const HostOptions *o) {
         if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit\n", win_w, DISP_H * scale);
+               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
         g_title_t = now_us();
         pump();
         return 1;
@@ -478,7 +503,7 @@ int rt_host_init(const HostOptions *o) {
     SDL_RenderClear(g_ren);
     SDL_RenderPresent(g_ren);
     printf("[host] window %dx%d (%s renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-           "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
+           "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
     g_title_t = now_us();
     pump();
     return 1;
@@ -652,4 +677,6 @@ void rt_host_shutdown(void) { rt_host_record_close(); }
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) { (void)frame; (void)addr; (void)stride; (void)format; return 0; }
 int rt_host_idle(uint64_t now_us, uint64_t next_us) { replay_skips(now_us, next_us); return 0; }
 static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
+void rt_host_movie_playing(int on) { (void)on; }
+int rt_host_take_movie_skip(void) { return 0; }
 #endif

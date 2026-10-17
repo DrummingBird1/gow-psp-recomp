@@ -33,6 +33,7 @@
 #include "rt_frames.h"
 #include "rt_ge.h"
 #include "rt_h264dec.h"
+#include "rt_host.h"
 #include "rt_kernel.h"
 
 #define MPEG_MEMSIZE 0x10000u
@@ -84,6 +85,7 @@ typedef struct Mpeg {
     /* ring buffer: packets the game put and packets demuxed so far */
     uint32_t put, taken;
     int end_code;              /* the program end code was seen */
+    int skipped;               /* the player skipped the movie: it ends here, as if the stream were over */
     const uint8_t *(*next_packet)(struct Mpeg *m);
     const uint8_t *file;       /* --movie-test: the stream comes from a file */
     /* demuxer */
@@ -246,7 +248,7 @@ static const uint8_t *file_packet(Mpeg *m) {
 
 /* Is everything the stream holds already demuxed? */
 static int stream_done(const Mpeg *m) {
-    return m->end_code || (m->stream_size && (uint64_t)m->taken * PACKET >= m->stream_size);
+    return m->end_code || m->skipped || (m->stream_size && (uint64_t)m->taken * PACKET >= m->stream_size);
 }
 
 static size_t find_aud(const Es *e, size_t from) {
@@ -269,6 +271,7 @@ static void take_video_au(Mpeg *m, size_t n) {
 /* Finds the next video AU (into m->vau), demuxing packets as needed; 0 when the ring runs out first. */
 static int next_video_au(Mpeg *m) {
     Es *e = &m->ves;
+    if (m->skipped) return 0;
     for (;;) {
         if (!m->vsync) {
             size_t a = find_aud(e, 0);
@@ -290,6 +293,7 @@ static int next_video_au(Mpeg *m) {
 /* Finds the next ATRAC3+ frame (header included, into m->aau); 0 when the ring runs out first. */
 static int next_audio_au(Mpeg *m) {
     Es *e = &m->aes;
+    if (m->skipped) return 0;
     for (;;) {
         size_t i = 0;
         while (i + 1 < e->len && !(e->p[i] == 0x0F && e->p[i + 1] == 0xD0)) i++;
@@ -321,7 +325,9 @@ static void demux_reset(Mpeg *m) {
     m->have_vau = m->have_aau = 0;
     m->put = m->taken = 0;
     m->end_code = 0;
+    m->skipped = 0;
     m->logged_end = 0;
+    rt_host_movie_playing(0);
     rt_h264dec_close(m->h264); m->h264 = NULL;
     rt_at3dec_close(m->at3); m->at3 = NULL;
 }
@@ -406,6 +412,7 @@ static Stream *find_stream(Mpeg *m, uint32_t sid) {
 }
 
 static void log_end(Mpeg *m) {
+    rt_host_movie_playing(0);
     if (m->logged_end++) return;
     rt_log("[mpeg] movie ended: %u pictures, %u audio frames decoded%s\n", m->video_frames, m->audio_frames,
            m->errors ? " (with decode errors)" : "");
@@ -604,10 +611,26 @@ static void hle_MpegRingbufferPut(RtCtx *c) {
     RET(first_err && !total ? (uint32_t)first_err : (uint32_t)total);
 }
 
+/* Movie skipping: while pictures are showing, a skip press in the window ends the movie the way
+ * its end does (no more AUs, sceMpegAvcDecode reports the stream over), so the game goes on
+ * along its own path. What the game still puts in the ring buffer is consumed unread. */
+static void check_skip(Mpeg *m) {
+    if (m->skipped) { if (m->next_packet == ring_packet) while (ring_packet(m)) {} return; }
+    if (!m->video_frames || m->logged_end) return;
+    rt_host_movie_playing(1);
+    if (!rt_host_take_movie_skip()) return;
+    m->skipped = 1;
+    m->have_vau = m->have_aau = 0;
+    rt_host_movie_playing(0);
+    rt_log("[mpeg] movie skipped after %u pictures\n", m->video_frames);
+    if (m->next_packet == ring_packet) while (ring_packet(m)) {}
+}
+
 /* (mpeg, streamId, au, attr) */
 static void hle_MpegGetAvcAu(RtCtx *c) {
     Mpeg *m = ctx_of(A0);
     if (!m) RET(-1);
+    check_skip(m);
     if (!find_stream(m, A1)) RET(-1);
     if (!m->have_vau && !next_video_au(m)) {
         /* the ring holds no complete AU yet, or the movie is over */
@@ -625,6 +648,7 @@ static void hle_MpegGetAvcAu(RtCtx *c) {
 static void hle_MpegGetAtracAu(RtCtx *c) {
     Mpeg *m = ctx_of(A0);
     if (!m) RET(-1);
+    check_skip(m);
     if (!m->have_aau && !next_audio_au(m)) { delay_us(DELAY_GET_AU); RET(ERR_NO_DATA); }
     write_au(A2, m->aau_pts, NO_TS, rt_r32(A2 + 16), (uint32_t)m->aau.len);
     if (A3) rt_w32(A3, 0);
@@ -636,6 +660,7 @@ static void hle_MpegGetAtracAu(RtCtx *c) {
 static void hle_MpegAvcDecode(RtCtx *c) {
     Mpeg *m = ctx_of(A0);
     if (!m) RET(-1);
+    check_skip(m);
     uint32_t fw = A2 ? A2 : m->frame_width ? m->frame_width : (uint32_t)m->width, init = T0;
     uint32_t buffer = rt_r32(A3);
     if (!m->have_vau && !next_video_au(m)) {
