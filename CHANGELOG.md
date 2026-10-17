@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v1.0.1 (2026-10-17)
+
+Still a preview: every level loads and runs and saves work, but neither game has had a full playthrough yet.
+
+- **Download is now a ZIP:** `GoW_PSP_Launcher-v1.0.1.zip` holds one `GoW_PSP` folder with `GoWLauncher.exe` and a
+  short `README.txt`. The launcher keeps everything it creates in `GoW_PSP_data` next to itself; folders set up by
+  v1.0.0 keep their layout, so builds and saves are kept.
+- **Fullscreen by default** (F11 / Alt+Enter or the Fullscreen option switch to a window); existing settings switch to
+  fullscreen once.
+- **No console window** when the game starts. Its log is `GoW_PSP_data\build\launcher_coo.log` / `launcher_gos.log`;
+  attach it to bug reports.
+- **Faster first build:** about 3 minutes for the first game and under 2 for the second (was about 4 each):
+  dependencies are downloaded once and shared, libraries compile in parallel.
+- Docs: SmartScreen / antivirus note with SHA-256, one research setup (EBOOT via `gow_disc`), Discussions enabled,
+  original social preview image. CI uploads the release ZIP.
 ## v1.0.0 (2026-10-17)
 
 **Preview:** every level of both games loads and runs and saves work, but neither game has had a full playthrough
