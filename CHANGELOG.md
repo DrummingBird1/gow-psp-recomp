@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 (2026-10-17)
 
 - **No Visual Studio needed:** the launcher downloads a portable toolchain once (llvm-mingw, CMake, Ninja; 246 MB,
   pinned SHA-256, after asking) and builds both games with it; no administrator rights, nothing installed in Windows.
