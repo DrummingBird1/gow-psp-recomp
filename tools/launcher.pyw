@@ -104,10 +104,12 @@ def disc_tool():
 
 
 def configure_args(tools):
-    """Extra CMake configure arguments for this toolchain."""
+    """Extra CMake configure arguments for this toolchain. Git is never used (sources are pinned archives) and is
+    hidden from CMake, so a Git that happens to be installed can't mask a regression (tools/check_no_git.py)."""
+    no_git = ["-DCMAKE_DISABLE_FIND_PACKAGE_Git=ON"]
     if tools.get("kind") != "portable":
-        return []
-    return ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}",
+        return no_git
+    return no_git + ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}",
             f"-DCMAKE_C_COMPILER={tools['cc']}", f"-DCMAKE_CXX_COMPILER={tools['cxx']}"]
 
 
