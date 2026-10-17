@@ -76,6 +76,9 @@ Open an [issue](https://github.com/DrummingBird1/gow-psp-recomp/issues/new/choos
 attach those two files from `GoW_PSP_data\build\`. They hold only text: the game's log and your key presses.
 Mention whether you started from a new game or a save. Never attach game files, saves or screenshots of the game.
 
+Problems? See [Troubleshooting and FAQ](docs/troubleshooting.md): SmartScreen, where files are, updating, build
+failures, stutter.
+
 Why build on your PC? The game code is generated from your own disc, so it can't be distributed; the launcher
 compiles it locally, once.
 
