@@ -47,6 +47,10 @@ jobs:
       - name: Portable toolchain check
         run: python tools/check_portable_toolchain.py
 
+      # Players have no Git: fail if a Git fetch comes back (static scan + configure of both builds with Git hidden).
+      - name: No-Git check
+        run: python tools/check_no_git.py --full
+
       # The release download: GoW_PSP_Launcher-v<VERSION>.zip (one GoW_PSP/ folder with the exe and README.txt)
       - uses: actions/upload-artifact@v4
         with:

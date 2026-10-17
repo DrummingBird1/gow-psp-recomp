@@ -19,7 +19,7 @@ def main():
         return 1
     t = toolchain.find_portable(root)
     build = ROOT / "build" / "mingw_tools"
-    for cmd in ([t["cmake"], "-S", str(ROOT), "-B", str(build), "-DGOW_TOOLS_ONLY=ON", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
+    for cmd in ([t["cmake"], "-S", str(ROOT), "-B", str(build), "-DGOW_TOOLS_ONLY=ON", "-DCMAKE_DISABLE_FIND_PACKAGE_Git=ON", "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release",
                  f"-DCMAKE_MAKE_PROGRAM={t['ninja']}", f"-DCMAKE_C_COMPILER={t['cc']}", f"-DCMAKE_CXX_COMPILER={t['cxx']}"],
                 [t["cmake"], "--build", str(build), "--target", "gow_disc"],
                 [str(build / "gow_disc.exe")]):
