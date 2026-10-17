@@ -24,6 +24,18 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
   [phase write-ups](docs/), the [launcher acceptance test](docs/phase14-launcher.md) and the [changelog](CHANGELOG.md).
 - Windows only for now (Linux / Steam Deck planned).
 
+### Known issues
+
+- Neither game has had a full playthrough yet: late levels, boss fights and endings may still have bugs.
+- Only the US releases (UCUS98653 / UCUS98737) are supported.
+- Key mapping is fixed (see [Controls](#controls)); gamepads use the PSP layout.
+- Warping into Ghost of Sparta's `scb_010_climb` at spawn point 1 (a developer option) stops after a checkpoint restart;
+  a normal playthrough does not start there ([phase 12](docs/phase12-gos-level-tour.md), bug 2).
+- Some movies end on a black frame, and some Ghost of Sparta geometry clips: both look the same on a PSP and in PPSSPP.
+- The launcher is unsigned, so SmartScreen and some antivirus programs warn about it ([FAQ](docs/troubleshooting.md)).
+
+Found something else? See [Reporting a bug](#reporting-a-bug).
+
 Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log and input files the launcher writes), **never game files or screenshots of the game**.
 
 ## Features
