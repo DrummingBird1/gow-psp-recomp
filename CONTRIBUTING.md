@@ -33,5 +33,6 @@ Follow the quick start in `README.md` (or `recomp/README.md` for the details). B
 
 ## Versions
 
-Releases use semantic versioning (`vMAJOR.MINOR.PATCH`): a new feature bumps MINOR, a fix PATCH. Add a line to
+Releases are numbered `vMAJOR.MINOR.PATCH`, roughly following semantic versioning: usually a new feature bumps MINOR
+and a fix PATCH, but the maintainer may pick a bigger step for a release that bundles several changes (as v1.1.5 did). Add a line to
 `CHANGELOG.md` under "Unreleased"; a release moves those lines under a new version and gets a git tag and a GitHub release.

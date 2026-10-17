@@ -2,6 +2,9 @@
 
 ## v1.1.5 (2026-10-17)
 
+The number jumps from 1.1.0 to 1.1.5 on purpose: this release started as the v1.1.1 Git fix, which was never
+published, and grew to include the launcher, quit and movie-skip changes below. Versions 1.1.1 to 1.1.4 do not exist.
+
 - **Fix: building failed on PCs without Git** (`could not find git for clone of libchdr-populate`). libchdr and
   SDL3 now download as pinned archives (SHA-256) instead of Git clones, and the launcher hides Git from CMake so it
   can't creep back. Nothing besides the launcher's own download is needed: no Git, Python or Visual Studio.

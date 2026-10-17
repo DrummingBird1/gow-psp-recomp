@@ -180,7 +180,7 @@ See [`recomp/README.md`](recomp/README.md) for the recompile/build/test commands
 
 Questions, ideas and help: [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions). Bugs:
 [Issues](https://github.com/DrummingBird1/gow-psp-recomp/issues). Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). **Never attach or commit game files.** Releases
-follow semantic versioning and are listed in [`CHANGELOG.md`](CHANGELOG.md).
+are numbered `vMAJOR.MINOR.PATCH`, roughly following semantic versioning, and are listed in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Credits
 
