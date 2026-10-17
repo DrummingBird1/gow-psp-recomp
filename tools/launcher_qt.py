@@ -17,7 +17,7 @@ import time
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, Qt,
+from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
                             QTimer, QUrl, Signal, Property)
 from PySide6.QtGui import (QIcon, QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QLinearGradient,
                            QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QRegion, QShortcut)
@@ -551,18 +551,25 @@ class Window(QWidget):
         t = time.monotonic() - self.t0
         if self.reduce_motion:
             t = 0.0
-        if self.cache_dirty or self.cache is None or self.cache.size() != self.size() * (self.devicePixelRatioF() * BG_SCALE):
+        if self.cache_dirty or self.cache is None or self.cache.size() != self.cache_size():
             self.compose_cache(t)
-        p.drawPixmap(0, 0, self.cache)
+        # always stretched over the whole window: no reliance on fractional pixmap pixel ratios (125/150% scaling)
+        p.drawPixmap(QRectF(0, 0, W, H), self.cache, QRectF(self.cache.rect()))
         self.paint_overlay(p, t)
 
+    def cache_size(self):
+        """Pixel size of the background cache: half the window's device pixels (blurred, so the lower resolution is
+        invisible and saves CPU), the same rounding everywhere so it is not recomposed on every paint."""
+        dpr = self.devicePixelRatioF() * BG_SCALE
+        return QSize(max(1, round(self.width() * dpr)), max(1, round(self.height() * dpr)))
+
     def compose_cache(self, t):
-        W, H = self.width(), self.height()
-        dpr = self.devicePixelRatioF() * BG_SCALE   # blurred background: half resolution is invisible, saves CPU
-        self.cache = QPixmap(int(W * dpr), int(H * dpr))
-        self.cache.setDevicePixelRatio(dpr)
+        W, H = max(1, self.width()), max(1, self.height())
+        size = self.cache_size()
+        self.cache = QPixmap(size)   # pixel ratio 1; the painter scales window coordinates onto it
         self.cache_dirty, self.cache_t = False, time.monotonic()
         p = QPainter(self.cache)
+        p.scale(size.width() / W, size.height() / H)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         p.fillRect(QRect(0, 0, W, H), QColor(BG))
 
