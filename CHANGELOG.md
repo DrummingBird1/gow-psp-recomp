@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.1 (2026-10-17)
+
+- **Fix: building failed on PCs without Git** (`could not find git for clone of libchdr-populate`). libchdr and
+  SDL3 now download as pinned archives (SHA-256) instead of Git clones, and the launcher hides Git from CMake so it
+  can't creep back. Nothing besides the launcher's own download is needed: no Git, Python or Visual Studio.
+- `tools/check_no_git.py` (also in CI) fails if a Git fetch returns.
+
 ## v1.1.0 (2026-10-17)
 
 - **No Visual Studio needed:** the launcher downloads a portable toolchain once (llvm-mingw, CMake, Ninja; 246 MB,
