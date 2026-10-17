@@ -35,13 +35,20 @@ Bug reports are very welcome: please attach a recorded input file (`--record-inp
 
 ## Quick start
 
+You only download **one file**, `GoWLauncher.exe`. No Python, no manual setup.
+
 1. Download `GoWLauncher.exe` from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest)
-   and put it in an empty folder (it keeps its files next to itself). No Python needed.
-2. You need CMake and Visual Studio 2022 or later with the C++ tools. The launcher checks for them and offers to install
-   missing ones with winget, only after asking you.
-3. Run it and choose the folder with your disc images; it detects each game by its disc ID, not the file name.
-4. Press **Build** (decrypts the EBOOT from your disc, recompiles it and compiles it; about 10 minutes the first time),
-   pick a graphics preset, press **Play**.
+   and put it in an empty folder (it keeps its files next to itself).
+2. Run it and choose the folder with **your own disc images** (`.chd` or `.iso`). It detects each game by its disc ID,
+   not by the file name.
+3. If build tools are missing, the launcher offers once to install them for you with winget: Visual Studio Build Tools
+   with C++ (about 6 GB) and CMake. It asks before installing anything. *Honest note: this automatic install has not yet
+   been tested on a PC without Visual Studio; please report how it goes.*
+4. Press **Build** and wait for the one-time build (about 4 minutes per game).
+5. Pick a graphics preset and press **Play**.
+
+Why build on your PC? The game code is generated from your own disc, so it can't be distributed; the launcher
+compiles it locally, once.
 
 | | |
 |---|---|
@@ -52,7 +59,8 @@ I/J/K/L = analog stick, F11 fullscreen, F12 screenshot, Esc quit. Gamepads use t
 
 ## Build from source
 
-Install Python 3, CMake and Visual Studio (C++), then:
+Install the tools yourself: Python 3.15, CMake, and Visual Studio 2022 or later (or its Build Tools) with the C++
+workload. Then:
 
 ```bash
 py -3 -m venv .venv
