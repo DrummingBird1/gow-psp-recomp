@@ -86,7 +86,14 @@ void rt_hle_report(void) {
 }
 
 /* --- display ---------------------------------------------------------------- */
-#define VBLANK_US 16683u  /* 59.94 Hz */
+/* 59.94 Hz, or --fps N (docs/phase13-graphics.md): the vblank period, the vblank count and the
+ * flip pacing follow it. Both games step their logic by elapsed time, so they keep their speed. */
+static uint32_t g_vblank_us = 16683u;
+void rt_display_set_hz(double hz) {
+    g_vblank_us = hz >= 30 && hz <= 1000 && (hz < 59.5 || hz > 60.5) ? (uint32_t)(1e6 / hz + 0.5) : 16683u;
+}
+double rt_display_hz(void) { return g_vblank_us == 16683u ? 59.94 : 1e6 / g_vblank_us; }
+#define VBLANK_US g_vblank_us
 static uint64_t g_frames;
 static uint32_t g_fb_addr, g_fb_width, g_fb_format;
 
@@ -122,7 +129,7 @@ static void hle_DisplayWaitVblankStart(RtCtx *c) {
     RET(0);
 }
 static void hle_DisplayGetVcount(RtCtx *c) { RET((uint32_t)(k_now / VBLANK_US)); }
-static void hle_DisplayGetFramePerSec(RtCtx *c) { c->fpr[0].f = 59.9400599f; RET(0); }
+static void hle_DisplayGetFramePerSec(RtCtx *c) { c->fpr[0].f = VBLANK_US == 16683u ? 59.9400599f : 1e6f / (float)VBLANK_US; RET(0); }
 
 /* --- GE (graphics engine): lists are accepted and counted, nothing is drawn yet -- */
 static uint32_t g_ge_lists;

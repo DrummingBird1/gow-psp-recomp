@@ -101,6 +101,9 @@ void k_stop(int kind, uint32_t addr, uint32_t extra, const char *what);
 /* Called when every thread waits and virtual time is about to jump to next_us (real-time
  * pacing in the window); a nonzero result stops the run. */
 extern int (*k_idle_hook)(uint64_t now_us, uint64_t next_us);
+/* Set by the idle hook: virtual time goes this much further than next_us (the window fell
+ * behind the wall clock at a high frame rate, --fps; recorded and replayed with the input). */
+extern uint64_t k_idle_skip;
 int k_run_scheduler(uint32_t timeout_ms_wall);
 uint32_t k_timeout_arg(uint32_t ptr);  /* reads a guest timeout pointer (0 = infinite) */
 

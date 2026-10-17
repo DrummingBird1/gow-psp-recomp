@@ -297,6 +297,7 @@ static void report_threads(void) {
 }
 
 int (*k_idle_hook)(uint64_t now_us, uint64_t next_us);
+uint64_t k_idle_skip;
 
 int k_run_scheduler(uint32_t cpu_ms_limit) {
     g_sched = rt_fiber_init_main();
@@ -324,6 +325,7 @@ int k_run_scheduler(uint32_t cpu_ms_limit) {
                 result = RT_ABORT_HLE;
                 break;
             }
+            if (k_idle_skip) { next += k_idle_skip; k_idle_skip = 0; }
             if (next > k_now) k_now = next;
             wake_due();
             continue;

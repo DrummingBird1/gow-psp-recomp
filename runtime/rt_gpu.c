@@ -4,8 +4,8 @@
  * the software renderer and hands finished triangles (PSP screen space) to rt_gpu_draw. Work
  * is recorded during the frame and submitted at the flip: one copy pass (vertices, new
  * textures), then the recorded commands in order (render passes, and copy passes for
- * render-to-texture snapshots and memory uploads), then a blit of the displayed framebuffer
- * to the window.
+ * render-to-texture snapshots and memory uploads), then the displayed framebuffer is drawn
+ * into the window (runtime/shaders/post.hlsl).
  *
  * Framebuffers: a GPU render target (RGBA8) stands for a VRAM area of a given pitch and pixel
  * size. A draw to an address inside an existing target (the games draw into parts of a scratch
@@ -19,14 +19,63 @@
  * target are uploaded, and a target read directly (transfer source, CLUT) is read back into
  * PSP memory.
  *
- * Not yet: the stencil is not mirrored into the colour alpha (nothing seen so far reads it as
- * colour), CLUT textures indexing a target, logic ops, double blend factors. */
+ * Graphics options (docs/phase13-graphics.md): a target's textures can be a multiple of its
+ * size in PSP pixels (--res-scale). Everything recorded stays in PSP pixels (vertices, scissors,
+ * rectangles) and is scaled when it runs: the viewport, scissors, snapshots and copies; memory
+ * uploaded into a scaled target goes through a 1x staging texture that is scaled into it, and
+ * the CPU reads a target back at 1x (point-sampled data, or box-filtered pictures). With
+ * multisampling (--msaa) a target draws into a multisampled colour texture that is resolved into
+ * its colour texture only when something reads that before the next pass (planned per frame,
+ * plan_resolves); copies and uploads into the colour texture are copied back into the
+ * multisampled one (unresolve).
+ *
+ * Not yet: CLUT textures indexing a target, logic ops, double blend factors. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "psp_rt.h"
+#include "rt_frames.h"
 #include "rt_gpu.h"
+
+GpuOptions rt_gpu_opt;
+
+/* --res-scale N and the other graphics options (options parsing for rt_main.c) */
+int rt_gpu_option(int argc, char **argv, int *i) {
+    const char *a = argv[*i], *v = *i + 1 < argc ? argv[*i + 1] : NULL;
+    GpuOptions *o = &rt_gpu_opt;
+    if (!strcmp(a, "--fxaa")) { o->fxaa = 1; return 1; }
+    if (!strcmp(a, "--vsync")) { o->vsync = 1; return 1; }
+    if (!strcmp(a, "--hdr")) {
+        o->hdr = 1;
+        if (v && (!strcmp(v, "scrgb") || !strcmp(v, "hdr10") || !strcmp(v, "auto"))) {
+            o->hdr = !strcmp(v, "scrgb") ? 2 : !strcmp(v, "hdr10") ? 3 : 1;
+            (*i)++;
+        }
+        return 1;
+    }
+    if (!v) return 0;
+    if (!strcmp(a, "--res-scale")) o->res_scale = atoi(v);
+    else if (!strcmp(a, "--fx-scale")) o->fx_scale = atoi(v);
+    else if (!strcmp(a, "--msaa")) o->msaa = atoi(v);
+    else if (!strcmp(a, "--aniso")) o->aniso = atoi(v);
+    else if (!strcmp(a, "--lod-bias")) o->lod_bias = (float)atof(v);
+    else if (!strcmp(a, "--paper-white")) o->paper_white = (float)atof(v);
+    else if (!strcmp(a, "--peak-nits")) o->peak_nits = (float)atof(v);
+    else if (!strcmp(a, "--sharpen")) o->sharpen = (float)atof(v);
+    else if (!strcmp(a, "--fps")) o->fps = (float)atof(v);
+    else if (!strcmp(a, "--texture-dump")) o->texture_dump = v;
+    else if (!strcmp(a, "--texture-pack")) o->texture_pack = v;
+    else if (!strcmp(a, "--aspect")) {  /* W:H or a number */
+        const char *colon = strchr(v, ':');
+        double w = atof(v), h = colon ? atof(colon + 1) : 1.0;
+        o->aspect = h > 0 && w / h >= 1.0 && w / h <= 4.0 ? (float)(w / h) : 0.0f;
+    }
+    else return 0;
+    (*i)++;
+    return 1;
+}
 
 #ifdef GOW_HAVE_SDL
 #include <SDL3/SDL.h>
@@ -48,32 +97,42 @@
 typedef struct {
     uint32_t addr, pitch;      /* base address, bytes per row */
     int bpp, fmt, w, h;        /* bytes per pixel, PSP pixel format, size in pixels */
+    int s;                     /* scale: the textures are w*s x h*s */
     int ux0, uy0, ux1, uy1;    /* area drawn (or uploaded by transfers): [ux0, ux1) x [uy0, uy1) */
-    SDL_GPUTexture *tex, *ds;  /* colour, depth-stencil */
+    SDL_GPUTexture *tex, *ds;  /* colour (resolved, when multisampled), depth-stencil */
+    SDL_GPUTexture *ms;        /* multisampled colour, or NULL */
     int ds_init;
     uint64_t seq;              /* order of the latest write (the most recent target wins) */
     uint32_t version;          /* changes with every write (snapshot validity) */
     uint64_t drawn_frame;      /* frame of the latest GPU draw */
     uint64_t mem_hash;         /* display area of PSP memory when last uploaded */
     int stencil_dirty;         /* stencil written since its values were last copied into the alpha channel */
+    int want_s;                /* scale to change to after the frame (0: none) */
 } Target;
-typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; } TexEntry;
+typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift; } TexEntry;
 typedef struct { uint64_t key; SDL_GPUGraphicsPipeline *p; } Pipe;
 typedef struct { uint32_t key; SDL_GPUSampler *s; } Samp;
-typedef struct { SDL_GPUTexture *tex; int w, h, busy, target, x, y; uint32_t version; } Snap;
+/* pooled textures: render-to-texture snapshots, staging for scaled uploads */
+typedef struct { SDL_GPUTexture *tex; int w, h, busy, target, x, y; uint32_t version; uint64_t used; } Snap;
 
 /* layout of FragmentUniforms in ge.hlsl */
 typedef struct { uint32_t mode[4]; float env[4], fogcol[4], fixa[4], zrange[4]; } FragU;
+/* layout of PostUniforms in post.hlsl */
+typedef struct { float src[4], size[4]; uint32_t mode[4]; float p0[4], p1[4]; } PostU;
+enum { P_COPY, P_BOX, P_FXAA, P_CAS, P_PRESENT };
 
-enum { CMD_DRAW, CMD_COPY, CMD_UPLOAD };
+enum { CMD_DRAW, CMD_COPY, CMD_UPLOAD, CMD_BLIT, CMD_UNRESOLVE };
 typedef struct {
     int kind, target, pipe;
+    int src_target;                /* copy, blit: the target whose colour texture is read, or -1 */
+    int resolve;                   /* first draw of a pass (multisampling): resolve when the pass ends */
     SDL_GPUSampler *sampler;
-    SDL_Rect scissor;
+    SDL_Rect scissor;              /* draw, unresolve: in PSP pixels of the target */
     SDL_FColor blend_const;
-    SDL_GPUTexture *tex;           /* draw: texture; copy: source */
-    SDL_GPUTexture *dst;           /* copy, upload: destination */
-    int sx, sy, dx, dy, w, h;      /* copy, upload: rectangle */
+    SDL_GPUTexture *tex;           /* draw: texture; copy, blit: source */
+    SDL_GPUTexture *dst;           /* copy, upload, blit: destination */
+    int sx, sy, sw, sh, dx, dy, w, h;  /* copy, upload, blit: rectangles in texels */
+    SDL_GPUFilter filter;          /* blit */
     uint32_t first, count, offset; /* draw: vertices; upload: staged bytes */
     int stencil, stencil_ref;
     FragU fu;
@@ -83,10 +142,15 @@ typedef struct { SDL_GPUTexture *tex; uint32_t offset; int w, h, level; } Upload
 
 static SDL_GPUDevice *g_dev;
 static SDL_Window *g_win;
-static SDL_GPUShader *g_vs, *g_fs;
-static SDL_GPUTextureFormat g_dsfmt;
+static SDL_GPUShader *g_vs, *g_fs, *g_post_vs, *g_post_fs;
+static SDL_GPUTextureFormat g_dsfmt, g_swfmt;
+static SDL_GPUSampleCount g_sc = SDL_GPU_SAMPLECOUNT_1;
+static int g_scale = 1, g_fx_scale = 1, g_samples = 1;
+static int g_hdr_out;  /* 0 SDR, 1 scRGB, 2 HDR10 */
+static float g_paper = 200.0f, g_peak = 1000.0f;
 static Samp g_samps[MAX_SAMPLERS];
 static int g_nsamps;
+static SDL_GPUSampler *g_point, *g_linear;  /* full-screen passes */
 static SDL_GPUTexture *g_white;  /* bound for untextured draws */
 static Target g_targets[MAX_TARGETS];
 static int g_ntargets;
@@ -95,6 +159,8 @@ static Snap g_snaps[MAX_SNAPS];
 static int g_nsnaps;
 static Pipe g_pipes[MAX_PIPELINES];
 static int g_npipes;
+static struct { SDL_GPUTextureFormat fmt; int samples; SDL_GPUGraphicsPipeline *p; } g_ppipes[8];
+static int g_nppipes;
 static TexEntry *g_tex;
 static size_t g_tex_count;
 static GpuVertex *g_verts;
@@ -111,11 +177,18 @@ static SDL_GPUBuffer *g_vbuf;
 static uint32_t g_vbuf_size;
 static SDL_GPUTransferBuffer *g_tbuf;
 static uint32_t g_tbuf_size, g_voff;
+static SDL_GPUTexture *g_rb, *g_post[2];  /* 1x readback staging; post-processing at the internal resolution */
+static int g_rb_w, g_rb_h, g_post_w, g_post_h;
+static SDL_GPUTexture *g_release[64];     /* released once the frame that still uses them is submitted */
+static int g_nrelease;
+static uint32_t g_disp[16];               /* framebuffer addresses shown so far */
+static int g_ndisp;
 static uint64_t g_frame;
 static int g_xfer_gpu;  /* the block transfer in progress was made on the GPU */
 static struct {
     uint64_t frames, draws, merged, verts, passes, uploads, upload_bytes, pipelines, targets, snapshots, target_uploads, gpu_copies,
-        readbacks, submits, resolves, fills, gpu_wait_ns, gpu_wait_max, acquire_ns, acquire_max, acquire_slow;
+        readbacks, submits, resolves, fills, gpu_wait_ns, gpu_wait_max, acquire_ns, acquire_max, acquire_slow, msaa_resolves,
+        unresolves, blits, snap_bytes, dumped, replaced, pack_loads;
 } g_st;
 
 static void grow(void **p, size_t *cap, size_t need, size_t elem) {
@@ -130,6 +203,21 @@ static int imin(int a, int b) { return a < b ? a : b; }
 static int imax(int a, int b) { return a > b ? a : b; }
 
 int rt_gpu_active(void) { return g_dev != NULL; }
+int rt_gpu_scale(void) { return g_dev ? g_scale : 1; }
+int rt_gpu_capture_full(void) { return g_dev && (g_scale > 1 || rt_gpu_opt.fxaa || rt_gpu_opt.sharpen > 0); }
+
+/* --aspect: the window shows the 480x272 picture stretched to W:H, so the 3D view is drawn that
+ * much narrower (a wider field of view: rt_gesoft.c scales clip x), and the HUD is drawn narrower
+ * around the centre to keep its shape (pillarboxed, rt_gpu_draw) */
+float rt_gpu_aspect_squeeze(void) {
+    float a = rt_gpu_opt.aspect;
+    return g_dev && a > 0 && (a < 1.76f || a > 1.77f) ? ((float)DISP_W / DISP_H) / a : 1.0f;
+}
+
+int rt_gpu_shown_fb(uint32_t addr) {
+    for (int i = 0; i < g_ndisp; i++) if (g_disp[i] == addr) return 1;
+    return 0;
+}
 
 /* --- PSP pixels (as the software renderer packs and expands them) ------------------------- */
 static uint32_t pixel_in(const uint8_t *p, int fmt) {
@@ -161,26 +249,84 @@ static void pixel_out(uint8_t *p, uint32_t c, int fmt) {
 }
 
 /* --- device ------------------------------------------------------------------------- */
-static SDL_GPUShader *make_shader(SDL_GPUShaderFormat fmt, SDL_GPUShaderStage stage) {
+static SDL_GPUShader *make_shader(SDL_GPUShaderFormat fmt, SDL_GPUShaderStage stage, const unsigned char *spv, size_t nspv,
+                                  const unsigned char *dxil, size_t ndxil, int samplers, int uniforms) {
     SDL_GPUShaderCreateInfo ci;
     memset(&ci, 0, sizeof(ci));
-    int vs = stage == SDL_GPU_SHADERSTAGE_VERTEX;
-    if (fmt == SDL_GPU_SHADERFORMAT_SPIRV) {
-        ci.code = vs ? ge_vs_spirv : ge_fs_spirv;
-        ci.code_size = vs ? sizeof(ge_vs_spirv) : sizeof(ge_fs_spirv);
-    } else {
-        ci.code = vs ? ge_vs_dxil : ge_fs_dxil;
-        ci.code_size = vs ? sizeof(ge_vs_dxil) : sizeof(ge_fs_dxil);
-    }
-    ci.entrypoint = vs ? "vs_main" : "fs_main";
+    ci.code = fmt == SDL_GPU_SHADERFORMAT_SPIRV ? spv : dxil;
+    ci.code_size = fmt == SDL_GPU_SHADERFORMAT_SPIRV ? nspv : ndxil;
+    ci.entrypoint = stage == SDL_GPU_SHADERSTAGE_VERTEX ? "vs_main" : "fs_main";
     ci.format = fmt;
     ci.stage = stage;
-    ci.num_samplers = vs ? 0 : 1;
-    ci.num_uniform_buffers = 1;
+    ci.num_samplers = (Uint32)samplers;
+    ci.num_uniform_buffers = (Uint32)uniforms;
     SDL_GPUShader *s = SDL_CreateGPUShader(g_dev, &ci);
     if (!s) fprintf(stderr, "[gpu] shader: %s\n", SDL_GetError());
     return s;
 }
+
+static SDL_GPUTexture *make_texture(SDL_GPUTextureFormat fmt, SDL_GPUTextureUsageFlags usage, int w, int h, int levels,
+                                    SDL_GPUSampleCount sc) {
+    SDL_GPUTextureCreateInfo ci;
+    memset(&ci, 0, sizeof(ci));
+    ci.type = SDL_GPU_TEXTURETYPE_2D;
+    ci.format = fmt;
+    ci.usage = usage;
+    ci.width = (Uint32)w;
+    ci.height = (Uint32)h;
+    ci.layer_count_or_depth = 1;
+    ci.num_levels = (Uint32)levels;
+    ci.sample_count = sc;
+    return SDL_CreateGPUTexture(g_dev, &ci);
+}
+
+static SDL_GPUSampler *make_sampler(SDL_GPUFilter f) {
+    SDL_GPUSamplerCreateInfo si;
+    memset(&si, 0, sizeof(si));
+    si.min_filter = si.mag_filter = f;
+    si.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    si.address_mode_u = si.address_mode_v = si.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
+    return SDL_CreateGPUSampler(g_dev, &si);
+}
+
+/* swapchain: present mode, and HDR when asked for and the display shows it */
+static void setup_swapchain(void) {
+    SDL_GPUPresentMode pm = rt_gpu_opt.vsync ? SDL_GPU_PRESENTMODE_VSYNC
+                          : SDL_WindowSupportsGPUPresentMode(g_dev, g_win, SDL_GPU_PRESENTMODE_MAILBOX) ? SDL_GPU_PRESENTMODE_MAILBOX
+                          : SDL_WindowSupportsGPUPresentMode(g_dev, g_win, SDL_GPU_PRESENTMODE_IMMEDIATE) ? SDL_GPU_PRESENTMODE_IMMEDIATE
+                          : SDL_GPU_PRESENTMODE_VSYNC;
+    SDL_PropertiesID props = SDL_GetWindowProperties(g_win);
+    int hdr_on = SDL_GetBooleanProperty(props, SDL_PROP_WINDOW_HDR_ENABLED_BOOLEAN, false);
+    float white = SDL_GetFloatProperty(props, SDL_PROP_WINDOW_SDR_WHITE_LEVEL_FLOAT, 1.0f);
+    float headroom = SDL_GetFloatProperty(props, SDL_PROP_WINDOW_HDR_HEADROOM_FLOAT, 1.0f);
+    int can10 = SDL_WindowSupportsGPUSwapchainComposition(g_dev, g_win, SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084);
+    int canx = SDL_WindowSupportsGPUSwapchainComposition(g_dev, g_win, SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR);
+    printf("[gpu] display: HDR %s (SDR white %.0f nits, headroom %.2fx); swapchains: HDR10 %s, scRGB %s\n", hdr_on ? "on" : "off",
+           white * 80.0f, headroom, can10 ? "yes" : "no", canx ? "yes" : "no");
+    SDL_GPUSwapchainComposition comp = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
+    g_hdr_out = 0;
+    if (rt_gpu_opt.hdr) {
+        int want10 = rt_gpu_opt.hdr == 3 || rt_gpu_opt.hdr == 1, wantx = rt_gpu_opt.hdr == 2 || rt_gpu_opt.hdr == 1;
+        if (want10 && can10) { comp = SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084; g_hdr_out = 2; }
+        else if (wantx && canx) { comp = SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR; g_hdr_out = 1; }
+        else printf("[gpu] HDR output is not available on this display (is HDR on in the system's display settings?): SDR\n");
+    }
+    if (!SDL_SetGPUSwapchainParameters(g_dev, g_win, comp, pm)) {
+        fprintf(stderr, "[gpu] swapchain: %s; SDR\n", SDL_GetError());
+        g_hdr_out = 0;
+        SDL_SetGPUSwapchainParameters(g_dev, g_win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, pm);
+    }
+    g_swfmt = SDL_GetGPUSwapchainTextureFormat(g_dev, g_win);
+    g_paper = rt_gpu_opt.paper_white > 0 ? rt_gpu_opt.paper_white : hdr_on && white > 1.0f ? white * 80.0f : 200.0f;
+    g_peak = rt_gpu_opt.peak_nits > 0 ? rt_gpu_opt.peak_nits : hdr_on && headroom > 1.0f ? white * 80.0f * headroom : 1000.0f;
+    if (g_peak < g_paper) g_peak = g_paper;
+    printf("[gpu] present mode: %s, output %s", pm == SDL_GPU_PRESENTMODE_MAILBOX ? "mailbox" : pm == SDL_GPU_PRESENTMODE_IMMEDIATE ? "immediate" : "vsync",
+           g_hdr_out == 2 ? "HDR10 (ST 2084)" : g_hdr_out == 1 ? "scRGB" : "SDR");
+    if (g_hdr_out) printf(" (paper white %.0f nits, peak %.0f nits)", g_paper, g_peak);
+    printf("\n");
+}
+
+static void pack_index(void);
 
 int rt_gpu_init(void *window, const char *driver) {
     if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "[gpu] SDL_Init: %s\n", SDL_GetError()); return 0; }
@@ -188,23 +334,35 @@ int rt_gpu_init(void *window, const char *driver) {
     if (!g_dev) { fprintf(stderr, "[gpu] SDL_CreateGPUDevice: %s\n", SDL_GetError()); return 0; }
     SDL_GPUShaderFormat fmts = SDL_GetGPUShaderFormats(g_dev);
     SDL_GPUShaderFormat use = (fmts & SDL_GPU_SHADERFORMAT_SPIRV) ? SDL_GPU_SHADERFORMAT_SPIRV : SDL_GPU_SHADERFORMAT_DXIL;
-    g_vs = make_shader(use, SDL_GPU_SHADERSTAGE_VERTEX);
-    g_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT);
-    if (!g_vs || !g_fs) return 0;
+    g_vs = make_shader(use, SDL_GPU_SHADERSTAGE_VERTEX, ge_vs_spirv, sizeof(ge_vs_spirv), ge_vs_dxil, sizeof(ge_vs_dxil), 0, 1);
+    g_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT, ge_fs_spirv, sizeof(ge_fs_spirv), ge_fs_dxil, sizeof(ge_fs_dxil), 1, 1);
+    g_post_vs = make_shader(use, SDL_GPU_SHADERSTAGE_VERTEX, post_vs_spirv, sizeof(post_vs_spirv), post_vs_dxil, sizeof(post_vs_dxil), 0, 0);
+    g_post_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT, post_fs_spirv, sizeof(post_fs_spirv), post_fs_dxil, sizeof(post_fs_dxil), 1, 1);
+    if (!g_vs || !g_fs || !g_post_vs || !g_post_fs) return 0;
     g_dsfmt = SDL_GPUTextureSupportsFormat(g_dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
                                            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
                   ? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT
                   : SDL_GPU_TEXTUREFORMAT_D32_FLOAT_S8_UINT;
+    /* graphics options */
+    GpuOptions *o = &rt_gpu_opt;
+    g_scale = o->res_scale < 1 ? 1 : o->res_scale > 8 ? 8 : o->res_scale;
+    g_fx_scale = o->fx_scale < 1 ? g_scale : o->fx_scale > 8 ? 8 : o->fx_scale;
+    g_samples = 1;
+    for (int n = 8; n > 1; n /= 2) {
+        SDL_GPUSampleCount sc = n == 8 ? SDL_GPU_SAMPLECOUNT_8 : n == 4 ? SDL_GPU_SAMPLECOUNT_4 : SDL_GPU_SAMPLECOUNT_2;
+        if (o->msaa >= n && SDL_GPUTextureSupportsSampleCount(g_dev, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, sc) &&
+            SDL_GPUTextureSupportsSampleCount(g_dev, g_dsfmt, sc)) {
+            g_samples = n;
+            g_sc = sc;
+            break;
+        }
+    }
+    if (o->msaa > 1 && g_samples != o->msaa) printf("[gpu] %dx MSAA is not supported here: %dx\n", o->msaa, g_samples);
+    g_point = make_sampler(SDL_GPU_FILTER_NEAREST);
+    g_linear = make_sampler(SDL_GPU_FILTER_LINEAR);
     g_tex = calloc(TEX_SLOTS, sizeof(TexEntry));
     {
-        SDL_GPUTextureCreateInfo ci;
-        memset(&ci, 0, sizeof(ci));
-        ci.type = SDL_GPU_TEXTURETYPE_2D;
-        ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-        ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        ci.width = ci.height = 1;
-        ci.layer_count_or_depth = ci.num_levels = 1;
-        g_white = SDL_CreateGPUTexture(g_dev, &ci);
+        g_white = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, 1, 1, 1, SDL_GPU_SAMPLECOUNT_1);
         static const uint32_t white = 0xFFFFFFFFu;
         size_t off = (g_upsize + 511) & ~(size_t)511;
         grow((void **)&g_upbytes, &g_upbcap, off + 4, 1);
@@ -218,14 +376,16 @@ int rt_gpu_init(void *window, const char *driver) {
     if (window) {
         g_win = window;
         if (!SDL_ClaimWindowForGPUDevice(g_dev, g_win)) { fprintf(stderr, "[gpu] claim window: %s\n", SDL_GetError()); return 0; }
-        SDL_GPUPresentMode pm = SDL_WindowSupportsGPUPresentMode(g_dev, g_win, SDL_GPU_PRESENTMODE_MAILBOX) ? SDL_GPU_PRESENTMODE_MAILBOX
-                              : SDL_WindowSupportsGPUPresentMode(g_dev, g_win, SDL_GPU_PRESENTMODE_IMMEDIATE) ? SDL_GPU_PRESENTMODE_IMMEDIATE
-                              : SDL_GPU_PRESENTMODE_VSYNC;
-        SDL_SetGPUSwapchainParameters(g_dev, g_win, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, pm);
-        printf("[gpu] present mode: %s\n", pm == SDL_GPU_PRESENTMODE_MAILBOX ? "mailbox" : pm == SDL_GPU_PRESENTMODE_IMMEDIATE ? "immediate" : "vsync");
+        setup_swapchain();
     }
+    pack_index();
     printf("[gpu] SDL GPU device: %s, %s shaders%s\n", SDL_GetGPUDeviceDriver(g_dev),
            use == SDL_GPU_SHADERFORMAT_SPIRV ? "SPIR-V" : "DXIL", window ? "" : " (headless)");
+    if (g_scale > 1 || g_samples > 1 || o->aniso > 1 || o->lod_bias != 0 || o->fxaa || o->sharpen > 0)
+        printf("[gpu] internal resolution %dx (%dx%d), effects %dx, MSAA %dx, anisotropic filtering %dx, LOD bias %+.2f, FXAA %s, "
+               "sharpening %.2f\n",
+               g_scale, DISP_W * g_scale, DISP_H * g_scale, g_fx_scale, g_samples, o->aniso > 1 ? o->aniso : 1, o->lod_bias,
+               o->fxaa ? "on" : "off", o->sharpen);
     return 1;
 }
 
@@ -234,7 +394,34 @@ static Cmd *new_cmd(int kind) {
     Cmd *c = &g_cmds[g_ncmds++];
     memset(c, 0, sizeof(*c));
     c->kind = kind;
+    c->src_target = -1;
     return c;
+}
+
+/* A pooled texture, free again after the frame: exactly w x h, or (exact = 0) at least that big. */
+static Snap *pool_get(int w, int h, int exact) {
+    Snap *best = NULL;
+    for (int i = 0; i < g_nsnaps; i++) {
+        Snap *s = &g_snaps[i];
+        if (s->busy || s->w < w || s->h < h || (exact && (s->w != w || s->h != h))) continue;
+        if (!best || (int64_t)s->w * s->h < (int64_t)best->w * best->h) best = s;
+    }
+    if (!best) {
+        if (g_nsnaps == MAX_SNAPS) return NULL;
+        SDL_GPUTexture *tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                                           SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, w, h, 1, SDL_GPU_SAMPLECOUNT_1);
+        if (!tex) return NULL;
+        best = &g_snaps[g_nsnaps++];
+        memset(best, 0, sizeof(*best));
+        best->tex = tex;
+        best->w = w;
+        best->h = h;
+        g_st.snap_bytes += (uint64_t)w * h * 4;
+    }
+    best->busy = 1;
+    best->target = -1;
+    best->used = g_frame;
+    return best;
 }
 
 /* Stages w x h pixels of PSP memory (rows of `pitch` bytes from addr, pixel format fmt) as
@@ -258,6 +445,46 @@ static void record_upload(SDL_GPUTexture *dst, int x, int y, int w, int h, uint3
     g_st.upload_bytes += bytes;
 }
 
+static void record_blit(SDL_GPUTexture *src, int src_target, int sx, int sy, int sw, int sh, SDL_GPUTexture *dst, int dx, int dy, int dw,
+                        int dh, SDL_GPUFilter filter) {
+    if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
+    Cmd *c = new_cmd(CMD_BLIT);
+    c->tex = src;
+    c->src_target = src_target;
+    c->sx = sx; c->sy = sy; c->sw = sw; c->sh = sh;
+    c->dst = dst;
+    c->dx = dx; c->dy = dy; c->w = dw; c->h = dh;
+    c->filter = filter;
+    g_st.blits++;
+}
+
+/* multisampling: the rectangle (PSP pixels) of target ti's colour texture was written by a copy or
+ * an upload; its multisampled colour takes it from there */
+static void unresolve(int ti, int x, int y, int w, int h) {
+    if (!g_targets[ti].ms || w <= 0 || h <= 0) return;
+    Cmd *c = new_cmd(CMD_UNRESOLVE);
+    c->target = ti;
+    c->scissor.x = x; c->scissor.y = y; c->scissor.w = w; c->scissor.h = h;
+    g_st.unresolves++;
+}
+
+/* PSP memory into rectangle (x, y, w, h) of target ti (PSP pixels): at scale 1 uploaded as is,
+ * otherwise uploaded to a staging texture that is scaled into the target (point sampling keeps
+ * data exact; linear filtering suits pictures such as video frames). */
+static void upload_to_target(int ti, int x, int y, int w, int h, uint32_t addr, uint32_t pitch, int fmt, SDL_GPUFilter filter) {
+    Target *t = &g_targets[ti];
+    if (w <= 0 || h <= 0) return;
+    if (t->s == 1) {
+        record_upload(t->tex, x, y, w, h, addr, pitch, fmt);
+    } else {
+        Snap *st = pool_get(w, h, 0);
+        if (!st) return;
+        record_upload(st->tex, 0, 0, w, h, addr, pitch, fmt);
+        record_blit(st->tex, -1, 0, 0, w, h, t->tex, x * t->s, y * t->s, w * t->s, h * t->s, filter);
+    }
+    unresolve(ti, x, y, w, h);
+}
+
 /* --- render targets ----------------------------------------------------------------- */
 /* hash of the display area of a target's memory: shows whether the CPU changed it */
 static uint64_t display_hash(const Target *t) {
@@ -277,6 +504,27 @@ static uint64_t display_hash(const Target *t) {
     return h;
 }
 
+static int target_textures(Target *t) {
+    int pw = t->w * t->s, ph = t->h * t->s;
+    t->tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, pw, ph, 1,
+                          SDL_GPU_SAMPLECOUNT_1);
+    t->ds = make_texture(g_dsfmt, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET, pw, ph, 1, g_sc);
+    t->ms = g_samples > 1 ? make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, pw, ph, 1, g_sc) : NULL;
+    t->ds_init = 0;
+    if (!t->tex || !t->ds || (g_samples > 1 && !t->ms)) {
+        fprintf(stderr, "[gpu] render target %08X (%dx%d): %s\n", t->addr, pw, ph, SDL_GetError());
+        return 0;
+    }
+    return 1;
+}
+
+/* The scale of a new target: the effects scale (--fx-scale) unless it is a framebuffer the game shows */
+static int target_scale(uint32_t addr) {
+    if (g_fx_scale == g_scale) return g_scale;
+    for (int i = 0; i < g_ndisp; i++) if (g_disp[i] == addr) return g_scale;
+    return g_fx_scale;
+}
+
 static int new_target(uint32_t addr, uint32_t pitch, int bpp, int fmt) {
     if (g_ntargets == MAX_TARGETS) return 0;
     Target *t = &g_targets[g_ntargets];
@@ -288,29 +536,34 @@ static int new_target(uint32_t addr, uint32_t pitch, int bpp, int fmt) {
     t->w = imax(1, imin(1024, (int)(pitch / (uint32_t)bpp)));
     uint32_t rows = addr >= VRAM_LO && addr < VRAM_HI ? (VRAM_HI - addr) / pitch : 512;
     t->h = rows > 512 ? 512 : rows < 1 ? 1 : (int)rows;
+    t->s = target_scale(addr);
     t->ux0 = t->uy0 = 1 << 30;
-    SDL_GPUTextureCreateInfo ci;
-    memset(&ci, 0, sizeof(ci));
-    ci.type = SDL_GPU_TEXTURETYPE_2D;
-    ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ci.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    ci.width = (Uint32)t->w;
-    ci.height = (Uint32)t->h;
-    ci.layer_count_or_depth = 1;
-    ci.num_levels = 1;
-    t->tex = SDL_CreateGPUTexture(g_dev, &ci);
-    ci.format = g_dsfmt;
-    ci.usage = SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET;
-    t->ds = SDL_CreateGPUTexture(g_dev, &ci);
-    if (!t->tex || !t->ds) {
-        fprintf(stderr, "[gpu] render target %08X: %s\n", addr, SDL_GetError());
-        return 0;
-    }
+    if (!target_textures(t)) return 0;
     /* start from what is in memory: an image the CPU or a transfer put there before any draw */
-    record_upload(t->tex, 0, 0, t->w, t->h, addr, pitch, fmt);
+    upload_to_target(g_ntargets, 0, 0, t->w, t->h, addr, pitch, fmt, SDL_GPU_FILTER_NEAREST);
     t->mem_hash = display_hash(t);
     g_st.targets++;
     return g_ntargets++;
+}
+
+/* Changes target ti to scale s between frames (a framebuffer made at the effects scale turned out
+ * to be shown): new textures, the old picture scaled into them, a new depth-stencil buffer. */
+static void rescale_target(int ti) {
+    Target *t = &g_targets[ti];
+    int s = t->want_s, os = t->s;
+    t->want_s = 0;
+    if (!s || s == os || g_nrelease + 3 > (int)(sizeof(g_release) / sizeof(g_release[0]))) return;
+    SDL_GPUTexture *old[3] = { t->tex, t->ds, t->ms };
+    t->s = s;
+    if (!target_textures(t)) {
+        t->s = os;
+        t->tex = old[0]; t->ds = old[1]; t->ms = old[2];
+        return;
+    }
+    for (int i = 0; i < 3; i++) if (old[i]) g_release[g_nrelease++] = old[i];
+    record_blit(old[0], -1, 0, 0, t->w * os, t->h * os, t->tex, 0, 0, t->w * s, t->h * s, SDL_GPU_FILTER_LINEAR);
+    unresolve(ti, 0, 0, t->w, t->h);
+    t->version++;
 }
 
 /* Position of addr in target t when it uses this pitch and pixel size. */
@@ -381,7 +634,8 @@ int rt_gpu_texture_is_target(uint32_t addr, uint32_t pitch, int bpp) {
     return g_dev && target_for_texture(addr, pitch, bpp, &x, &y) >= 0;
 }
 
-static int download(SDL_GPUTexture *tex, int x, int y, int w, int h, uint32_t *out);
+enum { DL_POINT, DL_BOX };
+static int download(int ti, int x, int y, int w, int h, uint32_t *out, int mode);
 static void record_resolve(int ti);
 
 /* Debugging ("both" mode, software drawing flushed): compares a render-to-texture source as the
@@ -395,7 +649,7 @@ void rt_gpu_debug_compare_texture(uint32_t addr, uint32_t pitch, int bpp, int fm
     if (w <= 0 || h <= 0) return;
     record_resolve(ti);
     uint32_t *g = malloc((size_t)w * h * 4);
-    if (!g || !download(t->tex, x, y, w, h, g)) { free(g); return; }
+    if (!g || !download(ti, x, y, w, h, g, DL_POINT)) { free(g); return; }
     double sum = 0;
     int worst = 0, wx = 0, wy = 0, nch = fmt == 3 ? 4 : 3;  /* 8888: the alpha (stencil) too */
     for (int j = 0; j < h; j++)
@@ -462,47 +716,31 @@ static void record_resolve(int ti) {
     g_st.resolves++;
 }
 
-/* A copy of the w x h region at (x, y) of target ti as it is at this point of the frame. */
+/* A copy of the w x h region at (x, y) of target ti (PSP pixels) as it is at this point of the
+ * frame, at the target's scale. */
 static SDL_GPUTexture *snapshot(int ti, int x, int y, int w, int h) {
     Target *t = &g_targets[ti];
+    int s = t->s;
     record_resolve(ti);
     for (int i = 0; i < g_nsnaps; i++) {
-        const Snap *s = &g_snaps[i];
-        if (s->busy && s->target == ti && s->version == t->version && s->x == x && s->y == y && s->w == w && s->h == h) return s->tex;
+        const Snap *p = &g_snaps[i];
+        if (p->busy && p->target == ti && p->version == t->version && p->x == x && p->y == y && p->w == w * s && p->h == h * s) return p->tex;
     }
-    Snap *s = NULL;
-    for (int i = 0; i < g_nsnaps && !s; i++) if (!g_snaps[i].busy && g_snaps[i].w == w && g_snaps[i].h == h) s = &g_snaps[i];
-    if (!s) {
-        if (g_nsnaps == MAX_SNAPS) return NULL;
-        SDL_GPUTextureCreateInfo ci;
-        memset(&ci, 0, sizeof(ci));
-        ci.type = SDL_GPU_TEXTURETYPE_2D;
-        ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-        ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        ci.width = (Uint32)w;
-        ci.height = (Uint32)h;
-        ci.layer_count_or_depth = 1;
-        ci.num_levels = 1;
-        SDL_GPUTexture *tex = SDL_CreateGPUTexture(g_dev, &ci);
-        if (!tex) return NULL;
-        s = &g_snaps[g_nsnaps++];
-        s->tex = tex;
-        s->w = w;
-        s->h = h;
-    }
-    s->busy = 1;
-    s->target = ti;
-    s->version = t->version;
-    s->x = x;
-    s->y = y;
+    Snap *p = pool_get(w * s, h * s, 1);
+    if (!p) return NULL;
+    p->target = ti;
+    p->version = t->version;
+    p->x = x;
+    p->y = y;
     Cmd *c = new_cmd(CMD_COPY);
     c->tex = t->tex;
-    c->sx = x; c->sy = y;
-    c->dst = s->tex;
-    c->w = imin(w, t->w - x);
-    c->h = imin(h, t->h - y);
+    c->src_target = ti;
+    c->sx = x * s; c->sy = y * s;
+    c->dst = p->tex;
+    c->w = imin(w, t->w - x) * s;
+    c->h = imin(h, t->h - y) * s;
     g_st.snapshots++;
-    return s->tex;
+    return p->tex;
 }
 
 /* --- pipelines ----------------------------------------------------------------- */
@@ -538,7 +776,8 @@ static const SDL_GPUStencilOp k_sop[8] = {
 };
 
 /* key: blend 1 | src 4 | dst 4 | op 3 | write mask 4 | zfunc 3 | zwrite 1 |
- *      stencil test 1 | func 3 | fail 3 | zfail 3 | zpass 3 | compare mask 8 | write mask 8 | alpha add 1 */
+ *      stencil test 1 | func 3 | fail 3 | zfail 3 | zpass 3 | compare mask 8 | write mask 8 | alpha add 1
+ * (every pipeline has the targets' sample count) */
 static int pipeline(uint64_t key) {
     for (int i = 0; i < g_npipes; i++) if (g_pipes[i].key == key) return i;
     if (g_npipes == MAX_PIPELINES) return 0;
@@ -582,7 +821,7 @@ static int pipeline(uint64_t key) {
     ci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;  /* culled on the CPU like the PSP does */
     ci.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
     ci.rasterizer_state.enable_depth_clip = false;          /* depth is already in range */
-    ci.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+    ci.multisample_state.sample_count = g_sc;
     ci.depth_stencil_state.enable_depth_test = true;
     ci.depth_stencil_state.compare_op = k_cmp[(key >> 16) & 7];
     ci.depth_stencil_state.enable_depth_write = (key >> 19) & 1;
@@ -609,21 +848,75 @@ static int pipeline(uint64_t key) {
     return g_npipes++;
 }
 
+/* the full-screen passes of post.hlsl, for a colour format and sample count */
+static SDL_GPUGraphicsPipeline *post_pipeline(SDL_GPUTextureFormat fmt, SDL_GPUSampleCount sc) {
+    for (int i = 0; i < g_nppipes; i++) if (g_ppipes[i].fmt == fmt && g_ppipes[i].samples == (int)sc) return g_ppipes[i].p;
+    if (g_nppipes == (int)(sizeof(g_ppipes) / sizeof(g_ppipes[0]))) return NULL;
+    SDL_GPUColorTargetDescription ct;
+    memset(&ct, 0, sizeof(ct));
+    ct.format = fmt;
+    SDL_GPUGraphicsPipelineCreateInfo ci;
+    memset(&ci, 0, sizeof(ci));
+    ci.vertex_shader = g_post_vs;
+    ci.fragment_shader = g_post_fs;
+    ci.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+    ci.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+    ci.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+    ci.multisample_state.sample_count = sc;
+    ci.target_info.color_target_descriptions = &ct;
+    ci.target_info.num_color_targets = 1;
+    SDL_GPUGraphicsPipeline *p = SDL_CreateGPUGraphicsPipeline(g_dev, &ci);
+    if (!p) fprintf(stderr, "[gpu] post pipeline: %s\n", SDL_GetError());
+    g_ppipes[g_nppipes].fmt = fmt;
+    g_ppipes[g_nppipes].samples = (int)sc;
+    g_ppipes[g_nppipes++].p = p;
+    return p;
+}
+
+/* One full-screen pass of post.hlsl into viewport vp of dst: u->src is the source rectangle in
+ * texels of src (tw x th). */
+static void post_pass(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *dst, SDL_GPUTextureFormat fmt, SDL_GPUSampleCount sc, SDL_GPULoadOp load,
+                      const SDL_GPUViewport *vp, const SDL_Rect *scissor, SDL_GPUTexture *src, int tw, int th, PostU *u, int linear) {
+    SDL_GPUGraphicsPipeline *p = post_pipeline(fmt, sc);
+    if (!p) return;
+    SDL_GPUColorTargetInfo ci;
+    memset(&ci, 0, sizeof(ci));
+    ci.texture = dst;
+    ci.load_op = load;
+    ci.store_op = SDL_GPU_STOREOP_STORE;
+    ci.clear_color.a = 1.0f;
+    SDL_GPURenderPass *rp = SDL_BeginGPURenderPass(cmd, &ci, 1, NULL);
+    SDL_BindGPUGraphicsPipeline(rp, p);
+    SDL_SetGPUViewport(rp, vp);
+    if (scissor) SDL_SetGPUScissor(rp, scissor);
+    u->size[0] = (float)tw; u->size[1] = (float)th; u->size[2] = 1.0f / tw; u->size[3] = 1.0f / th;
+    SDL_GPUTextureSamplerBinding tb = { src, linear ? g_linear : g_point };
+    SDL_BindGPUFragmentSamplers(rp, 0, &tb, 1);
+    SDL_PushGPUFragmentUniformData(cmd, 0, u, sizeof(*u));
+    SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(rp);
+}
+
 /* --- samplers -------------------------------------------------------------------- */
 /* PSP texture filtering: the level of detail is log2(texels per pixel) plus an offset in
  * 1/16 levels (LOD mode 0); minf above level 0, magf at or below it; mipf blends levels.
- * Mode 2 uses the offset as a constant level. Mode 1 (slope from w) is approximated by mode 0. */
+ * Mode 2 uses the offset as a constant level. Mode 1 (slope from w) is approximated by mode 0.
+ * Options: --lod-bias adds to the mip level; --aniso filters 3D textures anisotropically (linear
+ * filtering only); at a higher internal resolution, sprites drawing texels 1:1 keep point
+ * sampling, so that they look as at 1x and do not take in the texels next to them. */
 static SDL_GPUSampler *sampler_for(const GpuDraw *d) {
     int levels = d->textured && d->levels > 1 ? d->levels : 1;
+    int aniso = rt_gpu_opt.aniso > 1 && d->textured && !d->through && !d->tex_target && d->minf && d->magf;
+    int nearest = g_scale > 1 && d->pixel_mapped && !d->tex_target;
     uint32_t key = (uint32_t)(d->minf & 1) | (uint32_t)(d->magf & 1) << 1 | (uint32_t)(d->mipf & 1) << 2 |
                    (uint32_t)(d->clampS & 1) << 3 | (uint32_t)(d->clampT & 1) << 4 | (uint32_t)(d->lodmode & 3) << 5 |
-                   (uint32_t)(d->lodoff & 0xFF) << 7 | (uint32_t)(levels - 1) << 15;
+                   (uint32_t)(d->lodoff & 0x3FF) << 7 | (uint32_t)(levels - 1) << 17 | (uint32_t)aniso << 22 | (uint32_t)nearest << 23;
     for (int i = 0; i < g_nsamps; i++)
         if (g_samps[i].key == key) return g_samps[i].s;
     SDL_GPUSamplerCreateInfo si;
     memset(&si, 0, sizeof(si));
-    si.min_filter = d->minf ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
-    si.mag_filter = d->magf ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
+    si.min_filter = d->minf && !nearest ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
+    si.mag_filter = d->magf && !nearest ? SDL_GPU_FILTER_LINEAR : SDL_GPU_FILTER_NEAREST;
     si.mipmap_mode = d->mipf ? SDL_GPU_SAMPLERMIPMAPMODE_LINEAR : SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
     si.address_mode_u = d->clampS ? SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE : SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
     si.address_mode_v = d->clampT ? SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE : SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
@@ -633,9 +926,13 @@ static SDL_GPUSampler *sampler_for(const GpuDraw *d) {
         float l = off < 0 ? 0 : off > top ? top : off;
         si.min_lod = si.max_lod = l;
     } else {
-        si.mip_lod_bias = off;
+        si.mip_lod_bias = off + (levels > 1 ? rt_gpu_opt.lod_bias : 0.0f);
         si.min_lod = 0;
         si.max_lod = top;
+    }
+    if (aniso) {
+        si.enable_anisotropy = true;
+        si.max_anisotropy = (float)(rt_gpu_opt.aniso > 16 ? 16 : rt_gpu_opt.aniso);
     }
     SDL_GPUSampler *s = SDL_CreateGPUSampler(g_dev, &si);
     if (g_nsamps < MAX_SAMPLERS) {
@@ -643,6 +940,114 @@ static SDL_GPUSampler *sampler_for(const GpuDraw *d) {
         g_samps[g_nsamps++].s = s;
     }
     return s;
+}
+
+/* --- texture packs ------------------------------------------------------------------
+ * A texture's pack key is a hash of its decoded picture (level 0, RGBA): the same picture has the
+ * same key whatever its address, format, palette or swizzling. --texture-dump writes each new
+ * picture once as DIR/<key>.png (16 hex digits); --texture-pack loads DIR/<key>.png, of any size,
+ * in its place (with a full mip chain made on the GPU). Texture coordinates are normalized, so a
+ * bigger picture needs nothing else. */
+#define PACK_SLOTS 65536  /* power of two */
+typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, levels, failed; } PackEntry;
+static PackEntry *g_pack;     /* the pack's keys; the texture once loaded */
+static uint64_t *g_dumped;    /* keys already dumped */
+static SDL_GPUTexture **g_mipgen;
+static size_t g_nmipgen, g_mipcap;
+
+static uint64_t image_key(const uint32_t *px, int w, int h) {
+    uint64_t a = 0x9E3779B97F4A7C15ull ^ ((uint64_t)w << 32 | (uint32_t)h), b = 0xC2B2AE3D27D4EB4Full;
+    size_t n = (size_t)w * h, i = 0;
+    for (; i + 2 <= n; i += 2) {
+        a = (a ^ px[i]) * 0x100000001B3ull; a ^= a >> 29;
+        b = (b ^ px[i + 1]) * 0x100000001B3ull; b ^= b >> 31;
+    }
+    if (i < n) a = (a ^ px[i]) * 0x100000001B3ull;
+    a ^= b * 0x165667B19E3779F9ull;
+    return (a ^ (a >> 33)) | 1;
+}
+
+static uint64_t *key_slot(uint64_t *set, uint64_t key) {
+    size_t i = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 48) & (PACK_SLOTS - 1);
+    for (int n = 0; n < PACK_SLOTS && set[i] && set[i] != key; n++) i = (i + 1) & (PACK_SLOTS - 1);
+    return &set[i];
+}
+
+static PackEntry *pack_find(uint64_t key) {
+    size_t i = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 48) & (PACK_SLOTS - 1);
+    for (int n = 0; n < PACK_SLOTS && g_pack[i].key; n++, i = (i + 1) & (PACK_SLOTS - 1))
+        if (g_pack[i].key == key) return &g_pack[i];
+    return NULL;
+}
+
+static void pack_index(void) {
+    const char *dir = rt_gpu_opt.texture_pack;
+    if (rt_gpu_opt.texture_dump) {
+        SDL_CreateDirectory(rt_gpu_opt.texture_dump);
+        g_dumped = calloc(PACK_SLOTS, sizeof(uint64_t));
+    }
+    if (!dir) return;
+    g_pack = calloc(PACK_SLOTS, sizeof(PackEntry));
+    int n = 0, found = 0;
+    char **files = SDL_GlobDirectory(dir, "*.png", SDL_GLOB_CASEINSENSITIVE, &n);
+    for (int i = 0; files && i < n && found < PACK_SLOTS / 2; i++) {
+        const char *name = strrchr(files[i], '/') ? strrchr(files[i], '/') + 1 : files[i];
+        char *end;
+        uint64_t key = strtoull(name, &end, 16);
+        if (end - name != 16 || SDL_strcasecmp(end, ".png")) continue;
+        size_t s = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 48) & (PACK_SLOTS - 1);
+        while (g_pack[s].key && g_pack[s].key != key) s = (s + 1) & (PACK_SLOTS - 1);
+        if (!g_pack[s].key) found++;
+        g_pack[s].key = key;
+    }
+    SDL_free(files);
+    printf("[gpu] texture pack %s: %d replacement textures\n", dir, found);
+}
+
+static void dump_texture(uint64_t key, int w, int h, const uint32_t *rgba) {
+    if (!g_dumped || w < 4 || h < 4) return;
+    uint64_t *slot = key_slot(g_dumped, key);
+    if (*slot) return;  /* dumped already, or the set is full */
+    *slot = key;
+    SDL_Surface *s = SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, (void *)rgba, w * 4);
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%016llx.png", rt_gpu_opt.texture_dump, (unsigned long long)key);
+    if (s && SDL_SavePNG(s, path)) g_st.dumped++;
+    SDL_DestroySurface(s);
+}
+
+/* the pack's picture for this key, loaded (and its mip chain queued) the first time */
+static PackEntry *pack_texture(uint64_t key) {
+    PackEntry *p = g_pack ? pack_find(key) : NULL;
+    if (!p || p->tex || p->failed) return p && p->tex ? p : NULL;
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%016llx.png", rt_gpu_opt.texture_pack, (unsigned long long)key);
+    SDL_Surface *s = SDL_LoadPNG(path), *c = s ? SDL_ConvertSurface(s, SDL_PIXELFORMAT_RGBA32) : NULL;
+    SDL_DestroySurface(s);
+    if (!c) { fprintf(stderr, "[gpu] texture pack: %s: %s\n", path, SDL_GetError()); p->failed = 1; return NULL; }
+    int w = c->w, h = c->h, levels = 1;
+    while ((w >> levels) || (h >> levels)) levels++;
+    p->tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, w, h, levels,
+                          SDL_GPU_SAMPLECOUNT_1);
+    if (!p->tex) { SDL_DestroySurface(c); p->failed = 1; return NULL; }
+    p->levels = levels;
+    p->w = w;
+    size_t bytes = (size_t)w * h * 4, off = (g_upsize + 511) & ~(size_t)511;
+    grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
+    for (int y = 0; y < h; y++) memcpy(g_upbytes + off + (size_t)y * w * 4, (const uint8_t *)c->pixels + (size_t)y * c->pitch, (size_t)w * 4);
+    g_upsize = off + bytes;
+    SDL_DestroySurface(c);
+    grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
+    memset(&g_ups[g_nups], 0, sizeof(Upload));
+    g_ups[g_nups].tex = p->tex; g_ups[g_nups].offset = (uint32_t)off; g_ups[g_nups].w = w; g_ups[g_nups].h = h;
+    g_nups++;
+    if (levels > 1) {
+        grow((void **)&g_mipgen, &g_mipcap, g_nmipgen + 1, sizeof(SDL_GPUTexture *));
+        g_mipgen[g_nmipgen++] = p->tex;
+    }
+    g_st.pack_loads++;
+    g_st.upload_bytes += bytes;
+    return p;
 }
 
 /* --- textures -------------------------------------------------------------------- */
@@ -664,23 +1069,36 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
     TexEntry *e = tex_slot(key);
     if (e->key) return;
     if (g_tex_count > TEX_SLOTS * 3 / 4) return;  /* full until the next eviction */
-    SDL_GPUTextureCreateInfo ci;
-    memset(&ci, 0, sizeof(ci));
-    ci.type = SDL_GPU_TEXTURETYPE_2D;
-    ci.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-    ci.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-    ci.width = (Uint32)w;
-    ci.height = (Uint32)h;
-    ci.layer_count_or_depth = 1;
-    ci.num_levels = (Uint32)(levels < 1 ? 1 : levels);
-    e->tex = SDL_CreateGPUTexture(g_dev, &ci);
+    int nl = levels < 1 ? 1 : levels;
+    if (g_pack || g_dumped) {
+        uint64_t ik = image_key(rgba, w, h);
+        dump_texture(ik, w, h, rgba);
+        PackEntry *p = pack_texture(ik);
+        if (p) {  /* the pack's picture: shared by every texture with this picture, kept for the run */
+            e->tex = p->tex;
+            e->key = key;
+            e->w = w;
+            e->h = h;
+            e->levels = p->levels;
+            e->lod_shift = 0;  /* mip levels the pack's picture has above the PSP's level 0 */
+            while ((w << (e->lod_shift + 1)) <= p->w) e->lod_shift++;
+            e->replaced = 1;
+            e->used = g_frame;
+            g_tex_count++;
+            g_st.replaced++;
+            return;
+        }
+    }
+    e->tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, nl, SDL_GPU_SAMPLECOUNT_1);
     if (!e->tex) return;
     e->key = key;
     e->w = w;
     e->h = h;
+    e->levels = nl;
+    e->replaced = 0;
     e->used = g_frame;
     g_tex_count++;
-    for (int l = 0; l < (int)ci.num_levels; l++) {
+    for (int l = 0; l < nl; l++) {
         int lw = w >> l > 0 ? w >> l : 1, lh = h >> l > 0 ? h >> l : 1;
         size_t bytes = (size_t)lw * lh * 4, off = (g_upsize + 511) & ~(size_t)511;
         grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
@@ -707,11 +1125,29 @@ static void evict_textures(void) {
     g_tex_count = 0;
     for (size_t i = 0; i < TEX_SLOTS; i++) {
         if (!old[i].key) continue;
-        if (g_frame - old[i].used > 300) { SDL_ReleaseGPUTexture(g_dev, old[i].tex); continue; }
+        if (g_frame - old[i].used > 300) {
+            if (!old[i].replaced) SDL_ReleaseGPUTexture(g_dev, old[i].tex);  /* a pack's picture stays */
+            continue;
+        }
         *tex_slot(old[i].key) = old[i];
         g_tex_count++;
     }
     free(old);
+}
+
+/* releases pooled textures not used for a while (at a high internal resolution they are big) */
+static void evict_pool(void) {
+    if (g_frame % 120) return;
+    int n = 0;
+    for (int i = 0; i < g_nsnaps; i++) {
+        if (g_frame - g_snaps[i].used > 240) {
+            g_st.snap_bytes -= (uint64_t)g_snaps[i].w * g_snaps[i].h * 4;
+            SDL_ReleaseGPUTexture(g_dev, g_snaps[i].tex);
+            continue;
+        }
+        g_snaps[n++] = g_snaps[i];
+    }
+    g_nsnaps = n;
 }
 
 /* --- recording ------------------------------------------------------------------- */
@@ -742,7 +1178,18 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
                        s >= 0 ? g_targets[s].addr : 0, tx, ty);
         } else {
             TexEntry *e = tex_slot(d->tex_key | 1);
-            if (e->key) { tex = e->tex; e->used = g_frame; }
+            if (e->key) {
+                tex = e->tex;
+                e->used = g_frame;
+                if (e->replaced) {  /* a pack's picture: its own mip chain, filtered as it is */
+                    static GpuDraw dr;
+                    dr = *d;
+                    dr.levels = e->levels;
+                    if (dr.lodmode == 2) dr.lodoff += 16 * e->lod_shift;  /* a constant level counts from the PSP's level 0 */
+                    dr.pixel_mapped = 0;
+                    d = &dr;
+                }
+            }
         }
     }
     /* blending */
@@ -819,6 +1266,14 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
         if (o[i].x > bx1) bx1 = o[i].x;
         if (o[i].y < by0) by0 = o[i].y;
         if (o[i].y > by1) by1 = o[i].y;
+    }
+    /* --aspect: 2D on a shown framebuffer (HUD, text, markers placed over the 3D view) is drawn
+     * narrower around the centre, as the 3D view is, so that the wider window gives it back its
+     * shape. Not full-width passes (screen effects, fades), clears, or copies of render targets. */
+    float sq = rt_gpu_aspect_squeeze();
+    if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && bx1 - bx0 < DISP_W - 8 && rt_gpu_shown_fb(t->addr)) {
+        float cx = (float)ox + DISP_W / 2.0f;
+        for (uint32_t i = 0; i < n; i++) o[i].x = cx + (o[i].x - cx) * sq;
     }
     g_nverts += n;
     int wx0 = imax(x1, (int)bx0), wy0 = imax(y1, (int)by0), wx1 = imin(x2 + 1, (int)bx1 + 1), wy1 = imin(y2 + 1, (int)by1 + 1);
@@ -897,11 +1352,39 @@ static void upload_frame(SDL_GPUCommandBuffer *cmd) {
         SDL_UploadToGPUTexture(cp, &src, &dst, false);
     }
     SDL_EndGPUCopyPass(cp);
+    for (size_t i = 0; i < g_nmipgen; i++) SDL_GenerateMipmapsForGPUTexture(cmd, g_mipgen[i]);  /* texture pack pictures */
+    g_nmipgen = 0;
 }
 
-/* copy commands (snapshots, uploads into targets) run between render passes, in order */
-static void run_copy(SDL_GPUCommandBuffer *cmd, const Cmd *c) {
+/* commands other than draws run between render passes, in order: copies (snapshots, transfers),
+ * uploads into targets, blits (scaled copies) and unresolves */
+static void run_other(SDL_GPUCommandBuffer *cmd, const Cmd *c) {
+    if (c->kind == CMD_UNRESOLVE) {
+        const Target *t = &g_targets[c->target];
+        int s = t->s;
+        SDL_GPUViewport vp = { 0, 0, (float)(t->w * s), (float)(t->h * s), 0.0f, 1.0f };
+        SDL_Rect sc = { c->scissor.x * s, c->scissor.y * s, c->scissor.w * s, c->scissor.h * s };
+        PostU u;
+        memset(&u, 0, sizeof(u));
+        u.src[2] = (float)(t->w * s);
+        u.src[3] = (float)(t->h * s);
+        u.mode[0] = P_COPY;
+        post_pass(cmd, t->ms, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, g_sc, SDL_GPU_LOADOP_LOAD, &vp, &sc, t->tex, t->w * s, t->h * s, &u, 0);
+        return;
+    }
     if (c->w <= 0 || c->h <= 0) return;
+    if (c->kind == CMD_BLIT) {
+        SDL_GPUBlitInfo bi;
+        memset(&bi, 0, sizeof(bi));
+        bi.source.texture = c->tex;
+        bi.source.x = (Uint32)c->sx; bi.source.y = (Uint32)c->sy; bi.source.w = (Uint32)c->sw; bi.source.h = (Uint32)c->sh;
+        bi.destination.texture = c->dst;
+        bi.destination.x = (Uint32)c->dx; bi.destination.y = (Uint32)c->dy; bi.destination.w = (Uint32)c->w; bi.destination.h = (Uint32)c->h;
+        bi.load_op = SDL_GPU_LOADOP_LOAD;
+        bi.filter = c->filter;
+        SDL_BlitGPUTexture(cmd, &bi);
+        return;
+    }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
     if (c->kind == CMD_COPY) {
         SDL_GPUTextureLocation s, d;
@@ -920,25 +1403,60 @@ static void run_copy(SDL_GPUCommandBuffer *cmd, const Cmd *c) {
     SDL_EndGPUCopyPass(cp);
 }
 
+static int drawable(const Cmd *c) { return c->count && c->scissor.w && c->scissor.h && g_pipes[c->pipe].p; }
+
+/* Multisampling: a pass resolves its multisampled colour into the target's colour texture only
+ * when a command reads that texture before the next pass on the target, or when it is the
+ * target's last pass in this submission. The flag goes on the pass's first draw. */
+static void plan_resolves(void) {
+    if (g_samples == 1) return;
+    int open[MAX_TARGETS], cur = -1;
+    for (int i = 0; i < g_ntargets; i++) open[i] = -1;
+    for (size_t i = 0; i < g_ncmds; i++) {
+        Cmd *c = &g_cmds[i];
+        if (c->kind == CMD_DRAW) {
+            if (!drawable(c)) continue;
+            if (c->target != cur) {
+                open[c->target] = (int)i;  /* the pass before on this target, if undecided, needs no resolve */
+                c->resolve = 0;
+                cur = c->target;
+            }
+            continue;
+        }
+        cur = -1;
+        if (c->src_target >= 0 && open[c->src_target] >= 0) {
+            g_cmds[open[c->src_target]].resolve = 1;
+            open[c->src_target] = -1;
+        }
+    }
+    for (int i = 0; i < g_ntargets; i++) if (open[i] >= 0) g_cmds[open[i]].resolve = 1;
+}
+
 static void render_frame(SDL_GPUCommandBuffer *cmd) {
+    plan_resolves();
     SDL_GPURenderPass *pass = NULL;
-    int cur_t = -1, cur_pipe = -1;
+    int cur_t = -1, cur_pipe = -1, s = 1;
     for (size_t i = 0; i < g_ncmds; i++) {
         Cmd *c = &g_cmds[i];
         if (c->kind != CMD_DRAW) {
             if (pass) { SDL_EndGPURenderPass(pass); pass = NULL; cur_t = -1; }
-            run_copy(cmd, c);
+            run_other(cmd, c);
             continue;
         }
-        if (!c->count || !c->scissor.w || !c->scissor.h || !g_pipes[c->pipe].p) continue;
+        if (!drawable(c)) continue;
         if (c->target != cur_t) {
             if (pass) SDL_EndGPURenderPass(pass);
             Target *t = &g_targets[c->target];
+            s = t->s;
             SDL_GPUColorTargetInfo ci;
             memset(&ci, 0, sizeof(ci));
-            ci.texture = t->tex;
+            ci.texture = t->ms ? t->ms : t->tex;
             ci.load_op = SDL_GPU_LOADOP_LOAD;  /* a new target was uploaded from memory first */
             ci.store_op = SDL_GPU_STOREOP_STORE;
+            if (t->ms) {
+                ci.resolve_texture = t->tex;
+                if (c->resolve) { ci.store_op = SDL_GPU_STOREOP_RESOLVE_AND_STORE; g_st.msaa_resolves++; }
+            }
             SDL_GPUDepthStencilTargetInfo di;
             memset(&di, 0, sizeof(di));
             di.texture = t->ds;
@@ -950,7 +1468,7 @@ static void render_frame(SDL_GPUCommandBuffer *cmd) {
             di.clear_stencil = 0;
             t->ds_init = 1;
             pass = SDL_BeginGPURenderPass(cmd, &ci, 1, &di);
-            SDL_GPUViewport vp = { 0, 0, (float)t->w, (float)t->h, 0.0f, 1.0f };
+            SDL_GPUViewport vp = { 0, 0, (float)(t->w * s), (float)(t->h * s), 0.0f, 1.0f };
             SDL_SetGPUViewport(pass, &vp);
             SDL_GPUBufferBinding vbind = { g_vbuf, 0 };
             SDL_BindGPUVertexBuffers(pass, 0, &vbind, 1);
@@ -961,7 +1479,8 @@ static void render_frame(SDL_GPUCommandBuffer *cmd) {
             g_st.passes++;
         }
         if (c->pipe != cur_pipe) { SDL_BindGPUGraphicsPipeline(pass, g_pipes[c->pipe].p); cur_pipe = c->pipe; }
-        SDL_SetGPUScissor(pass, &c->scissor);
+        SDL_Rect sc = { c->scissor.x * s, c->scissor.y * s, c->scissor.w * s, c->scissor.h * s };
+        SDL_SetGPUScissor(pass, &sc);
         SDL_SetGPUBlendConstants(pass, c->blend_const);
         if (c->stencil) SDL_SetGPUStencilReference(pass, (Uint8)c->stencil_ref);
         SDL_GPUTextureSamplerBinding tb = { c->tex ? c->tex : g_white, c->sampler };
@@ -991,22 +1510,31 @@ static void submit_pending(void) {
     g_st.submits++;
 }
 
-/* Reads w x h pixels at (x, y) of tex as RGBA8, after all work recorded before. */
-static int download(SDL_GPUTexture *tex, int x, int y, int w, int h, uint32_t *out) {
-    if (w <= 0 || h <= 0) return 0;
-    submit_pending();
+/* staging for reading a scaled target back at 1x */
+static int readback_texture(int w, int h) {
+    if (g_rb && g_rb_w >= w && g_rb_h >= h) return 1;
+    if (g_rb) SDL_ReleaseGPUTexture(g_dev, g_rb);
+    g_rb_w = imax(w, g_rb_w);
+    g_rb_h = imax(h, g_rb_h);
+    g_rb = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, g_rb_w,
+                        g_rb_h, 1, SDL_GPU_SAMPLECOUNT_1);
+    return g_rb != NULL;
+}
+
+/* Records the copy of rectangle (x, y, w, h) of tex into a transfer buffer at the end of cmd,
+ * submits cmd and waits for it, and reads the pixels (RGBA8) into out. */
+static int download_tex(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *src, int x, int y, int w, int h, uint32_t *out) {
     uint32_t bytes = (uint32_t)w * (uint32_t)h * 4;
     SDL_GPUTransferBufferCreateInfo ti = { SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, bytes, 0 };
     SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(g_dev, &ti);
-    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g_dev);
-    if (!tb || !cmd) return 0;
+    if (!tb) { SDL_CancelGPUCommandBuffer(cmd); return 0; }
     SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
-    SDL_GPUTextureRegion src;
-    memset(&src, 0, sizeof(src));
-    src.texture = tex;
-    src.x = (Uint32)x; src.y = (Uint32)y; src.w = (Uint32)w; src.h = (Uint32)h; src.d = 1;
+    SDL_GPUTextureRegion r;
+    memset(&r, 0, sizeof(r));
+    r.texture = src;
+    r.x = (Uint32)x; r.y = (Uint32)y; r.w = (Uint32)w; r.h = (Uint32)h; r.d = 1;
     SDL_GPUTextureTransferInfo dst = { tb, 0, (Uint32)w, (Uint32)h };
-    SDL_DownloadFromGPUTexture(cp, &src, &dst);
+    SDL_DownloadFromGPUTexture(cp, &r, &dst);
     SDL_EndGPUCopyPass(cp);
     SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
     SDL_WaitForGPUFences(g_dev, true, &f, 1);
@@ -1019,6 +1547,45 @@ static int download(SDL_GPUTexture *tex, int x, int y, int w, int h, uint32_t *o
     return 1;
 }
 
+/* Reads rectangle (x, y, w, h) of target ti (PSP pixels) as RGBA8 into out, after all work
+ * recorded before. A scaled target is brought to 1x on the GPU first: point-sampled (DL_POINT:
+ * data the CPU reads back keeps exact values) or box-filtered (DL_BOX: pictures). */
+static int download(int ti, int x, int y, int w, int h, uint32_t *out, int mode) {
+    if (w <= 0 || h <= 0) return 0;
+    submit_pending();
+    const Target *t = &g_targets[ti];
+    int s = t->s, rx = x * s, ry = y * s;
+    SDL_GPUTexture *src = t->tex;
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g_dev);
+    if (!cmd) return 0;
+    if (s > 1) {
+        if (!readback_texture(w, h)) { SDL_CancelGPUCommandBuffer(cmd); return 0; }
+        if (mode == DL_BOX) {
+            PostU u;
+            memset(&u, 0, sizeof(u));
+            u.src[0] = (float)rx; u.src[1] = (float)ry; u.src[2] = (float)(rx + w * s); u.src[3] = (float)(ry + h * s);
+            u.mode[0] = P_BOX;
+            u.mode[1] = (uint32_t)s;
+            SDL_GPUViewport vp = { 0, 0, (float)w, (float)h, 0.0f, 1.0f };
+            post_pass(cmd, g_rb, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_DONT_CARE, &vp, NULL, t->tex,
+                      t->w * s, t->h * s, &u, 0);
+        } else {
+            SDL_GPUBlitInfo bi;
+            memset(&bi, 0, sizeof(bi));
+            bi.source.texture = t->tex;
+            bi.source.x = (Uint32)rx; bi.source.y = (Uint32)ry; bi.source.w = (Uint32)(w * s); bi.source.h = (Uint32)(h * s);
+            bi.destination.texture = g_rb;
+            bi.destination.w = (Uint32)w; bi.destination.h = (Uint32)h;
+            bi.load_op = SDL_GPU_LOADOP_DONT_CARE;
+            bi.filter = SDL_GPU_FILTER_NEAREST;
+            SDL_BlitGPUTexture(cmd, &bi);
+        }
+        src = g_rb;
+        rx = ry = 0;
+    }
+    return download_tex(cmd, src, rx, ry, w, h, out);
+}
+
 /* Writes the w x h region at (x, y) of target ti into PSP memory, in the target's format. */
 static void write_back(int ti, int x, int y, int w, int h) {
     Target *t = &g_targets[ti];
@@ -1027,7 +1594,7 @@ static void write_back(int ti, int x, int y, int w, int h) {
     if (w <= 0 || h <= 0) return;
     grow((void **)&g_dl, &g_dlcap, (size_t)w * h, sizeof(uint32_t));
     record_resolve(ti);  /* memory gets the stencil in the alpha channel */
-    if (!download(t->tex, x, y, w, h, g_dl)) return;
+    if (!download(ti, x, y, w, h, g_dl, DL_POINT)) return;
     for (int j = 0; j < h; j++) {
         uint8_t *row = rt_ptr(t->addr + (uint32_t)(y + j) * t->pitch) + (size_t)x * t->bpp;
         for (int i = 0; i < w; i++) pixel_out(row + (size_t)i * t->bpp, g_dl[(size_t)j * w + i], t->fmt);
@@ -1046,13 +1613,20 @@ void rt_gpu_transfer_begin(uint32_t src, uint32_t spitch, int sx, int sy, uint32
         /* through a snapshot: source and destination may overlap */
         SDL_GPUTexture *snap = snapshot(s, stx, sty, w, h);
         if (!snap) return;
-        Cmd *c = new_cmd(CMD_COPY);
-        c->tex = snap;
-        c->dst = g_targets[d].tex;
-        c->dx = dtx; c->dy = dty;
-        c->w = imin(w, g_targets[d].w - dtx);
-        c->h = imin(h, g_targets[d].h - dty);
-        mark_written(&g_targets[d], dtx, dty, dtx + w, dty + h);
+        Target *dt = &g_targets[d];
+        int ss = g_targets[s].s, ds = dt->s, cw = imin(w, dt->w - dtx), ch = imin(h, dt->h - dty);
+        if (ss == ds) {
+            Cmd *c = new_cmd(CMD_COPY);
+            c->tex = snap;
+            c->dst = dt->tex;
+            c->dx = dtx * ds; c->dy = dty * ds;
+            c->w = cw * ds;
+            c->h = ch * ds;
+        } else {
+            record_blit(snap, -1, 0, 0, cw * ss, ch * ss, dt->tex, dtx * ds, dty * ds, cw * ds, ch * ds, SDL_GPU_FILTER_NEAREST);
+        }
+        unresolve(d, dtx, dty, cw, ch);
+        mark_written(dt, dtx, dty, dtx + w, dty + h);
         g_xfer_gpu = 1;
         g_st.gpu_copies++;
         return;
@@ -1060,18 +1634,24 @@ void rt_gpu_transfer_begin(uint32_t src, uint32_t spitch, int sx, int sy, uint32
     if (readback) write_back(s, stx, sty, w, h);  /* the copy in memory then moves what the GPU drew */
 }
 
-void rt_gpu_transfer_end(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
-    if (!g_xfer_gpu) rt_gpu_memory_written(dst, dpitch, dx, dy, w, h, bpp);
-}
-
-void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
+/* PSP memory changed under a rectangle of a target: the target takes it */
+static void memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp, SDL_GPUFilter filter) {
     if (!g_dev) return;
     int tx = 0, ty = 0, d = target_for_rect(dst, dpitch, bpp, dx, dy, w, h, 0, &tx, &ty);
     if (d < 0) return;
     Target *t = &g_targets[d];
-    record_upload(t->tex, tx, ty, w, h, t->addr + (uint32_t)ty * t->pitch + (uint32_t)tx * (uint32_t)t->bpp, t->pitch, t->fmt);
+    upload_to_target(d, tx, ty, w, h, t->addr + (uint32_t)ty * t->pitch + (uint32_t)tx * (uint32_t)t->bpp, t->pitch, t->fmt, filter);
     mark_written(t, tx, ty, tx + w, ty + h);
     t->mem_hash = display_hash(t);
+}
+
+void rt_gpu_transfer_end(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
+    if (!g_xfer_gpu) memory_written(dst, dpitch, dx, dy, w, h, bpp, SDL_GPU_FILTER_NEAREST);
+}
+
+/* the CPU or a video decoder: pictures, scaled smoothly into a scaled target */
+void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w, int h, int bpp) {
+    memory_written(dst, dpitch, dx, dy, w, h, bpp, SDL_GPU_FILTER_LINEAR);
 }
 
 void rt_gpu_sync_span(uint32_t addr, uint32_t size) {
@@ -1108,7 +1688,50 @@ static int display_target(uint32_t addr, uint32_t stride, uint32_t fmt, int *x, 
     return best;
 }
 
-static void blit_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
+/* post-processing at the internal resolution: ping-pong textures of the display area's size */
+static int post_textures(int w, int h) {
+    if (g_post[0] && g_post_w == w && g_post_h == h) return 1;
+    for (int i = 0; i < 2; i++) {
+        if (g_post[i]) SDL_ReleaseGPUTexture(g_dev, g_post[i]);
+        g_post[i] = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, 1,
+                                 SDL_GPU_SAMPLECOUNT_1);
+    }
+    g_post_w = w;
+    g_post_h = h;
+    return g_post[0] && g_post[1];
+}
+
+/* FXAA and sharpening (when on) of the display area at (x, y) of target t, at the internal
+ * resolution: returns the texture holding the picture, its size (*tw x *th) and the area in it (r). */
+static SDL_GPUTexture *post_chain(SDL_GPUCommandBuffer *cmd, int t, int x, int y, int *tw, int *th, float r[4]) {
+    const Target *tg = &g_targets[t];
+    int s = tg->s, pw = imin(DISP_W, tg->w - x) * s, ph = imin(DISP_H, tg->h - y) * s;
+    SDL_GPUTexture *src = tg->tex;
+    *tw = tg->w * s;
+    *th = tg->h * s;
+    r[0] = (float)(x * s); r[1] = (float)(y * s); r[2] = (float)(x * s + pw); r[3] = (float)(y * s + ph);
+    int passes[2] = { rt_gpu_opt.fxaa ? P_FXAA : -1, rt_gpu_opt.sharpen > 0 ? P_CAS : -1 }, k = 0;
+    for (int i = 0; i < 2; i++) {
+        if (passes[i] < 0 || !post_textures(pw, ph)) continue;
+        PostU u;
+        memset(&u, 0, sizeof(u));
+        memcpy(u.src, r, sizeof(u.src));
+        u.mode[0] = (uint32_t)passes[i];
+        u.p0[0] = rt_gpu_opt.sharpen;
+        SDL_GPUViewport vp = { 0, 0, (float)pw, (float)ph, 0.0f, 1.0f };
+        post_pass(cmd, g_post[k], SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_DONT_CARE, &vp, NULL, src, *tw, *th,
+                  &u, 1);
+        src = g_post[k];
+        *tw = pw; *th = ph;
+        r[0] = r[1] = 0; r[2] = (float)pw; r[3] = (float)ph;
+        k ^= 1;
+    }
+    return src;
+}
+
+/* The displayed framebuffer into the window: FXAA and sharpening at the internal resolution
+ * (when on), then scaled into the window, letterboxed, as SDR or HDR. */
+static void draw_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
     SDL_GPUTexture *sc = NULL;
     Uint32 sw = 0, sh = 0;
     uint64_t t0 = SDL_GetTicksNS();
@@ -1118,32 +1741,35 @@ static void blit_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
     if (dt > g_st.acquire_max) g_st.acquire_max = dt;
     if (dt > 4000000) g_st.acquire_slow++;
     if (!ok || !sc) return;
-    SDL_GPUColorTargetInfo ci;
-    memset(&ci, 0, sizeof(ci));
-    ci.texture = sc;
-    ci.load_op = SDL_GPU_LOADOP_CLEAR;
-    ci.store_op = SDL_GPU_STOREOP_STORE;
-    ci.clear_color.a = 1.0f;
-    SDL_EndGPURenderPass(SDL_BeginGPURenderPass(cmd, &ci, 1, NULL));
-    if (t < 0) return;
-    /* letterbox 480x272 into the window */
-    float s = (float)sw / DISP_W < (float)sh / DISP_H ? (float)sw / DISP_W : (float)sh / DISP_H;
-    Uint32 dw = (Uint32)(DISP_W * s), dh = (Uint32)(DISP_H * s);
-    SDL_GPUBlitInfo bi;
-    memset(&bi, 0, sizeof(bi));
-    bi.source.texture = g_targets[t].tex;
-    bi.source.x = (Uint32)x;
-    bi.source.y = (Uint32)y;
-    bi.source.w = (Uint32)imin(DISP_W, g_targets[t].w - x);
-    bi.source.h = (Uint32)imin(DISP_H, g_targets[t].h - y);
-    bi.destination.texture = sc;
-    bi.destination.x = (sw - dw) / 2;
-    bi.destination.y = (sh - dh) / 2;
-    bi.destination.w = dw;
-    bi.destination.h = dh;
-    bi.load_op = SDL_GPU_LOADOP_LOAD;
-    bi.filter = SDL_GPU_FILTER_LINEAR;
-    SDL_BlitGPUTexture(cmd, &bi);
+    if (t < 0) {
+        SDL_GPUColorTargetInfo ci;
+        memset(&ci, 0, sizeof(ci));
+        ci.texture = sc;
+        ci.load_op = SDL_GPU_LOADOP_CLEAR;
+        ci.store_op = SDL_GPU_STOREOP_STORE;
+        ci.clear_color.a = 1.0f;
+        SDL_EndGPURenderPass(SDL_BeginGPURenderPass(cmd, &ci, 1, NULL));
+        return;
+    }
+    int tw, th;
+    float r[4];
+    SDL_GPUTexture *src = post_chain(cmd, t, x, y, &tw, &th, r);
+    float pw = r[2] - r[0], ph = r[3] - r[1];
+    PostU u;
+    /* letterbox the 480x272 picture into the window (stretched to --aspect) */
+    float lw = DISP_W / rt_gpu_aspect_squeeze();
+    float f = (float)sw / lw < (float)sh / DISP_H ? (float)sw / lw : (float)sh / DISP_H;
+    float dw = floorf(lw * f), dh = floorf(DISP_H * f);
+    SDL_GPUViewport vp = { floorf((sw - dw) / 2), floorf((sh - dh) / 2), dw, dh, 0.0f, 1.0f };
+    memset(&u, 0, sizeof(u));
+    memcpy(u.src, r, sizeof(r));
+    u.mode[0] = P_PRESENT;
+    float ratio = pw / dw > ph / dh ? pw / dw : ph / dh;  /* source texels per window pixel */
+    u.mode[1] = ratio > 1.01f && !rt_gpu_opt.nearest ? (uint32_t)ceilf(ratio) : 1u;
+    u.mode[2] = (uint32_t)g_hdr_out;
+    u.p0[0] = g_paper; u.p0[1] = g_peak; u.p0[2] = 0.55f;
+    u.p1[0] = pw / dw; u.p1[1] = ph / dh;
+    post_pass(cmd, sc, g_swfmt, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_CLEAR, &vp, NULL, src, tw, th, &u, !rt_gpu_opt.nearest);
 }
 
 /* RT_GPU_DUMP=N: after frame N, writes every target's drawn area (gpu) and the same area of PSP
@@ -1165,7 +1791,7 @@ static void debug_dump(void) {
         int w = t->ux1 - t->ux0, h = t->uy1 - t->uy0;
         if (w <= 0 || h <= 0) continue;
         uint32_t *g = malloc((size_t)w * h * 4), *m = malloc((size_t)w * h * 4);
-        if (download(t->tex, t->ux0, t->uy0, w, h, g)) {
+        if (download(i, t->ux0, t->uy0, w, h, g, DL_POINT)) {
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
                     m[(size_t)y * w + x] = pixel_in(rt_ptr(t->addr + (uint32_t)(t->uy0 + y) * t->pitch + (uint32_t)(t->ux0 + x) * t->bpp), t->fmt);
@@ -1185,6 +1811,9 @@ void rt_gpu_present(uint32_t addr, uint32_t stride, uint32_t fmt) {
     if (!g_dev) return;
     int t = -1, x = 0, y = 0;
     if (addr && stride) {
+        int known = 0;
+        for (int i = 0; i < g_ndisp && !known; i++) known = g_disp[i] == addr;
+        if (!known && g_ndisp < (int)(sizeof(g_disp) / sizeof(g_disp[0]))) g_disp[g_ndisp++] = addr;
         t = display_target(addr, stride, fmt, &x, &y);
         if (t < 0) {
             /* never drawn on the GPU: shows what the CPU put in memory */
@@ -1196,16 +1825,17 @@ void rt_gpu_present(uint32_t addr, uint32_t stride, uint32_t fmt) {
             uint64_t h = display_hash(tg);
             if (h != tg->mem_hash) {
                 tg->mem_hash = h;
-                record_upload(tg->tex, 0, 0, imin(DISP_W, tg->w), imin(DISP_H, tg->h), tg->addr, tg->pitch, tg->fmt);
+                upload_to_target(t, 0, 0, imin(DISP_W, tg->w), imin(DISP_H, tg->h), tg->addr, tg->pitch, tg->fmt, SDL_GPU_FILTER_LINEAR);
                 tg->version++;
             }
         }
+        if (t >= 0 && g_targets[t].s != g_scale) g_targets[t].want_s = g_scale;  /* shown: the full scale, from the next frame */
     }
     SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g_dev);
     if (!cmd) return;
     upload_frame(cmd);
     render_frame(cmd);
-    if (g_win) blit_to_window(cmd, t, x, y);
+    if (g_win) draw_to_window(cmd, t, x, y);
     static int sync = -1;
     if (sync < 0) sync = getenv("RT_GPU_SYNC") != NULL;
     if (sync) {
@@ -1216,16 +1846,21 @@ void rt_gpu_present(uint32_t addr, uint32_t stride, uint32_t fmt) {
         SDL_ReleaseGPUFence(g_dev, f);
         uint64_t dt = SDL_GetTicksNS() - t0;
         g_st.gpu_wait_ns += dt;
+        rt_perf_us[RT_PERF_GPU] += dt / 1000;  /* --perf-csv gpu_ms (in the next frame's row) */
         if (dt > g_st.gpu_wait_max) g_st.gpu_wait_max = dt;
     } else {
         SDL_SubmitGPUCommandBuffer(cmd);
     }
     reset_recorded();
+    for (int i = 0; i < g_nrelease; i++) SDL_ReleaseGPUTexture(g_dev, g_release[i]);  /* submitted: SDL keeps them until done */
+    g_nrelease = 0;
     debug_dump();
     for (int i = 0; i < g_nsnaps; i++) g_snaps[i].busy = 0;
     g_frame++;
     g_st.frames++;
+    for (int i = 0; i < g_ntargets; i++) if (g_targets[i].want_s) rescale_target(i);
     evict_textures();
+    evict_pool();
 }
 
 int rt_gpu_read_target(uint32_t addr, uint32_t stride, uint32_t fmt, uint8_t *rgba) {
@@ -1235,10 +1870,30 @@ int rt_gpu_read_target(uint32_t addr, uint32_t stride, uint32_t fmt, uint8_t *rg
     const Target *tg = &g_targets[t];
     int w = imin(DISP_W, tg->w - x), h = imin(DISP_H, tg->h - y);
     grow((void **)&g_dl, &g_dlcap, (size_t)DISP_W * DISP_H, sizeof(uint32_t));
-    if (!download(tg->tex, x, y, w, h, g_dl)) return 0;
+    if (!download(t, x, y, w, h, g_dl, DL_BOX)) return 0;
     memset(rgba, 0, (size_t)DISP_W * DISP_H * 4);
     for (int j = 0; j < h; j++) memcpy(rgba + (size_t)j * DISP_W * 4, g_dl + (size_t)j * w, (size_t)w * 4);
     return 1;
+}
+
+uint8_t *rt_gpu_read_target_full(uint32_t addr, uint32_t stride, uint32_t fmt, int *w, int *h) {
+    if (!g_dev) return NULL;
+    int x = 0, y = 0, t = display_target(addr, stride, fmt, &x, &y);
+    if (t < 0) return NULL;
+    const Target *tg = &g_targets[t];
+    int lw = imin(DISP_W, tg->w - x), lh = imin(DISP_H, tg->h - y);
+    uint8_t *out = malloc((size_t)lw * lh * tg->s * tg->s * 4);
+    if (!out) return NULL;
+    /* as the window shows it: with FXAA and sharpening, when they are on */
+    submit_pending();
+    SDL_GPUCommandBuffer *cmd = SDL_AcquireGPUCommandBuffer(g_dev);
+    int tw, th;
+    float r[4];
+    SDL_GPUTexture *src = cmd ? post_chain(cmd, t, x, y, &tw, &th, r) : NULL;
+    if (!src || !download_tex(cmd, src, (int)r[0], (int)r[1], lw * tg->s, lh * tg->s, (uint32_t *)out)) { free(out); return NULL; }
+    *w = lw * tg->s;
+    *h = lh * tg->s;
+    return out;
 }
 
 void rt_gpu_report(void) {
@@ -1253,6 +1908,20 @@ void rt_gpu_report(void) {
            (unsigned long long)g_st.targets, (unsigned long long)g_st.snapshots, (unsigned long long)g_st.target_uploads,
            (unsigned long long)g_st.gpu_copies, (unsigned long long)g_st.readbacks, (unsigned long long)g_st.submits,
            (unsigned long long)g_st.resolves, (unsigned long long)g_st.fills);
+    if (g_scale > 1 || g_samples > 1) {
+        uint64_t tb = 0;
+        for (int i = 0; i < g_ntargets; i++) {
+            const Target *t = &g_targets[i];
+            int per_px = 4 + 4 * g_samples + (g_samples > 1 ? 4 * g_samples : 0);  /* colour, depth-stencil, multisampled colour */
+            tb += (uint64_t)t->w * t->s * t->h * t->s * per_px;
+        }
+        printf("[gpu] %dx: %llu scaled copies (blits), %llu MSAA resolves, %llu unresolves; render targets %.0f MB, pooled textures %.0f MB\n",
+               g_scale, (unsigned long long)g_st.blits, (unsigned long long)g_st.msaa_resolves, (unsigned long long)g_st.unresolves,
+               tb / 1048576.0, g_st.snap_bytes / 1048576.0);
+    }
+    if (g_dumped || g_pack)
+        printf("[gpu] texture pack: %llu pictures dumped, %llu replacements loaded, %llu textures replaced\n", (unsigned long long)g_st.dumped,
+               (unsigned long long)g_st.pack_loads, (unsigned long long)g_st.replaced);
     if (g_st.gpu_wait_ns)
         printf("[gpu] waiting for the GPU after each frame: %.2f ms on average, %.2f ms at most\n",
                g_st.gpu_wait_ns / 1e6 / (double)(g_st.frames ? g_st.frames : 1), g_st.gpu_wait_max / 1e6);
@@ -1263,7 +1932,7 @@ void rt_gpu_report(void) {
     if (getenv("RT_GPU_TRACE_RTT"))
         for (int i = 0; i < g_ntargets; i++) {
             const Target *t = &g_targets[i];
-            printf("[gpu]   target %08X pitch %u fmt %d %dx%d drawn x %d..%d y %d..%d\n", t->addr, t->pitch, t->fmt, t->w, t->h,
+            printf("[gpu]   target %08X pitch %u fmt %d %dx%d (x%d) drawn x %d..%d y %d..%d\n", t->addr, t->pitch, t->fmt, t->w, t->h, t->s,
                    t->ux0, t->ux1, t->uy0, t->uy1);
         }
 }
@@ -1271,20 +1940,34 @@ void rt_gpu_report(void) {
 void rt_gpu_shutdown(void) {
     if (!g_dev) return;
     SDL_WaitForGPUIdle(g_dev);
-    for (size_t i = 0; i < TEX_SLOTS; i++) if (g_tex[i].key) SDL_ReleaseGPUTexture(g_dev, g_tex[i].tex);
+    for (size_t i = 0; i < TEX_SLOTS; i++) if (g_tex[i].key && !g_tex[i].replaced) SDL_ReleaseGPUTexture(g_dev, g_tex[i].tex);
+    for (size_t i = 0; g_pack && i < PACK_SLOTS; i++) if (g_pack[i].tex) SDL_ReleaseGPUTexture(g_dev, g_pack[i].tex);
+    free(g_pack);
+    free(g_dumped);
+    g_pack = NULL;
+    g_dumped = NULL;
     for (int i = 0; i < g_ntargets; i++) {
         SDL_ReleaseGPUTexture(g_dev, g_targets[i].tex);
         SDL_ReleaseGPUTexture(g_dev, g_targets[i].ds);
+        if (g_targets[i].ms) SDL_ReleaseGPUTexture(g_dev, g_targets[i].ms);
     }
     for (int i = 0; i < g_nsnaps; i++) SDL_ReleaseGPUTexture(g_dev, g_snaps[i].tex);
+    for (int i = 0; i < g_nrelease; i++) SDL_ReleaseGPUTexture(g_dev, g_release[i]);
     for (int i = 0; i < g_npipes; i++) if (g_pipes[i].p) SDL_ReleaseGPUGraphicsPipeline(g_dev, g_pipes[i].p);
+    for (int i = 0; i < g_nppipes; i++) if (g_ppipes[i].p) SDL_ReleaseGPUGraphicsPipeline(g_dev, g_ppipes[i].p);
     for (int i = 0; i < g_nsamps; i++) SDL_ReleaseGPUSampler(g_dev, g_samps[i].s);
-    g_nsamps = g_nsnaps = g_ntargets = 0;
+    g_nsamps = g_nsnaps = g_ntargets = g_nrelease = g_npipes = g_nppipes = 0;
+    if (g_rb) SDL_ReleaseGPUTexture(g_dev, g_rb);
+    for (int i = 0; i < 2; i++) if (g_post[i]) SDL_ReleaseGPUTexture(g_dev, g_post[i]);
+    SDL_ReleaseGPUSampler(g_dev, g_point);
+    SDL_ReleaseGPUSampler(g_dev, g_linear);
     SDL_ReleaseGPUTexture(g_dev, g_white);
     if (g_vbuf) SDL_ReleaseGPUBuffer(g_dev, g_vbuf);
     if (g_tbuf) SDL_ReleaseGPUTransferBuffer(g_dev, g_tbuf);
     SDL_ReleaseGPUShader(g_dev, g_vs);
     SDL_ReleaseGPUShader(g_dev, g_fs);
+    SDL_ReleaseGPUShader(g_dev, g_post_vs);
+    SDL_ReleaseGPUShader(g_dev, g_post_fs);
     if (g_win) SDL_ReleaseWindowFromGPUDevice(g_dev, g_win);
     SDL_DestroyGPUDevice(g_dev);
     g_dev = NULL;
@@ -1293,6 +1976,10 @@ void rt_gpu_shutdown(void) {
 #else  /* no SDL: no hardware renderer */
 int rt_gpu_init(void *window, const char *driver) { (void)window; (void)driver; fprintf(stderr, "[gpu] built without SDL3\n"); return 0; }
 int rt_gpu_active(void) { return 0; }
+int rt_gpu_scale(void) { return 1; }
+int rt_gpu_capture_full(void) { return 0; }
+float rt_gpu_aspect_squeeze(void) { return 1.0f; }
+int rt_gpu_shown_fb(uint32_t addr) { (void)addr; return 0; }
 void rt_gpu_shutdown(void) {}
 int rt_gpu_texture_resident(uint64_t key) { (void)key; return 1; }
 void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_t *rgba) { (void)key; (void)w; (void)h; (void)levels; (void)rgba; }
@@ -1311,6 +1998,10 @@ void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w,
 void rt_gpu_sync_span(uint32_t addr, uint32_t size) { (void)addr; (void)size; }
 void rt_gpu_present(uint32_t addr, uint32_t stride, uint32_t fmt) { (void)addr; (void)stride; (void)fmt; }
 int rt_gpu_read_target(uint32_t addr, uint32_t stride, uint32_t fmt, uint8_t *rgba) { (void)addr; (void)stride; (void)fmt; (void)rgba; return 0; }
+uint8_t *rt_gpu_read_target_full(uint32_t addr, uint32_t stride, uint32_t fmt, int *w, int *h) {
+    (void)addr; (void)stride; (void)fmt; (void)w; (void)h;
+    return NULL;
+}
 void rt_gpu_report(void) {}
 void rt_gpu_debug_compare_texture(uint32_t addr, uint32_t pitch, int bpp, int fmt, int w, int h) {
     (void)addr; (void)pitch; (void)bpp; (void)fmt; (void)w; (void)h;

@@ -112,6 +112,21 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 | `--save-slot NAME` | The save slot that the game's save/load lists use (`DATA00`..`DATA14` in Chains of Olympus); otherwise saves go to the first empty slot (then the oldest) and loads take the newest |
 
 Without `--window` the run stays headless and deterministic (virtual time as fast as the host allows).
+
+Graphics options of the hardware renderer (`--renderer gpu`, `runtime/rt_gpu.c`, `runtime/shaders/*.hlsl`; see
+`docs/phase6-gpu-renderer.md` and `docs/phase13-graphics.md`). Without them the picture is the PSP's, as before:
+
+| Option | Effect |
+|---|---|
+| `--res-scale N` | Internal resolution 480x272 times N (1-8; 8 = 3840x2176); `--frames-dir` and F12 PNGs keep it |
+| `--fx-scale N` | Scale of render targets the game never shows (glow, shadows), like PPSSPP's "lower resolution for effects" |
+| `--msaa 2\|4\|8`, `--aniso 2-16`, `--lod-bias F` | Multisample anti-aliasing; anisotropic filtering of 3D textures; mip level offset |
+| `--fxaa`, `--sharpen 0-1` | FXAA and contrast-adaptive sharpening at the internal resolution (window and PNGs) |
+| `--hdr [auto\|hdr10\|scrgb]`, `--paper-white NITS`, `--peak-nits NITS` | HDR output with inverse tone mapping; SDR when the display has no HDR |
+| `--fps HZ` | Display refresh (vblank rate, 30-1000): both games step by elapsed time; in the window, virtual time skips ahead when the host falls behind; recorded with `--record-input` |
+| `--vsync` | FIFO presentation (VRR); the default is mailbox |
+| `--aspect W:H` | A wider view (e.g. 21:9) with the HUD kept in the middle |
+| `--texture-dump DIR`, `--texture-pack DIR` | Writes each texture as `DIR/<key>.png`; PNGs of any size there replace them |
 `tools\play.cmd` starts Chains of Olympus in a window (extra arguments are passed on, e.g. `--fullscreen`). Saves go to
 `build\ms0\PSP\SAVEDATA`, and every session is recorded in `build\sessions\<date_time>\`; `tools\replay.cmd` replays one
 headless, from the saves it started with to the frame where it stopped or crashed.

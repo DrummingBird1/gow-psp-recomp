@@ -33,5 +33,11 @@ int rt_host_idle(uint64_t now_us, uint64_t next_us);
 uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly);
 /* Ends an input recording (also at exit and on a crash); safe to call more than once. */
 void rt_host_record_close(void);
+/* A headless replay needs rt_host_idle too: the recording has virtual-time skips (--fps). */
+int rt_host_wants_idle(void);
+
+/* The display's refresh (rt_hle.c): 59.94 Hz, or --fps N. */
+void rt_display_set_hz(double hz);
+double rt_display_hz(void);
 
 #endif

@@ -13,7 +13,7 @@ and collects:
   - a contact sheet of frames.
 
   .venv/Scripts/python -I tools/level_tour.py --out build/tour/run1 [--game coo|gos] [--levels a,b,...]
-      [--jobs 6] [--seconds 90] [--modes gpu,both] [--exe ...] [--disc ...]
+      [--jobs 6] [--seconds 90] [--modes gpu,both] [--exe ...] [--disc ...] [--gpu-args "--res-scale 4"]
 
 Results: <out>/<level>/{gpu,both}/run.log, frames, perf.csv; <out>/<level>/sheet.png;
 <out>/summary.json, <out>/summary.md (one table row per level), <out>/overview.png."""
@@ -86,6 +86,7 @@ GAMES = {
 G = GAMES["coo"]  # set by main()
 SIZES = {}        # level -> file size, from list_levels
 VIA = set()       # levels always warped into through G.warp_via (--via)
+GPU_ARGS = []     # graphics options for every run (--gpu-args, e.g. "--res-scale 4 --msaa 4")
 
 
 def list_levels(exe, disc):
@@ -148,6 +149,7 @@ def run_one(exe, image, disc, level, mode, d, seconds, input_file, timeout_s, bo
            "--wall-ms", str(timeout_s * 1000), "--renderer", mode]
     if G.warp_via and (SIZES.get(zone(level), 0) > G.warp_via[1] or zone(level) in VIA or "all" in VIA):
         cmd += ["--warp-via", G.warp_via[0]]
+    cmd += GPU_ARGS
     if mode == "gpu":
         cmd += ["--perf-csv", str(d / "perf.csv")]
     else:
@@ -369,12 +371,15 @@ def main():
     ap.add_argument("--exe")
     ap.add_argument("--image")
     ap.add_argument("--disc")
+    ap.add_argument("--gpu-args", default="", help='graphics options passed to every run, e.g. "--res-scale 4 --msaa 4" '
+                                                   "(docs/phase13-graphics.md)")
     a = ap.parse_args()
     global G
     G = GAMES[a.game]
     a.exe, a.image, a.disc = (str(Path(x).resolve()) for x in (a.exe or G.exe, a.image or G.image, a.disc or G.disc))
     a.modes = a.modes.split(",")
     VIA.update(x for x in a.via.split(",") if x)
+    GPU_ARGS.extend(a.gpu_args.split())
     main_levels, addons = list_levels(a.exe, a.disc)
     levels = a.levels.split(",") if a.levels else main_levels + (addons if a.addons else [])
     out = Path(a.out)

@@ -209,7 +209,7 @@ static int run_boot(const BootOptions *o) {
     g_case_running = !o->host.window || o->wall_set;
     start_watchdog();
     rt_frames_init(&o->frames);
-    if (o->host.window) k_idle_hook = rt_host_idle;
+    if (o->host.window || rt_host_wants_idle()) k_idle_hook = rt_host_idle;
     if (o->profile) { rt_prof_start(); g_profile = 1; }
     k_run_scheduler(cpu_ms);
     g_case_running = 0;
@@ -267,6 +267,7 @@ int main(int argc, char **argv) {
             return rt_mpeg_test(pmf, out, ch);
         }
         else if (rt_debug_option(argc, argv, &i)) continue;
+        else if (rt_gpu_option(argc, argv, &i)) continue;
         else { fprintf(stderr, "unknown argument %s\n", argv[i]); return 2; }
     }
     if (extract) {
@@ -281,6 +282,9 @@ int main(int argc, char **argv) {
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...|file]\n"
                         "              [--record-input file] [--save-slot NAME]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
+                        "              [--res-scale 1-8] [--fx-scale 1-8] [--msaa 2|4|8] [--aniso 2-16] [--lod-bias F] [--fxaa] [--sharpen 0-1]\n"
+                        "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"
+                        "              [--aspect W:H] [--texture-dump dir] [--texture-pack dir]\n"
                         "              [--wav out.wav] [--mute]\n"
                         "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--level-log] [--load-level NAME@FRAME]\n"
                         "              [--dump-ram N,N,...|stop:prefix])\n"

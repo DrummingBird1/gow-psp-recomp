@@ -27,6 +27,7 @@
 | 2026-10-16 | שלב 10: Ghost of Sparta | פענוח PGD, תיקון במהדר, ‏coroutines: מהתפריט הראשי ועד קרב בשלב הראשון (Atlantis), בחלון ב-60 FPS עם סאונד וקלט; ‏CoO לא השתנה ([פירוט](phase10-ghost-of-sparta.md)) |
 | 2026-10-16 | שלב 11: סיור אוטומטי בכל השלבים (CoO) | ‏`--warp`/`--god`: כל 75 האזורים שבמשחק ו-84 נקודות spawn רצו בלי קריסה ובלי HLE חסר; ‏16 אזורים לא נגישים עוצרים בטעינה, גם ב-PPSSPP: שאריות מהפיתוח, לא באג של ה-port ([פירוט](phase11-level-tour.md)) |
 | 2026-10-17 | שלב 12: סיור אוטומטי בכל השלבים (GoS) | ‏`--warp` דרך הקוד של New Game, ‏`--warp-via` דרך ההחלפה של Load Game, ‏`--god`: כל 192 קבצי השלבים רצו בלי HLE חסר, ‏190/192 בדרך התפריט ו-192/192 דרך Load Game; ארבעה מזבחות שמירה נשמרו ונטענו; כל האזורים מעל 88 FPS ב-headless. פתוח: שמירה חלקית אחרי warp, ונקודת spawn אחת ([פירוט](phase12-gos-level-tour.md)) |
+| 2026-10-17 | שלב 13: שדרוגים גרפיים | רזולוציה פנימית עד 4K, ‏MSAA, ‏AF, ‏FXAA/CAS, ‏HDR10 (נבדק על המסך), ‏`--fps` עד 1000 Hz (שני המשחקים מקדמים לוגיקה לפי זמן), חבילות טקסטורות, ‏ultrawide ‏21:9; ‏‎×1 זהה לקודם ([פירוט](phase13-graphics.md)) |
 
 ## 2026-10-16: ה-boot של Chains of Olympus, ובדיקות האימות
 
@@ -384,3 +385,32 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 ![‏`--warp spa_060_lion` בחלון](../media/screenshots/2026-10-17_43_gos_window_warp_sparta.png)
 
 התמונות של האזורים ושל השמירות נשמרו מה-framebuffer של ה-PSP על ידי הריצות עצמן (`--frames-dir`, ‏`--renderer gpu`). צילום החלון נלקח מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).
+
+## 2026-10-17: שדרוגים גרפיים (שלב 13)
+
+נעשה על commit `04820c0` ועוד השינויים שעדיין לא נכנסו ל-commit. הפירוט ב-[phase13-graphics.md](phase13-graphics.md).
+
+**מה נבנה** (כל אחד דגל של `gow_rt`, בשביל ה-launcher של שלב 14):
+- **‏`--res-scale 1..8`:** רזולוציה פנימית עד 3840×2176. כל ה-render targets, ה-snapshots וההעתקות בקנה המידה, וההקטנה רק כשה-CPU קורא. ‏`--fx-scale` מחזיר את ה-glow והצללים ל-‎×1.
+- **‏`--msaa`, ‏`--aniso`, ‏`--lod-bias`, ‏`--fxaa`, ‏`--sharpen`:** ‏shader חדש, `runtime/shaders/post.hlsl`, להקטנה, להצגה בחלון ולמעברים.
+- **‏`--hdr`:** ‏HDR10 או scRGB, עם inverse tone mapping לפי ה-SDR brightness של Windows ושיא התצוגה.
+- **‏`--fps N`:** שני המשחקים מקדמים את הלוגיקה לפי הזמן שעבר (נמצא בקוד, ונבדק ב-60–1000 Hz). בחלון הזמן הווירטואלי קופץ קדימה כשהמחשב לא עומד בקצב, והקפיצות נשמרות בהקלטה. ‏`--vsync` ל-FIFO ול-VRR.
+- **‏`--aspect 21:9`:** שדה ראייה רחב יותר, וה-HUD באמצע בצורתו. ‏**`--texture-dump`/`--texture-pack`:** החלפת טקסטורות מ-PNG.
+
+**התוצאות:**
+- **ברירת המחדל לא השתנתה:** ב-‎×1 ‏34/34 פריימים זהים ב-CoO ו-30/30 ב-GoS. ה-renderer התוכנה זהה ל-`rec_v9`, כולל ה-WAV.
+- **ביצועים:** ה-GPU מצייר פריים ב-‎×8 ב-2.5 ms, וב-‎×8 עם MSAA ‏4× ב-6.6 ms (‏RTX 4070 SUPER). הקצב נקבע ב-CPU: ‏90–117 FPS ב-CoO ו-118–146 ב-GoS, headless.
+- **HDR10 על המסך של המשתמש** (‏240/970 nits), ו-GoS בחלון ב-‎×4, ‏21:9, ‏MSAA ו-HDR ב-60 FPS.
+- **‏120 Hz בחלון,** כשהמחשב עמוס: ‏91 FPS, מהירות 0.96×. ‏replay של הסשן חזר זהה.
+
+![‏‎×1, ‏‎×4 ו-‎×8 ב-CoO](../media/screenshots/2026-10-17_44_coo_res_scale_x1_x4_x8.png)
+
+![‏‎×1, ‏‎×4 ו-‎×8 ב-GoS](../media/screenshots/2026-10-17_51_gos_res_scale_x1_x4_x8.png)
+
+![‏`--aspect 21:9`](../media/screenshots/2026-10-17_52_aspect_21_9.png)
+
+![‏GoS בחלון: ‏‎×4, ‏21:9, ‏HDR10](../media/screenshots/2026-10-17_53_gos_window_x4_21_9_hdr.png)
+
+![FPS וזמן GPU לפי תצורה](../media/screenshots/2026-10-17_54_perf_res_msaa.png)
+
+התמונות נשמרו מה-GPU על ידי הריצות עצמן (`--frames-dir`, ברזולוציה הפנימית). צילום החלון נלקח מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).

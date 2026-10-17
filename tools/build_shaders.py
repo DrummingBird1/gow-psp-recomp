@@ -19,6 +19,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SHADERS = [  # (source, entry point, profile, name in the header)
     ("ge.hlsl", "vs_main", "vs_6_0", "ge_vs"),
     ("ge.hlsl", "fs_main", "ps_6_0", "ge_fs"),
+    ("post.hlsl", "vs_main", "vs_6_0", "post_vs"),
+    ("post.hlsl", "fs_main", "ps_6_0", "post_fs"),
 ]
 
 

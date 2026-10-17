@@ -17,7 +17,7 @@ typedef struct {
 } FrameOptions;
 
 /* --perf-csv: host time spent in parts of the runtime since the last displayed frame (us) */
-enum { RT_PERF_GE, RT_PERF_PRESENT, RT_PERF_IO, RT_PERF_PARTS };
+enum { RT_PERF_GE, RT_PERF_PRESENT, RT_PERF_IO, RT_PERF_GPU, RT_PERF_PARTS };  /* GPU: with RT_GPU_SYNC, submit to done */
 extern uint64_t rt_perf_us[RT_PERF_PARTS];
 uint64_t rt_frames_host_us(void);
 
@@ -34,6 +34,8 @@ void rt_frames_after_present(uint64_t frame, uint32_t addr, uint32_t stride, uin
 int rt_frames_write_png(const char *path, uint32_t addr, uint32_t stride, uint32_t format);
 /* Writes a 480x272 RGBA image (e.g. read back from the GPU) to a PNG. */
 int rt_frames_write_png_rgba(const char *path, const uint8_t *rgba);
+/* Writes the GPU's picture of a framebuffer, at the internal resolution (--res-scale), to a PNG. */
+int rt_frames_write_png_gpu(const char *path, uint32_t addr, uint32_t stride, uint32_t format);
 /* Compares the GPU's frame with the software renderer's (PSP memory); writes soft | gpu | diff. */
 void rt_frames_compare_gpu(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format, const char *dir);
 

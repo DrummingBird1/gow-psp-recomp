@@ -3,7 +3,8 @@
  * Without --window the runtime stays headless and deterministic: virtual time runs as fast
  * as the host allows and input comes only from --input scripts. With --window, frames are
  * shown as the game displays them, virtual time is held to the wall clock (when the host
- * falls behind, the game slows down instead of skipping), and the keyboard and gamepads
+ * falls behind, the game slows down instead of skipping; at a high frame rate, --fps above
+ * 60, virtual time skips ahead instead, see rt_host_idle), and the keyboard and gamepads
  * drive sceCtrl.
  *
  * Sound is mixed in rt_audio.c; in the window it is handed to the audio device from
@@ -17,7 +18,8 @@
  * per vblank while no frames are shown, as in movies), so the game reads the same state all
  * through a frame. --record-input writes every change of what the game reads, keyed by the
  * displayed frame (and virtual time for changes between frames), in the --input format;
- * --input with that file replays the session, headless too, read for read. */
+ * --input with that file replays the session, headless too, read for read. A recording also
+ * holds the display refresh (fps=) and the virtual-time skips (skip=) of a high frame rate. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,6 +30,7 @@
 #include "rt_frames.h"
 #include "rt_gpu.h"
 #include "rt_host.h"
+#include "rt_kernel.h"
 
 #define DISP_W 480
 #define DISP_H 272
@@ -42,6 +45,12 @@ typedef struct { uint64_t frame, until, t0, t1; int by_time, keyed; uint32_t but
 static ScriptPress *g_script;
 static int g_nscript;
 static uint64_t g_script_end;  /* "end=N" of a recording: where the recorded session stopped */
+static double g_script_fps;     /* "fps=N" of a recording: the display refresh it was played at */
+/* "skip=NOW:NEXT:US" of a recording: at a high frame rate the window fell behind the wall clock
+ * when virtual time went from NOW to NEXT, and virtual time skipped US further (rt_host_idle) */
+typedef struct { uint64_t now, next, us; } Skip;
+static Skip *g_skips;
+static int g_nskips, g_skip_at;
 
 static const struct { const char *name; uint32_t bits; int lx, ly; } k_names[] = {
     { "select", PSP_SELECT }, { "start", PSP_START }, { "up", PSP_UP }, { "right", PSP_RIGHT }, { "down", PSP_DOWN },
@@ -74,6 +83,18 @@ static int parse_script(const char *spec) {
         if (!item[0]) continue;
         if (!strncmp(item, "rtc=", 4)) { rt_wall_set_epoch(strtoll(item + 4, NULL, 10)); continue; }
         if (!strncmp(item, "end=", 4)) { g_script_end = strtoull(item + 4, NULL, 10); continue; }
+        if (!strncmp(item, "fps=", 4)) { g_script_fps = strtod(item + 4, NULL); continue; }
+        if (!strncmp(item, "skip=", 5)) {
+            Skip s;
+            char *e;
+            s.now = strtoull(item + 5, &e, 10);
+            s.next = *e == ':' ? strtoull(e + 1, &e, 10) : 0;
+            s.us = *e == ':' ? strtoull(e + 1, &e, 10) : 0;
+            if (!s.next || !s.us) { fprintf(stderr, "[host] bad --input entry '%s' (skip=NOW:NEXT:US)\n", item); return 0; }
+            g_skips = realloc(g_skips, sizeof(*g_skips) * (g_nskips + 1));
+            g_skips[g_nskips++] = s;
+            continue;
+        }
         char *f = strtok(item, ":"), *b = strtok(NULL, ":"), *d = strtok(NULL, ":");
         if (!f || !b) { fprintf(stderr, "[host] bad --input entry '%s'\n", item); return 0; }
         ScriptPress sp = { 0, 0, 0, 0, f[0] == 't', 0, 0, 128, 128 };
@@ -215,10 +236,27 @@ static int rec_open(const char *path) {
                    "# starting from the same --ms0 contents. Entries: frame:buttons:frames, or frame@us:buttons:frame@us\n"
                    "# (us = virtual time in microseconds) for changes within a displayed frame.\n"
                    "rtc=%lld\n", (long long)rt_wall_epoch());
+    if (rt_display_hz() != 59.94) fprintf(g_rec, "fps=%.6f\n", rt_display_hz());
     fflush(g_rec);
     atexit(rt_host_record_close);
     printf("[host] recording input to %s\n", path);
     return 1;
+}
+
+/* the display refresh: --fps, else the one a recording was played at */
+static void setup_refresh(void) {
+    double hz = rt_gpu_opt.fps > 0 ? rt_gpu_opt.fps : g_script_fps;
+    if (hz <= 0) return;
+    rt_display_set_hz(hz);
+    printf("[host] display refresh %.3f Hz (vblank every %.0f us)\n", rt_display_hz(), 1e6 / rt_display_hz());
+}
+
+int rt_host_wants_idle(void) { return g_nskips > 0; }
+
+/* headless replay: the virtual-time skips the window made, at the same points */
+static void replay_skips(uint64_t now, uint64_t next) {
+    while (g_skip_at < g_nskips && g_skips[g_skip_at].now < now) g_skip_at++;
+    if (g_skip_at < g_nskips && g_skips[g_skip_at].now == now && g_skips[g_skip_at].next == next) k_idle_skip = g_skips[g_skip_at++].us;
 }
 
 static int live_input(uint32_t *b, int *lx, int *ly);  /* keyboard and gamepads, when there is a window */
@@ -262,6 +300,7 @@ static SDL_Texture *g_tex;
 static SDL_Gamepad *g_pads[8];
 static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
+static uint64_t g_skips_made, g_skipped_us;  /* virtual-time skips at a high frame rate (rt_host_idle) */
 static int g_anchored;
 static uint32_t g_rgba[DISP_W * DISP_H];
 static uint32_t g_shot_addr, g_shot_stride, g_shot_format;
@@ -289,8 +328,7 @@ static void screenshot(void) {
     snprintf(path, sizeof(path), "%s/window_frame_%06llu_%d.png", g_o.shot_dir ? g_o.shot_dir : ".", (unsigned long long)g_last_frame, n++);
     int ok;
     if (rt_gpu_active()) {
-        static uint8_t rgba[DISP_W * DISP_H * 4];
-        ok = rt_gpu_read_target(g_shot_addr, g_shot_stride, g_shot_format, rgba) && rt_frames_write_png_rgba(path, rgba);
+        ok = rt_frames_write_png_gpu(path, g_shot_addr, g_shot_stride, g_shot_format);  /* at the internal resolution */
     } else {
         ok = rt_frames_write_png(path, g_shot_addr, g_shot_stride, g_shot_format);
     }
@@ -321,20 +359,23 @@ static void pump(void) {
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !load_script(g_o.input)) return 0;
+    setup_refresh();
     if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     SDL_SetMainReady();
     if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { fprintf(stderr, "[host] SDL_Init: %s\n", SDL_GetError()); return 0; }
     int scale = g_o.scale > 0 ? g_o.scale : 2;
-    g_win = SDL_CreateWindow("God of War (PSP native port)", DISP_W * scale, DISP_H * scale, SDL_WINDOW_RESIZABLE);
+    int win_w = g_o.gpu && rt_gpu_opt.aspect > 0 ? (int)(DISP_H * scale * rt_gpu_opt.aspect + 0.5f) : DISP_W * scale;  /* --aspect */
+    g_win = SDL_CreateWindow("God of War (PSP native port)", win_w, DISP_H * scale, SDL_WINDOW_RESIZABLE);
     if (!g_win) { fprintf(stderr, "[host] SDL_CreateWindow: %s\n", SDL_GetError()); return 0; }
     if (g_o.gpu) {
         /* the hardware renderer presents to the window itself */
+        rt_gpu_opt.nearest = g_o.nearest;
         if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit\n", DISP_W * scale, DISP_H * scale);
+               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit\n", win_w, DISP_H * scale);
         g_title_t = now_us();
         pump();
         return 1;
@@ -360,6 +401,9 @@ int rt_host_init(const HostOptions *o) {
 void rt_host_shutdown(void) {
     rt_host_record_close();
     rt_gpu_shutdown();
+    if (g_skips_made)
+        printf("[host] %llu virtual-time skips (the window fell behind at %.0f Hz): %.1f ms in all\n", (unsigned long long)g_skips_made,
+               rt_display_hz(), g_skipped_us / 1000.0);
     if (!g_win) return;
     for (int i = 0; i < 8; i++) if (g_pads[i]) SDL_CloseGamepad(g_pads[i]);
     if (g_tex) SDL_DestroyTexture(g_tex);
@@ -417,8 +461,23 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
     return g_quit;
 }
 
+/* High frame rates (--fps above 60): when the host falls behind the wall clock by more than
+ * SKIP_MIN_US, virtual time skips ahead by that much instead of the game slowing down. The
+ * games step their logic by elapsed time, so they keep their speed and show fewer frames, as a
+ * PC game does. Audio keeps going: the game keeps one block (~23 ms) queued ahead of the
+ * "hardware", so a skip within that margin only delays the next block; a longer one leaves a
+ * short gap in a channel. Beyond SKIP_MAX_US (a hitch, e.g. loading) the lost time is dropped,
+ * as at 60 Hz. Skips are written to an input recording, so that its replay takes the same ones. */
+#define SKIP_MIN_US 4000
+#define SKIP_MAX_US 100000
+
+static void rec_skip(uint64_t now, uint64_t next, uint64_t us) {
+    if (!g_rec) return;
+    fprintf(g_rec, "skip=%llu:%llu:%llu\n", (unsigned long long)now, (unsigned long long)next, (unsigned long long)us);
+}
+
 int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
-    if (!g_win) return 0;
+    if (!g_win) { replay_skips(now_virt, next_virt); return 0; }
     /* every thread waits until next_virt, so nothing can still be queued before it: hand that
      * audio to the device now, before sleeping until the wall clock gets there */
     rt_audio_advance(next_virt);
@@ -433,6 +492,11 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
             pump();
             ahead = (int64_t)(g_wall0 + (next_virt - g_virt0)) - (int64_t)now_us();
         }
+    } else if (rt_display_hz() > 61 && next_virt > now_virt && -ahead >= SKIP_MIN_US && -ahead <= SKIP_MAX_US) {
+        k_idle_skip = (uint64_t)-ahead;
+        rec_skip(now_virt, next_virt, k_idle_skip);
+        g_skips_made++;
+        g_skipped_us += k_idle_skip;
     } else if (ahead < -100000) {
         /* more than 100 ms behind: run on from here rather than racing to catch up */
         g_wall0 = wall;
@@ -491,12 +555,13 @@ static int live_input(uint32_t *out_b, int *lx, int *ly) {
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !load_script(g_o.input)) return 0;
+    setup_refresh();
     if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     if (g_o.window || g_o.gpu) { fprintf(stderr, "[host] this build has no window or GPU support (SDL3 not linked)\n"); return 0; }
     return 1;
 }
 void rt_host_shutdown(void) { rt_host_record_close(); }
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) { (void)frame; (void)addr; (void)stride; (void)format; return 0; }
-int rt_host_idle(uint64_t now_us, uint64_t next_us) { (void)now_us; (void)next_us; return 0; }
+int rt_host_idle(uint64_t now_us, uint64_t next_us) { replay_skips(now_us, next_us); return 0; }
 static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
 #endif

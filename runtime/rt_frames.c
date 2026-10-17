@@ -152,6 +152,16 @@ int rt_frames_write_png_rgba(const char *path, const uint8_t *rgba) {
     return write_png_rgb(path, rgb, DISP_W, DISP_H);
 }
 
+int rt_frames_write_png_gpu(const char *path, uint32_t addr, uint32_t stride, uint32_t format) {
+    int w = 0, h = 0;
+    uint8_t *rgba = rt_gpu_read_target_full(addr, stride, format, &w, &h);
+    if (!rgba) return 0;
+    for (size_t i = 0; i < (size_t)w * h; i++) { rgba[3 * i] = rgba[4 * i]; rgba[3 * i + 1] = rgba[4 * i + 1]; rgba[3 * i + 2] = rgba[4 * i + 2]; }
+    int ok = write_png_rgb(path, rgba, w, h);
+    free(rgba);
+    return ok;
+}
+
 void rt_frames_compare_gpu(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format, const char *dir) {
     static uint8_t gpu[DISP_W * DISP_H * 4], soft[DISP_W * DISP_H * 3], out[DISP_W * 3 * DISP_H * 3];
     if (!rt_gpu_read_target(addr, stride, format, gpu)) {
@@ -228,7 +238,7 @@ void rt_frames_init(const FrameOptions *o) {
     open_stream(&g_streams[0], g_o.video, 0);
     open_stream(&g_streams[1], g_o.video_host, 1);
     if (g_o.perf_csv && (g_csv = fopen(g_o.perf_csv, "w")) != NULL)
-        fprintf(g_csv, "frame,virtual_ms,host_ms,host_frame_ms,ge_ms,present_ms,io_ms,prims,verts\n");
+        fprintf(g_csv, "frame,virtual_ms,host_ms,host_frame_ms,ge_ms,present_ms,io_ms,prims,verts,gpu_ms\n");
     g_t0 = g_tprev = host_us();
 }
 
@@ -253,9 +263,10 @@ void rt_frames_present(uint64_t frame, uint64_t now_us, uint32_t addr, uint32_t 
     }
     if (g_csv) {
         static uint64_t prims0, verts0;
-        fprintf(g_csv, "%llu,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%llu,%llu\n", (unsigned long long)frame, now_us / 1000.0, (t - g_t0) / 1000.0, ft,
+        fprintf(g_csv, "%llu,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%llu,%llu,%.3f\n", (unsigned long long)frame, now_us / 1000.0, (t - g_t0) / 1000.0, ft,
                 rt_perf_us[RT_PERF_GE] / 1000.0, rt_perf_us[RT_PERF_PRESENT] / 1000.0, rt_perf_us[RT_PERF_IO] / 1000.0,
-                (unsigned long long)(ge_stats.prims - prims0), (unsigned long long)(ge_stats.verts_xformed - verts0));
+                (unsigned long long)(ge_stats.prims - prims0), (unsigned long long)(ge_stats.verts_xformed - verts0),
+                rt_perf_us[RT_PERF_GPU] / 1000.0);
         prims0 = ge_stats.prims; verts0 = ge_stats.verts_xformed;
     }
     memset(rt_perf_us, 0, sizeof(rt_perf_us));
@@ -281,7 +292,10 @@ static void capture(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
     if (want_png) {
         char path[1024];
         snprintf(path, sizeof(path), "%s/frame_%06llu.png", g_o.png_dir, (unsigned long long)frame);
-        if (!write_png_rgb(path, g_shown, DISP_W, DISP_H)) fprintf(stderr, "[frames] could not write %s\n", path);
+        /* a higher internal resolution (and FXAA, sharpening) is kept in the PNG; the video stays 480x272 */
+        int ok = g_o.from_gpu && rt_gpu_capture_full() ? rt_frames_write_png_gpu(path, addr, stride, format)
+                                                     : write_png_rgb(path, g_shown, DISP_W, DISP_H);
+        if (!ok) fprintf(stderr, "[frames] could not write %s\n", path);
     }
 }
 

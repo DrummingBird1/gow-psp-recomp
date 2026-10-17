@@ -355,6 +355,11 @@ static void setup_transform(const VFmt *f) {
     X.world_to_clip = uses_worldpos;
     if (uses_worldpos) m44_mul(X.m, view, ge.proj);
     else m44_mul(X.m, wv, ge.proj);
+    /* --aspect (rt_gpu.c): a wider field of view, clip x drawn narrower, only into a framebuffer the
+     * game shows (render-to-texture passes such as the shadow tiles keep their projection) */
+    float sq = rt_gpu_aspect_squeeze();
+    if (sq != 1.0f && rt_gpu_shown_fb(VRAM | (D(GE_CMD_FRAMEBUFPTR) & 0x1FFFF0)))
+        for (int i = 0; i < 4; i++) X.m[i * 4] *= sq;
     if (X.fog) {
         float end = F(GE_CMD_FOG1), slope = F(GE_CMD_FOG2);
         X.posfog[0] = wv[2]; X.posfog[1] = wv[6]; X.posfog[2] = wv[10]; X.posfog[3] = wv[14] + end;
@@ -1663,6 +1668,7 @@ static void gpu_setup(GpuDraw *d) {
     d->fogcol = R.fogcol;
     d->minz = R.minz;
     d->maxz = R.maxz;
+    d->through = R.through;
     if (R.tex) {
         d->flags |= GPU_F_TEX | (R.rgba ? GPU_F_RGBA : 0) | (R.dbl ? GPU_F_DOUBLE : 0) | (R.proj ? GPU_F_PROJ : 0);
         d->textured = 1;
@@ -1728,7 +1734,12 @@ static void gpu_vertex(GpuVertex *o, const Vtx *v, float w, int off) {
     o->fog = v->fog;
 }
 
+/* every primitive of the draw so far is a through-mode sprite drawing texels 1:1 on pixels with
+ * pixel centres on texel centres (GpuDraw.pixel_mapped: kept crisp at a higher resolution) */
+static int g_pm;
+
 static void gpu_tri(const Vtx *a, const Vtx *b, const Vtx *c) {
+    g_pm = 0;
     grow((void **)&g_gv, &g_gvcap, g_ngv + 3, sizeof(GpuVertex));
     const Vtx *v[3] = { a, b, c };
     for (int i = 0; i < 3; i++) gpu_vertex(&g_gv[g_ngv++], v[i], R.through ? 1.0f : v[i]->cw, 1);
@@ -1745,6 +1756,9 @@ static void gpu_rect(const Vtx *v0, const Vtx *v1) {
         else { cs[0] = s1; ct[0] = t1; cs[1] = s0; ct[1] = t1; cs[2] = s1; ct[2] = t0; cs[3] = s0; ct[3] = t0; }
     }
     int x1 = imin(v0->x, v1->x), x2 = imax(v0->x, v1->x), y1 = imin(v0->y, v1->y), y2 = imax(v0->y, v1->y);
+    if (g_pm && !(R.through && fabsf(s1 - s0) * 16 == (float)(x2 - x1) && fabsf(t1 - t0) * 16 == (float)(y2 - y1) &&
+                  floorf(s0) == s0 && floorf(t0) == t0 && !(x1 & 15) && !(y1 & 15)))
+        g_pm = 0;
     Vtx c[4];
     for (int i = 0; i < 4; i++) {
         c[i] = *v1;
@@ -1983,7 +1997,7 @@ void ge_draw_prim(uint32_t op) {
         push_state();
     }
     GpuDraw gd;
-    if (g_gpu) { gpu_setup(&gd); g_ngv = 0; }
+    if (g_gpu) { gpu_setup(&gd); g_ngv = 0; g_pm = 1; }
 
     int cull = CULL_OFF;
     if ((D(GE_CMD_CULLFACEENABLE) & 1) && !R.clear) cull = (D(GE_CMD_CULL) & 1) ? CULL_CCW : CULL_CW;
@@ -2004,7 +2018,10 @@ void ge_draw_prim(uint32_t op) {
     default: break;
     }
 #undef V
-    if (g_gpu && g_ngv) rt_gpu_draw(&gd, g_gv, (uint32_t)g_ngv);
+    if (g_gpu && g_ngv) {
+        gd.pixel_mapped = g_pm && gd.textured && gd.through;
+        rt_gpu_draw(&gd, g_gv, (uint32_t)g_ngv);
+    }
     if (tracing) {
         ge_flush(FLUSH_TRACE);
         printf("[ge-trace] prim %u x%-5u vtype %06X fb %06X/%u fmt %u scissor %u,%u-%u,%u %s%s%s%s tex %u %ux%u @%06X -> %llu px\n",

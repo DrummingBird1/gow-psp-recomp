@@ -37,7 +37,40 @@ typedef struct {
     int tex_target;                    /* the texture is something the GPU drew (render to texture): */
     uint32_t tex_addr, tex_pitch;      /*   address and bytes per row */
     int tex_bpp, tex_fmt, tex_w, tex_h;
+    int through;                       /* through mode (2D: HUD, text, full-screen passes) */
+    int pixel_mapped;                  /* through-mode sprites drawing texels 1:1 on pixels, at texel centres */
 } GpuDraw;
+
+/* Graphics options (phase 13, docs/phase13-graphics.md); zero fields keep the PSP's look. */
+typedef struct {
+    int res_scale;      /* internal resolution: the PSP's 480x272 times 1..8 */
+    int fx_scale;       /* 0: res_scale; else the scale of render targets never shown (glow, shadows) */
+    int msaa;           /* multisample anti-aliasing: 1 (off), 2, 4, 8 */
+    int aniso;          /* anisotropic texture filtering: 1 (off), 2..16 */
+    float lod_bias;     /* added to the mip level the PSP picks (negative: sharper) */
+    int hdr;            /* 0 SDR; 1 HDR when the display has it (HDR10, else scRGB); 2 scRGB; 3 HDR10 */
+    float paper_white;  /* HDR: nits of SDR white (0: the system's SDR brightness) */
+    float peak_nits;    /* HDR: nits of the brightest highlights (0: the display's peak) */
+    int vsync;          /* 1: present on vblank (VSYNC); 0: mailbox or immediate */
+    int fxaa;
+    float sharpen;      /* contrast-adaptive sharpening, 0 (off) .. 1 */
+    int nearest;        /* window scaling with point sampling */
+    float fps;          /* --fps: display refresh (vblank rate) in Hz; 0: the PSP's 59.94 (rt_host.c, rt_hle.c) */
+    const char *texture_dump;  /* --texture-dump DIR: every new texture's picture as DIR/<key>.png */
+    const char *texture_pack;  /* --texture-pack DIR: DIR/<key>.png replaces that texture (any size) */
+    float aspect;              /* --aspect W:H: a wider picture (e.g. 21:9); 0: the PSP's 480:272 */
+} GpuOptions;
+extern GpuOptions rt_gpu_opt;  /* read by rt_gpu_init */
+/* parses --res-scale N, --fx-scale N, --msaa N, --aniso N, --lod-bias F, --hdr [auto|scrgb|hdr10],
+ * --paper-white NITS, --peak-nits NITS, --vsync, --fxaa, --sharpen F, --fps N, --texture-dump DIR,
+ * --texture-pack DIR, --aspect W:H at argv[*i]: 1 if it was one */
+int rt_gpu_option(int argc, char **argv, int *i);
+int rt_gpu_scale(void);        /* internal resolution scale in use */
+/* --aspect: how much narrower the 3D view is drawn horizontally (480:272 over the aspect; 1: off),
+ * and whether addr starts a framebuffer the game has shown (only those get the wider view) */
+float rt_gpu_aspect_squeeze(void);
+int rt_gpu_shown_fb(uint32_t addr);
+int rt_gpu_capture_full(void); /* frame PNGs come from rt_gpu_read_target_full (higher scale, FXAA, sharpening) */
 
 /* window: the SDL_Window to present to, or NULL (headless). driver: "vulkan", "direct3d12" or NULL. */
 int rt_gpu_init(void *window, const char *driver);
@@ -65,8 +98,12 @@ void rt_gpu_memory_written(uint32_t dst, uint32_t dpitch, int dx, int dy, int w,
 void rt_gpu_sync_span(uint32_t addr, uint32_t size);
 /* end of frame: submits the recorded work and shows the framebuffer at addr in the window */
 void rt_gpu_present(uint32_t addr, uint32_t stride, uint32_t fmt);
-/* reads the 480x272 display area of the framebuffer at addr as the GPU drew it, as RGBA */
+/* reads the 480x272 display area of the framebuffer at addr as the GPU drew it, as RGBA (at a
+ * higher internal resolution: box-filtered down to 480x272) */
 int rt_gpu_read_target(uint32_t addr, uint32_t stride, uint32_t fmt, uint8_t *rgba);
+/* the same area at the internal resolution, with FXAA and sharpening when they are on (as the
+ * window shows it): a malloc'd RGBA picture of *w x *h, or NULL */
+uint8_t *rt_gpu_read_target_full(uint32_t addr, uint32_t stride, uint32_t fmt, int *w, int *h);
 void rt_gpu_report(void);
 /* debugging: compares a texture the GPU takes from a target with PSP memory */
 void rt_gpu_debug_compare_texture(uint32_t addr, uint32_t pitch, int bpp, int fmt, int w, int h);
