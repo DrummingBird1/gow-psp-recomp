@@ -6,6 +6,23 @@ Reverse engineering and static recompilation of the two PSP God of War games
 > This repository holds tools, scripts, runtime code and documentation only.
 > The game files, decrypted dumps, Ghidra project, generated C and memory images contain
 > Sony's code; they stay local and are excluded by `.gitignore`. Bring your own copies.
+> Not affiliated with or endorsed by Sony Interactive Entertainment. God of War is a trademark of its owner.
+
+Both games boot, play through every level, save and load, with sound, movies and a hardware renderer:
+up to 4K internal resolution, MSAA, anisotropic filtering, HDR10, 120+ FPS and 21:9 (see `docs/`).
+
+## Quick start (play from your own disc)
+
+You need your own UMD copy of the game, as a disc image (`.chd` or `.iso`) and a decrypted `EBOOT.BIN`.
+
+1. Install Python 3, CMake and Visual Studio (2022 or later) with "Desktop development with C++".
+2. Dump the decrypted `EBOOT.BIN` with [PPSSPP](https://www.ppsspp.org/): set `DumpFileTypes = 3` in `ppsspp.ini`,
+   start the game once, and take the file from PPSSPP's `memstick/PSP/SYSTEM/DUMP/`.
+3. Run `python tools/launcher.pyw`: pick the game, the disc image and the `EBOOT.BIN`, press **Build**
+   (recompiles the EBOOT into C and builds it; about 10 minutes the first time), choose the graphics options, press **Play**.
+
+The launcher keeps your paths in `build/launcher.json`. Keys: arrows = D-pad, Z = ✕, X = ○, A = □, S = △, Q/W = L/R,
+Space/Enter = Start, V = Select, I/J/K/L = analog stick, F11 fullscreen, F12 screenshot; gamepads use the PSP layout.
 
 ## Layout
 
@@ -18,7 +35,7 @@ Reverse engineering and static recompilation of the two PSP God of War games
 | `runtime/` | C runtime the generated code links against |
 | `CMakeLists.txt` | Builds `gow_rt_<GAME>` from `build/gen/<GAME>` |
 | `cmake/` | Pinned file lists (SHA-256) of third-party sources CMake downloads, e.g. OpenH264's decoder |
-| `tools/` | Documentation helpers: terminal-output screenshots, logged command runs |
+| `tools/` | `launcher.pyw` (build and play), play/replay scripts, level tour, frame checks, documentation helpers |
 
 Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `re/ppsspp-*`, `media/` (screenshots and recordings; see [`docs/progress.md`](docs/progress.md)).
 
@@ -37,3 +54,14 @@ Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `r
 
 See [`recomp/README.md`](recomp/README.md) for the recompile/build/test commands and
 [`docs/`](docs/) for results.
+
+## Contributing and versions
+
+Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). Releases follow semantic versioning and are listed in
+[`CHANGELOG.md`](CHANGELOG.md).
+
+## License
+
+GPL-3.0-or-later (see [`LICENSE`](LICENSE)). The runtime contains C ports of parts of PPSSPP (GPL-2.0-or-later). CMake
+downloads further third-party sources at configure time (SDL3, libchdr, OpenH264, PPSSPP's `at3_standalone` and
+`libkirk`); they keep their own licenses and are not part of this repository.
