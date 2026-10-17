@@ -4,7 +4,7 @@
 
 ## v0.1.0 (2026-10-17)
 
-First public release. Both games run natively on Windows from your own disc.
+First version. Both games run natively on Windows from your own disc.
 
 - **Recompiler:** every function of both EBOOTs translated into C (`recomp/`), with differential tests against Unicorn.
 - **Runtime:** threads and kernel objects, file system on CHD/ISO, VFPU, GE display lists, PGD decryption (Ghost of Sparta).

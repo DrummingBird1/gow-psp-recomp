@@ -14,7 +14,10 @@ Read `README.md`, `docs/phase13-graphics.md` and `docs/phase14-plan.md` first.
 4. One task per commit. Commit messages: a short title line, a body that says what and why, and the user's approval.
 5. If a check below fails, stop and tell the user; do not "fix" a check by changing what it compares against.
 
-## Step 1: publish v0.1.0 (already prepared, just run it)
+The order is: back up as a **private** repository (step 1), finish phase 14 (step 2), and only then launch publicly
+with v0.2.0 (step 3). Nothing is public before step 3.
+
+## Step 1: back up to a private GitHub repository (no release)
 
 The work is committed on branch `phase2/threads-and-fs`, tag `v0.1.0` is local, `gh` is logged in as DrummingBird1.
 Run these from `E:\Projects\GoW_PSP`, one by one, and stop if one fails:
@@ -22,16 +25,13 @@ Run these from `E:\Projects\GoW_PSP`, one by one, and stop if one fails:
 ```bash
 git status --short
 git ls-files | grep -iE '\.(chd|iso|cso|pbp|prx)$|^build/|^media/|^re/dumps/|^re/ghidra/' ; echo "must print nothing above"
-gh repo create gow-psp-recomp --public --description "Native PC ports of the two PSP God of War games by static recompilation (bring your own disc): 4K, MSAA, HDR, 120+ FPS, 21:9" --source . --remote origin
+gh repo create gow-psp-recomp --private --description "Native PC ports of the two PSP God of War games by static recompilation (bring your own disc): 4K, MSAA, HDR, 120+ FPS, 21:9" --source . --remote origin
 git push origin HEAD:main
 git push origin v0.1.0
-gh release create v0.1.0 --title "v0.1.0" --notes-file build/release_notes_v0.1.0.md
-gh repo edit DrummingBird1/gow-psp-recomp --add-topic static-recompilation,psp,reverse-engineering,recompiler,god-of-war,pc-port
 ```
 
 `git status --short` may list `docs/` or `runtime/` changes of other sessions; that is fine (they are not pushed).
-If the tag is not on the pushed commit (`git describe --tags HEAD` is not `v0.1.0`), push only `main` and ask the user.
-Send the user the repository link when done.
+Push your phase 14 commits to `main` as you go (`git push origin HEAD:main`), so the backup stays current.
 
 ## Step 2: phase 14, the one-download launcher
 
@@ -49,8 +49,25 @@ and tell the user after each one:
    must produce the same `build/gen/<ID>_full/*.c` files, byte for byte, as running `recomp/recomp.py` directly.
 4. **Launcher UX** (task 4): pick the game folder, detect each game's disc image (UCUS98653 / UCUS98737), Build with
    progress, Play.
-5. **Release v0.2.0** (task 5): a GitHub Actions workflow that builds `GoWLauncher.exe` (no game data in CI), update
-   `CHANGELOG.md` and `README.md`, tag `v0.2.0`, `gh release create v0.2.0` with the exe attached.
+5. **Release workflow** (task 5): a GitHub Actions workflow that builds `GoWLauncher.exe` (no game data in CI); update
+   `CHANGELOG.md` (a v0.2.0 entry) and the README quick start (download the launcher, point it at the game folder).
+
+Phase 14 is done only when, on a fresh Windows user profile with only `GoWLauncher.exe` and the disc image, both games
+build and reach gameplay, and the software-renderer check below still passes. Show the user, and wait for their go.
+
+## Step 3: launch (only after the user approves the finished phase 14)
+
+```bash
+git ls-files | grep -iE '\.(chd|iso|cso|pbp|prx)$|^build/|^media/|^re/dumps/|^re/ghidra/' ; echo "must print nothing above"
+git tag -a v0.2.0 -m "v0.2.0: one-download launcher"
+git push origin HEAD:main
+git push origin v0.2.0
+gh repo edit DrummingBird1/gow-psp-recomp --visibility public --accept-visibility-change-consequences
+gh repo edit DrummingBird1/gow-psp-recomp --add-topic static-recompilation,psp,reverse-engineering,recompiler,god-of-war,pc-port
+gh release create v0.2.0 --title "v0.2.0" --notes "<the v0.2.0 section of CHANGELOG.md>" GoWLauncher.exe
+```
+
+Send the user the repository and release links.
 
 ## How to build and check (the commands that already work)
 
