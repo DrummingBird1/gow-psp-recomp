@@ -35,11 +35,14 @@ Bug reports are very welcome: please attach a recorded input file (`--record-inp
 
 ## Quick start
 
-You only download **one file**, `GoWLauncher.exe`. No Python, no manual setup.
+You only download **one file**, the launcher. No Python, no manual setup.
 
-1. Download `GoWLauncher.exe` from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest)
-   and put it in an empty folder (it keeps its files next to itself).
-2. Run it and choose the folder with **your own disc images** (`.chd` or `.iso`). It detects each game by its disc ID,
+1. Download `GoW_PSP_Launcher-v<version>.zip` from the
+   [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
+   one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`. (v1.0.0 shipped the bare exe.)
+   Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
+   even a launcher started straight from Downloads adds only that one folder.
+2. Run `GoWLauncher.exe` and choose the folder with **your own disc images** (`.chd` or `.iso`). It detects each game by its disc ID,
    not by the file name.
 3. If build tools are missing, the launcher offers once to install them for you with winget: Visual Studio Build Tools
    with C++ (about 6 GB) and CMake. It asks before installing anything. *Honest note: this automatic install has not yet
@@ -52,6 +55,10 @@ You only download **one file**, `GoWLauncher.exe`. No Python, no manual setup.
 > PyInstaller programs as a false positive. Check that your download is the real one: the SHA-256 of the v1.0.0
 > `GoWLauncher.exe` is `dac0c7b3ec97aeb4da71d5c2bbed99e0200ed3751319307b75f0334f0efa350c`
 > (PowerShell: `Get-FileHash GoWLauncher.exe`). Each release lists its hash in the release notes.
+
+The game starts in fullscreen (F11 or Alt+Enter switches to a window; the launcher's Fullscreen option sets the
+default) without a console window. What it prints goes to `GoW_PSP_data\build\launcher_coo.log` (or
+`launcher_gos.log`); attach that file to bug reports.
 
 Why build on your PC? The game code is generated from your own disc, so it can't be distributed; the launcher
 compiles it locally, once.
