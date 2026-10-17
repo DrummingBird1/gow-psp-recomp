@@ -239,6 +239,15 @@ else()
   target_link_libraries(gow_rt PRIVATE m)
 endif()
 
+# MinGW (the launcher's portable llvm-mingw toolchain): link the C/C++ runtimes statically so the game exes run
+# without the toolchain's DLLs, and write a PDB (CodeView) like the MSVC build, for --profile's symbol lookup.
+if(MINGW)
+  target_link_libraries(gow_rt PRIVATE dbghelp winmm)
+  target_compile_options(gow_rt PRIVATE -gcodeview)
+  target_link_options(gow_rt PRIVATE -static -Wl,--pdb=)
+  target_link_options(gow_disc PRIVATE -static)
+endif()
+
 # MSBuild compiles one file at a time per project unless /MP is set, and gow_rt only starts compiling once the
 # libraries it links are built: SDL3 alone took about 35 s that way. /MP only parallelises, the objects are the same.
 if(MSVC)
