@@ -34,10 +34,12 @@ jobs:
       - name: Smoke test
         shell: pwsh
         run: |
+          # The exe is a windowed (GUI-subsystem) app, so `& $exe` does not wait and leaves $LASTEXITCODE unset:
+          # wait for each run and take its exit code from the process.
           $exe = "build/launcher_dist/GoWLauncher.exe"
-          & $exe --check-tools
-          & $exe --print-command coo
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Start-Process $exe -ArgumentList "--check-tools" -Wait -NoNewWindow
+          $p = Start-Process $exe -ArgumentList "--print-command coo" -Wait -NoNewWindow -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
           Get-FileHash $exe -Algorithm SHA256 | Format-List
 
       - uses: actions/upload-artifact@v4
