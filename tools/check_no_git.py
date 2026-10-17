@@ -4,7 +4,7 @@
 2. Unless --static-only: configures the tools-only build (libchdr) into a temporary folder with an empty download
    folder, Git made unfindable for CMake (-DCMAKE_DISABLE_FIND_PACKAGE_Git=ON, GIT_EXECUTABLE pointing nowhere) and a
    PATH without any Git folder, with the launcher's portable toolchain (build/toolchain, downloaded if missing).
-   --full also configures the full build (SDL3).
+   --full also configures the full build (SDL3), with a stub in place of the recompiled game code.
 
     python tools/check_no_git.py [--static-only] [--full] [--keep DIR]
 """
@@ -40,15 +40,25 @@ def configure(tools, tmp, full):
             "-DCMAKE_DISABLE_FIND_PACKAGE_Git=ON", f"-DGIT_EXECUTABLE={tmp / 'no-git' / 'git.exe'}",
             "-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}",
             f"-DCMAKE_C_COMPILER={tools['cc']}", f"-DCMAKE_CXX_COMPILER={tools['cxx']}"]
+    stub = None
     if not full:
         args.append("-DGOW_TOOLS_ONLY=ON")
+    else:  # configuring the full build only needs some generated C to exist (CI has no disc): a stub game
+        stub = ROOT / "build" / "gen" / "NOGIT_STUB"
+        stub.mkdir(parents=True, exist_ok=True)
+        (stub / "stub.c").write_text("/* tools/check_no_git.py: configure-only stub */\n", encoding="utf-8")
+        args.append("-DGAME=NOGIT_STUB")
     env = dict(tools.get("env") or os.environ)
     env["PATH"] = no_git_path(env.get("PATH", ""))
     for k in ("GIT_EXEC_PATH", "GIT_DIR"):
         env.pop(k, None)
     print(">", " ".join(map(str, args)), flush=True)
     print("  PATH:", env["PATH"], flush=True)
-    r = subprocess.run(args, env=env, text=True, capture_output=True)
+    try:
+        r = subprocess.run(args, env=env, text=True, capture_output=True)
+    finally:
+        if stub:
+            shutil.rmtree(stub, ignore_errors=True)
     log = r.stdout + r.stderr
     sys.stdout.write(log[-2500:])
     if r.returncode or re.search(r"could not find git|git clone|Cloning into", log, re.I):
