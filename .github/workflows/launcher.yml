@@ -42,6 +42,11 @@ jobs:
           if ($p.ExitCode -ne 0) { exit 1 }
           Get-FileHash $exe -Algorithm SHA256 | Format-List
 
+      # The players' default toolchain: download llvm-mingw, CMake and Ninja (pinned SHA-256) like the launcher does
+      # and build gow_disc with it (the game itself needs the recompiled C from a disc, which CI never has).
+      - name: Portable toolchain check
+        run: python tools/check_portable_toolchain.py
+
       # The release download: GoW_PSP_Launcher-v<VERSION>.zip (one GoW_PSP/ folder with the exe and README.txt)
       - uses: actions/upload-artifact@v4
         with:
