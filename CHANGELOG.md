@@ -6,6 +6,18 @@
   SDL3 now download as pinned archives (SHA-256) instead of Git clones, and the launcher hides Git from CMake so it
   can't creep back. Nothing besides the launcher's own download is needed: no Git, Python or Visual Studio.
 - `tools/check_no_git.py` (also in CI) fails if a Git fetch returns.
+- **Fix: launcher background** could leave part of the window grey at some sizes and display scalings. It now always
+  covers the window (maximized, any size, 100–150 % scaling), and drawing it takes less CPU (maximized: about 23 % of
+  a core instead of 40–80 %).
+- **Fix: GoS intro movie stuttered** on weaker PCs with the launcher maximized: the animated launcher competed with
+  the game. The launcher now minimizes itself and stops its animation while a game runs (about 0.1 % of a core
+  instead of about 60 %) and comes back when the game exits.
+- **Quit options:** Alt+F4 now works (it did nothing before) and the close button quits at once. Esc asks
+  "Quit the game?" with the game paused (Enter / Cross = yes, Esc / Circle = no) instead of quitting at once.
+  Gamepad: hold Back + Start for 2 seconds.
+- **Movies can be skipped** with Enter, Space, a mouse click, or gamepad Start or Cross (the original games don't
+  allow it). The game goes on as if the movie had ended; recorded `--input` runs never skip.
+- README: a Controls section.
 
 ## v1.1.0 (2026-10-17)
 

@@ -71,8 +71,25 @@ compiles it locally, once.
 |---|---|
 | ![Options](docs/images/launcher-options.png) | ![Advanced options](docs/images/launcher-advanced.png) |
 
-Keys: arrows = D-pad, Z = Cross, X = Circle, A = Square, S = Triangle, Q/W = L/R, Space/Enter = Start, V = Select,
-I/J/K/L = analog stick, F11 fullscreen, F12 screenshot, Esc quit. Gamepads use the PSP layout.
+### Controls
+
+| Keyboard | PSP | Gamepad |
+|---|---|---|
+| Arrows | D-pad | D-pad |
+| Z / X / A / S | Cross / Circle / Square / Triangle | A / B / X / Y (PSP layout) |
+| Q / W | L / R | shoulders or triggers |
+| Space or Enter | Start | Start |
+| V | Select | Back |
+| I / J / K / L | analog stick | left stick |
+
+- **Skip a movie:** Enter, Space, a mouse click, or gamepad Start or Cross. The game goes on to the menu or level as if
+  the movie had ended; the press that skipped isn't passed on to the game.
+- **Quit:** Alt+F4 or the window's close button quit at once. Esc asks "Quit the game?" with the game paused: Enter or
+  gamepad Cross = yes, Esc or gamepad Circle = no. On a gamepad, hold Back + Start for 2 seconds. The game saves only
+  at its own save points, so quitting loses progress since the last save. The launcher comes back when the game exits.
+- F11 or Alt+Enter: fullscreen / window. F12: screenshot.
+
+While the game runs, the launcher minimizes itself and stops its animation, so it doesn't take time from the game.
 
 ## Build from source
 
