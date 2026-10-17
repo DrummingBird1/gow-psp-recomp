@@ -2,9 +2,10 @@
 
 ## Unreleased
 
-## v0.2.0 (unreleased draft)
+## v1.0.0 (2026-10-17)
 
-Play from your disc image without Python or a manual EBOOT dump.
+**Preview:** every level of both games loads and runs and saves work, but neither game has had a full playthrough
+yet. Play from your disc image without Python or a manual EBOOT dump.
 
 - **EBOOT decryption built in:** `gow_disc` reads the `.chd` / `.iso`, identifies the game and decrypts the EBOOT
   (PPSSPP PrxDecrypter + libkirk, fetched at build time with a pinned SHA-256); no PPSSPP dump needed.
@@ -14,7 +15,18 @@ Play from your disc image without Python or a manual EBOOT dump.
 - **New launcher UI** (PySide6/Qt, LGPL-3.0, linked dynamically): choose the game folder, detect each disc, build with a
   progress bar, graphics presets in a side panel, the game's own main menu as a live background after the first build,
   animations with a Reduce motion option. Third-party notices ship with the launcher.
+- **Icons:** an original icon (`tools/make_icon.py`) for the launcher, its taskbar entry and the game executables; the
+  game window and game cards use the game's own icon from your disc (`--icon`).
 - **CI:** a GitHub Actions workflow builds `GoWLauncher.exe` on Windows (no game data) and uploads it as an artifact.
+
+Bug pass before release:
+
+- Fixed: a failed CMake configure (stale cache) now cleans the build folder and retries once.
+- Checked, no change needed: HUD after Load Game (not reproducible); movies ending on a black frame (same as PPSSPP);
+  Ghost of Sparta geometry clipping (same on PSP / PPSSPP); no music right after a level warp (music starts from level
+  scripts, a warp artifact).
+- Known issue: warping into Ghost of Sparta's `scb_010_climb` at spawn 1 crashes on a sound trigger the warp never creates
+  (likely a warp artifact; see `docs/phase12-gos-level-tour.md`); a normal playthrough is still to be checked.
 
 ## v0.1.0 (2026-10-17)
 

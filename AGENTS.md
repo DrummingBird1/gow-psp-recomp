@@ -15,7 +15,7 @@ Read `README.md`, `docs/phase13-graphics.md` and `docs/phase14-plan.md` first.
 5. If a check below fails, stop and tell the user; do not "fix" a check by changing what it compares against.
 
 The order is: back up as a **private** repository (step 1), finish phase 14 (step 2), and only then launch publicly
-with v0.2.0 (step 3). Nothing is public before step 3.
+with v1.0.0 (step 3). Nothing is public before step 3.
 
 ## Step 1: back up to a private GitHub repository (no release)
 
@@ -50,7 +50,7 @@ and tell the user after each one:
 4. **Launcher UX** (task 4): pick the game folder, detect each game's disc image (UCUS98653 / UCUS98737), Build with
    progress, Play. Follow "Launcher design" below; show the user a screenshot before moving on.
 5. **Release workflow** (task 5): a GitHub Actions workflow that builds `GoWLauncher.exe` (no game data in CI); update
-   `CHANGELOG.md` (a v0.2.0 entry) and the README quick start (download the launcher, point it at the game folder).
+   `CHANGELOG.md` (a v1.0.0 entry) and the README quick start (download the launcher, point it at the game folder).
 
 Phase 14 is done only when, on a fresh Windows user profile with only `GoWLauncher.exe` and the disc image, both games
 build and reach gameplay, and the software-renderer check below still passes. Show the user, and wait for their go.
@@ -120,12 +120,12 @@ is on their PC, so the launcher can take the art from there at run time:
 
 ```bash
 git ls-files | grep -iE '\.(chd|iso|cso|pbp|prx)$|^build/|^media/|^re/dumps/|^re/ghidra/' ; echo "must print nothing above"
-git tag -a v0.2.0 -m "v0.2.0: one-download launcher"
+git tag -a v1.0.0 -m "v1.0.0: one-download launcher (preview)"
 git push origin HEAD:main
-git push origin v0.2.0
+git push origin v1.0.0
 gh repo edit DrummingBird1/gow-psp-recomp --visibility public --accept-visibility-change-consequences
 gh repo edit DrummingBird1/gow-psp-recomp --add-topic static-recompilation,psp,reverse-engineering,recompiler,god-of-war,pc-port
-gh release create v0.2.0 --title "v0.2.0" --notes "<the v0.2.0 section of CHANGELOG.md>" GoWLauncher.exe
+gh release create v1.0.0 --title "v1.0.0 (preview)" --notes "<preview note + the v1.0.0 section of CHANGELOG.md>" GoWLauncher.exe
 ```
 
 Send the user the repository and release links.

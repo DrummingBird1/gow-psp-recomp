@@ -1,0 +1,43 @@
+name: Bug report
+description: Something is wrong in a game or in the launcher
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Never attach game files**: no disc images, EBOOTs, generated C, memory dumps, or screenshots / videos of the
+        game. They will be deleted. Describe what you see in words and attach the recorded input instead.
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options: [Chains of Olympus, Ghost of Sparta, Launcher only]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Release (e.g. v1.0.0) or commit
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: Level / area, what you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: input
+    attributes:
+      label: Recorded input
+      description: |
+        Start the game with `--record-input input.txt` (with an empty save folder, or say which save you used),
+        reproduce the bug, and attach `input.txt` here. It only holds your button presses.
+  - type: textarea
+    id: settings
+    attributes:
+      label: Settings and log
+      description: The command line (`tools/launcher.pyw --print-command coo|gos` or the launcher's log), GPU, Windows version.
+      render: text

@@ -5,6 +5,10 @@ functions, performance, the launcher, Linux support.
 
 ## Ground rules
 
+> **Never attach game files** to issues, pull requests or discussions: no disc images, EBOOTs, saves from the game
+> folder, generated C, memory dumps, or screenshots and videos of the game. To show a bug, attach the recorded input
+> (`--record-input file.txt`) and say which level and what happens.
+
 - **Never commit game content.** No disc images, EBOOT/PRX dumps, generated C (`build/gen`), memory images, Ghidra
   projects, extracted files, screenshots or recordings of the game. `.gitignore` covers the usual places; check
   `git status` before you commit. Pull requests that contain game data are closed.
