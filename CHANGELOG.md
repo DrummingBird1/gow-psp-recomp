@@ -7,6 +7,8 @@
   graphics adapter and driver.
 - **Crashes are always logged** with the module and offset, and the launcher says why the game closed and offers a
   fix (turn off anisotropic filtering, try the other graphics API, open the log, report a bug).
+- **High and Ultra presets use 4x anisotropic filtering** (was 16x): it looks nearly the same at these
+  resolutions and is lighter on weaker GPUs; 8x and 16x stay available in the settings.
 - **Graphics API option** in the launcher: Auto, Direct3D 12 or Vulkan.
 - **Fix: choppy sound at high frame rates** (issue #4). Skipped time is capped so sound that is playing stays whole;
   the starting preset keeps 60 FPS, and the FPS setting says what a higher rate costs. Remaining dropouts are logged.

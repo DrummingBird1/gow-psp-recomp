@@ -34,8 +34,8 @@ REPO_URL = "https://github.com/DrummingBird1/gow-psp-recomp"
 PRESETS = {
     "Original": {"res_scale": 1, "msaa": 1, "fxaa": False, "aniso": 1},
     "Balanced": {"res_scale": 4, "msaa": 1, "fxaa": False, "aniso": 8},
-    "High": {"res_scale": 6, "msaa": 4, "fxaa": False, "aniso": 16},
-    "Ultra": {"res_scale": 8, "msaa": 4, "fxaa": False, "aniso": 16},
+    "High": {"res_scale": 6, "msaa": 4, "fxaa": False, "aniso": 4},
+    "Ultra": {"res_scale": 8, "msaa": 4, "fxaa": False, "aniso": 4},
 }
 RES = [("x1 480x272 (PSP)", 1), ("x2 960x544", 2), ("x3 1440x816", 3), ("x4 1920x1088 (1080p)", 4), ("x6 2880x1632", 6),
        ("x8 3840x2176 (4K)", 8)]
