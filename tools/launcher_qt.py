@@ -752,7 +752,21 @@ class Window(QWidget):
         h.addWidget(self.play)
         h.addStretch()
         v.addLayout(h)
-        v.addSpacing(10)
+        h = QHBoxLayout()
+        h.addStretch()
+        self.b_steam = QPushButton("Add to Steam")
+        self.b_steam.setObjectName("link")
+        self.b_steam.setToolTip("Adds the selected game to Steam as a non-Steam game that starts it directly. Close Steam first.")
+        self.b_steam.clicked.connect(self.do_add_steam)
+        h.addWidget(self.b_steam)
+        self.b_lnk = QPushButton("Create desktop shortcut")
+        self.b_lnk.setObjectName("link")
+        self.b_lnk.setToolTip("A desktop shortcut that starts the selected game directly, with the launcher's settings.")
+        self.b_lnk.clicked.connect(self.do_shortcut)
+        h.addWidget(self.b_lnk)
+        h.addStretch()
+        v.addLayout(h)
+        v.addSpacing(4)
         h = QHBoxLayout()
         h.addStretch()
         self.b_build = QPushButton("Build")
@@ -1148,6 +1162,9 @@ class Window(QWidget):
         self.b_build.setText("Rebuild" if st == "Ready to play" else "Build")
         self.b_build.setVisible(not self.busy)
         self.prog.setVisible(self.busy)
+        for b in (self.b_steam, self.b_lnk):
+            b.setEnabled(st == "Ready to play")
+            b.setText(b.text().split("  (")[0] + ("" if st == "Ready to play" else ""))
 
     # --- actions -----------------------------------------------------------------------------------------
     def log(self, line):
@@ -1361,6 +1378,35 @@ class Window(QWidget):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.L.game_log(g))))
         elif hit is b_bug:
             self.report_bug()
+
+    def do_shortcut(self):
+        g = self.cfg.get("game", "coo")
+        try:
+            p = self.L.create_desktop_shortcut(g)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            QMessageBox.critical(self, "Desktop shortcut", f"The shortcut could not be created:\n{e}")
+            return
+        self.log(f"desktop shortcut: {p}")
+        QMessageBox.information(self, "Desktop shortcut", f"Created {p}.\nIt starts {self.L.GAMES[g]['title']} directly, with "
+                                "the settings chosen here.")
+
+    def do_add_steam(self):
+        import steam_shortcuts
+        g = self.cfg.get("game", "coo")
+        while True:
+            try:
+                vdf, backup, state = self.L.add_to_steam(g)
+                break
+            except steam_shortcuts.SteamError as e:
+                if QMessageBox.warning(self, "Add to Steam", str(e), QMessageBox.StandardButton.Retry |
+                                       QMessageBox.StandardButton.Cancel) != QMessageBox.StandardButton.Retry:
+                    return
+            except (OSError, ValueError) as e:
+                QMessageBox.critical(self, "Add to Steam", f"Steam's list of non-Steam games could not be changed:\n{e}")
+                return
+        self.log(f"Steam: {state} {self.L.shortcut_name(g)} in {vdf} (backup: {backup or 'none, new file'})")
+        QMessageBox.information(self, "Add to Steam", f"{self.L.GAMES[g]['title']} was {state} in Steam's library. Start Steam "
+                                "to see it.\n\n" + (f"The previous list was saved as {backup.name}." if backup else ""))
 
     def open_logs(self):
         d = self.L.logs_dir()

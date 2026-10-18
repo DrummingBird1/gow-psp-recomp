@@ -555,6 +555,87 @@ def new_issue_url(game, info=""):
     return f"{REPO}/issues/new?{urlencode(q)}"
 
 
+# --- shortcuts: desktop and Steam ------------------------------------------------------------------------------
+def shortcut_target(game):
+    """(program, arguments, start folder) that start this game directly, without the launcher window: the launcher
+    exe (or pythonw + launcher.pyw from source) with --play <game>."""
+    if FROZEN:
+        exe = Path(sys.executable).resolve()
+        return str(exe), f"--play {game}", str(exe.parent)
+    py = Path(sys.executable)
+    pyw = py.with_name("pythonw.exe") if py.with_name("pythonw.exe").exists() else py
+    return str(pyw), f'"{Path(__file__).resolve()}" --play {game}', str(ROOT)
+
+
+def game_icon(game):
+    """An .ico of the game's own icon (ICON0.PNG off the player's disc) for shortcuts, else the launcher's."""
+    png, ico = art_dir(game) / "ICON0.PNG", art_dir(game) / "icon.ico"
+    if png.exists() and not ico.exists():
+        try:
+            from PIL import Image
+            img = Image.open(png).convert("RGBA")
+            side = max(img.size)
+            sq = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+            sq.paste(img, ((side - img.width) // 2, (side - img.height) // 2))
+            sq.save(ico, sizes=[(256, 256), (64, 64), (48, 48), (32, 32), (16, 16)])
+        except (OSError, ImportError, ValueError):
+            pass
+    if ico.exists():
+        return str(ico)
+    return str(Path(sys.executable).resolve()) if FROZEN else str(Path(__file__).resolve().parent / "launcher_assets" / "icon.ico")
+
+
+def shortcut_name(game):
+    return GAMES[game]["title"].replace(":", " -")
+
+
+def create_desktop_shortcut(game):
+    """A desktop shortcut that starts the game directly. Returns its path."""
+    exe, args, start = shortcut_target(game)
+    ps = ("$d = [Environment]::GetFolderPath('Desktop'); $l = Join-Path $d $env:GOW_LNK; "
+          "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($l); $s.TargetPath = $env:GOW_EXE; "
+          "$s.Arguments = $env:GOW_ARGS; $s.WorkingDirectory = $env:GOW_START; $s.IconLocation = $env:GOW_ICON; "
+          "$s.Description = $env:GOW_DESC; $s.WindowStyle = 7; $s.Save(); $l")
+    env = dict(os.environ, GOW_LNK=shortcut_name(game) + ".lnk", GOW_EXE=exe, GOW_ARGS=args, GOW_START=start,
+               GOW_ICON=game_icon(game), GOW_DESC=f"Play {GAMES[game]['title']} (native PC port)")
+    r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, text=True, timeout=60, env=env,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    path = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else ""
+    if r.returncode or not path or not Path(path).exists():
+        raise OSError(r.stderr.strip() or "the shortcut could not be created")
+    return path
+
+
+def add_to_steam(game):
+    """Adds the game to Steam as a non-Steam game (see steam_shortcuts.py). Returns (vdf, backup, state)."""
+    import steam_shortcuts
+    exe, args, start = shortcut_target(game)
+    return steam_shortcuts.add_shortcut(shortcut_name(game), exe, args, start, game_icon(game))
+
+
+def hide_console():
+    """The exe is a console program (so its command-line modes print). Started from a shortcut or Steam with --play,
+    Windows gives it a console window of its own: hide it (only when no terminal it was started from shares it)."""
+    if not (FROZEN and os.name == "nt"):
+        return
+    import ctypes
+    k = ctypes.windll.kernel32
+    ids = (ctypes.c_ulong * 8)()
+    if k.GetConsoleProcessList(ids, 8) <= 2:  # this exe's two processes (one-file bootloader + Python)
+        h = k.GetConsoleWindow()
+        if h:
+            ctypes.windll.user32.ShowWindow(h, 0)
+
+
+def show_error(title, text):
+    """A message box when there is no launcher window (--play from a shortcut or Steam), else stderr."""
+    if FROZEN and os.name == "nt":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, text, title, 0x10)
+    else:
+        print(f"{title}: {text}", file=sys.stderr)
+
+
 def gui():
     import launcher_qt
     launcher_qt.run(sys.modules[__name__])
@@ -579,7 +660,12 @@ def main(argv):
         if argv[0] == "--print-command":
             print(subprocess.list2cmdline(play_command(cfg, argv[1])))
             return 0
-        return start_game(cfg, argv[1]).wait()
+        hide_console()
+        try:
+            return start_game(cfg, argv[1]).wait()
+        except ValueError as e:  # started from a shortcut or Steam: say why instead of doing nothing
+            show_error(GAMES[argv[1]]["title"], f"{e}\n\nOpen the launcher to set it up.")
+            return 1
     if argv:
         print(__doc__)
         return 2
