@@ -19,6 +19,9 @@ void rt_audio_shutdown(uint64_t now_us);
 void rt_audio_report(void);
 /* Pauses / resumes the sound device (the quit question in the window). */
 void rt_audio_pause(int on);
+/* How far virtual time may skip ahead (us) past from_us without a channel running dry: the least audio any
+ * channel still has queued after from_us (UINT64_MAX when none has). rt_host_idle caps its skips with it. */
+uint64_t rt_audio_skip_budget_us(uint64_t from_us);
 void rt_sas_report(void);    /* rt_sas.c */
 void rt_atrac_report(void);  /* rt_atrac.c */
 

@@ -42,6 +42,7 @@ typedef struct {
     uint32_t lvol, rvol;
     uint64_t end;          /* frame position where this channel's queued data ends */
     uint64_t blocks;
+    uint64_t gaps, gap_frames;  /* the channel ran dry between two blocks for a moment (a click): diagnostics */
 } AudioCh;
 
 static AudioCh g_ch[NCH];
@@ -201,6 +202,9 @@ void rt_audio_report(void) {
 #endif
     printf("\n  blocks per channel:");
     for (int i = 0; i < NCH; i++) if (g_ch[i].blocks) printf(" %s%d=%llu", i == CH_OUT2 ? "out2/" : "", i, (unsigned long long)g_ch[i].blocks);
+    printf("\n  dropouts per channel (ran dry between blocks):");
+    for (int i = 0; i < NCH; i++)
+        if (g_ch[i].blocks) printf(" %s%d=%llu (%.1f ms)", i == CH_OUT2 ? "out2/" : "", i, (unsigned long long)g_ch[i].gaps, g_ch[i].gap_frames * 1000.0 / 44100);
     printf("\n");
 }
 
@@ -211,6 +215,7 @@ static uint64_t ch_queue(AudioCh *ch, uint32_t addr) {
     rt_audio_advance(k_now);
     uint64_t start = ch->end > now ? ch->end : now;
     uint32_t n = ch->samples;
+    if (ch->end && now > ch->end && now - ch->end < 11025) { ch->gaps++; ch->gap_frames += now - ch->end; }  /* < 250 ms: a dropout, not a pause */
     if (addr && n) {
         int mono = ch->format == FMT_MONO;
         int64_t lv = ch->lvol, rv = ch->rvol;  /* 0x8000 = unity; Output2 allows up to 0xFFFFF */
@@ -226,6 +231,16 @@ static uint64_t ch_queue(AudioCh *ch, uint32_t addr) {
         ch->blocks++;
     }
     return start > now ? pos_to_us(start) : k_now;
+}
+
+uint64_t rt_audio_skip_budget_us(uint64_t from_us) {
+    uint64_t now = us_to_pos(from_us), least = UINT64_MAX;
+    for (int i = 0; i < NCH; i++)
+        if (g_ch[i].reserved && g_ch[i].end + 11025 > now) {  /* playing, or ran out less than 250 ms ago (about to queue again) */
+            uint64_t left = g_ch[i].end > now ? g_ch[i].end - now : 0;
+            if (left < least) least = left;
+        }
+    return least == UINT64_MAX ? UINT64_MAX : pos_to_us(least);
 }
 
 /* Blocking output: the block is queued at once; the call returns when the data queued before it

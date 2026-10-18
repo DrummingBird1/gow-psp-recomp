@@ -301,6 +301,7 @@ static SDL_Gamepad *g_pads[8];
 static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
 static uint64_t g_skips_made, g_skipped_us;  /* virtual-time skips at a high frame rate (rt_host_idle) */
+static uint64_t g_skips_capped;              /* skips shortened (or left out) to keep the sound whole */
 static int g_anchored;
 /* PSP buttons the game must not see until they are released: the press that skipped a movie or
  * answered the quit question (otherwise it would also reach the menu behind it) */
@@ -513,8 +514,8 @@ void rt_host_shutdown(void) {
     rt_host_record_close();
     rt_gpu_shutdown();
     if (g_skips_made)
-        printf("[host] %llu virtual-time skips (the window fell behind at %.0f Hz): %.1f ms in all\n", (unsigned long long)g_skips_made,
-               rt_display_hz(), g_skipped_us / 1000.0);
+        printf("[host] %llu virtual-time skips (the window fell behind at %.0f Hz): %.1f ms in all; %llu shortened to keep the sound whole\n",
+               (unsigned long long)g_skips_made, rt_display_hz(), g_skipped_us / 1000.0, (unsigned long long)g_skips_capped);
     if (!g_win) return;
     for (int i = 0; i < 8; i++) if (g_pads[i]) SDL_CloseGamepad(g_pads[i]);
     if (g_tex) SDL_DestroyTexture(g_tex);
@@ -604,10 +605,18 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
             ahead = (int64_t)(g_wall0 + (next_virt - g_virt0)) - (int64_t)now_us();
         }
     } else if (rt_display_hz() > 61 && next_virt > now_virt && -ahead >= SKIP_MIN_US && -ahead <= SKIP_MAX_US) {
-        k_idle_skip = (uint64_t)-ahead;
-        rec_skip(now_virt, next_virt, k_idle_skip);
-        g_skips_made++;
-        g_skipped_us += k_idle_skip;
+        /* never skip past the sound a channel still has queued: its next block would start late and
+         * leave a dropout (heard as choppy sound over the music); what can't be skipped now is
+         * skipped later or, past SKIP_MAX_US, dropped */
+        uint64_t want = (uint64_t)-ahead, budget = rt_audio_skip_budget_us(next_virt);  /* the skip comes on top of next_virt */
+        uint64_t sk = want < budget ? want : budget;
+        if (sk < want) g_skips_capped++;
+        if (sk >= SKIP_MIN_US) {
+            k_idle_skip = sk;
+            rec_skip(now_virt, next_virt, k_idle_skip);
+            g_skips_made++;
+            g_skipped_us += k_idle_skip;
+        }
     } else if (ahead < -100000) {
         /* more than 100 ms behind: run on from here rather than racing to catch up */
         g_wall0 = wall;
