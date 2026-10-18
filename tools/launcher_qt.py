@@ -557,6 +557,8 @@ class Window(QWidget):
         self.show_view("main" if self.cfg.get("game_folder") else "welcome", animate=False)
         self.refresh()
         QTimer.singleShot(1500, self.maybe_render_menus)
+        if self.cfg.get("check_updates", True) and self.L.FROZEN:
+            QTimer.singleShot(2500, self.check_update)
 
     # --- geometry, background ----------------------------------------------------------------------------
     def restore_geometry(self):
@@ -958,7 +960,8 @@ class Window(QWidget):
         k.setWordWrap(True)
         k.setStyleSheet("font-size: 8pt;")
         foot.addWidget(k, 1)
-        for text, fn in (("Report a bug", self.report_bug), ("Open logs folder", self.open_logs),
+        for text, fn in (("Check for updates", lambda: self.check_update(manual=True)),
+                         ("Report a bug", self.report_bug), ("Open logs folder", self.open_logs),
                          ("GitHub", lambda: webbrowser.open(REPO_URL)), ("License (GPL-3.0)", self.open_license),
                          ("Third-party notices", self.open_notices)):
             b = QPushButton(text)
@@ -1110,6 +1113,10 @@ class Window(QWidget):
         cb.setToolTip("Keyboard and gamepad bindings")
         cb.clicked.connect(lambda: ControlsDialog(self).exec())
         a.addWidget(cb, r + 5, 0, 1, 2)
+        self.upd = QCheckBox("Check for launcher updates at start")
+        self.upd.setChecked(bool(c.get("check_updates", True)))
+        self.upd.toggled.connect(lambda on: (self.cfg.__setitem__("check_updates", on), self.collect()))
+        a.addWidget(self.upd, r + 6, 0, 1, 2)
         self.rm = QCheckBox("Reduce motion (launcher animations)")
         self.rm.setChecked(self.reduce_motion)
         self.rm.toggled.connect(self.set_reduce_motion)
@@ -1579,6 +1586,115 @@ class Window(QWidget):
         self.log(f"Steam: {state} {self.L.shortcut_name(g)} in {vdf} (backup: {backup or 'none, new file'})")
         QMessageBox.information(self, "Add to Steam", f"{self.L.GAMES[g]['title']} was {state} in Steam's library. Start Steam "
                                 "to see it.\n\n" + (f"The previous list was saved as {backup.name}." if backup else ""))
+
+    def check_update(self, manual=False):
+        """Asks GitHub for the latest release in the background; offline or failing stays quiet unless asked."""
+        import launcher_update as U
+
+        def work():
+            try:
+                info, err = U.check(self.L.VERSION), None
+            except U.UpdateError as e:
+                info, err = None, str(e)
+            self.bridge.call.emit(lambda: self.update_found(info, err, manual))
+        threading.Thread(target=work, daemon=True).start()
+
+    def update_found(self, info, err, manual):
+        if err:
+            self.log(f"update check: {err}")
+            if manual:
+                QMessageBox.warning(self, "Updates", f"Couldn't check for updates: {err}")
+            return
+        if not info:
+            self.log(f"update check: up to date (v{self.L.VERSION})")
+            if manual:
+                QMessageBox.information(self, "Updates", f"This launcher (v{self.L.VERSION}) is the latest.")
+            return
+        if not manual and self.cfg.get("skip_version") == info["version"]:
+            return
+        self.log(f"update check: v{info['version']} available")
+        d = QDialog(self)
+        d.setWindowTitle(f"Launcher v{info['version']}")
+        d.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
+        d.resize(720, 520)
+        lay = QVBoxLayout(d)
+        l = QLabel(f"Version {info['version']} is out (you have {self.L.VERSION}). What's new:")
+        l.setObjectName("head")
+        lay.addWidget(l)
+        notes = QPlainTextEdit(info["notes"])
+        notes.setReadOnly(True)
+        lay.addWidget(notes, 1)
+        l = QLabel("Updating downloads the release ZIP, checks it against the release's SHA256SUMS.txt, replaces this "
+                   "launcher and restarts it. GoW_PSP_data (builds, saves, settings) stays as it is."
+                   if self.L.FROZEN else "Running from source: update with git pull, or download the release.")
+        l.setObjectName("dim")
+        l.setWordWrap(True)
+        lay.addWidget(l)
+        self.upd_prog = Progress(self)
+        self.upd_prog.hide()
+        lay.addWidget(self.upd_prog)
+        h = QHBoxLayout()
+        skip = QPushButton("Skip this version")
+        h.addWidget(skip)
+        h.addStretch()
+        later = QPushButton("Later")
+        h.addWidget(later)
+        go = QPushButton("Update now" if self.L.FROZEN else "Open the release page")
+        go.setObjectName("big")
+        h.addWidget(go)
+        lay.addLayout(h)
+        skip.clicked.connect(lambda: (self.cfg.__setitem__("skip_version", info["version"]), self.collect(), d.reject()))
+        later.clicked.connect(d.reject)
+        go.clicked.connect(lambda: self.do_update(info, d, (go, skip, later)))
+        self.upd_dialog = d
+        d.exec()
+
+    def do_update(self, info, dialog, buttons):
+        import launcher_update as U
+        if not self.L.FROZEN:
+            webbrowser.open(info["page"] or REPO_URL + "/releases/latest")
+            dialog.accept()
+            return
+        if self.busy or self.game_running():
+            QMessageBox.warning(self, "Update", "Wait for the build or the game to finish first.")
+            return
+        for b in buttons:
+            b.setEnabled(False)
+        self.upd_prog.show()
+        self.upd_prog.set(0.02, "Downloading")
+
+        def prog(done, total):
+            p = done / total if total else 0.5
+            self.bridge.call.emit(lambda: (self.upd_prog.set(min(0.97, p), f"Downloading {done / 2**20:.0f} MB"),
+                                           self.upd_prog.tick(0)))
+
+        def work():
+            try:
+                new = U.download(info, self.L.update_dir(), prog)
+                self.bridge.call.emit(lambda: self.finish_update(new, dialog, buttons, None))
+            except U.UpdateError as e:
+                self.bridge.call.emit(lambda: self.finish_update(None, dialog, buttons, str(e)))
+        threading.Thread(target=work, daemon=True).start()
+
+    def finish_update(self, new, dialog, buttons, err):
+        import launcher_update as U
+        if not err:
+            self.upd_prog.set(1.0, "Verified; restarting")
+            self.collect()
+            try:
+                U.apply(new, sys.executable)
+            except U.UpdateError as e:
+                err = str(e)
+        if err:
+            self.log(f"update failed: {err}")
+            for b in buttons:
+                b.setEnabled(True)
+            self.upd_prog.hide()
+            QMessageBox.critical(self, "Update", f"The update failed: {err}\nThe current launcher keeps working.")
+            return
+        self.log(f"updated to v{dialog.windowTitle().split('v')[-1]}; restarting")
+        dialog.accept()
+        QApplication.instance().quit()
 
     def open_logs(self):
         d = self.L.logs_dir()

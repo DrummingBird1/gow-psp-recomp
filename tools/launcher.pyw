@@ -50,7 +50,7 @@ GAMES = {
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
-    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -118,7 +118,7 @@ def write_controls(cfg):
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9"),
            "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan")}
-BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion")
+BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates")
 
 
 def validate_config(cfg):
@@ -743,6 +743,33 @@ def show_error(title, text):
         print(f"{title}: {text}", file=sys.stderr)
 
 
+# --- self-update (launcher_update.py) ---------------------------------------------------------------------------
+def update_dir():
+    return ROOT / "build" / "update"
+
+
+def run_update(out=print):
+    """--update: check, download, verify, swap the exe, restart it (frozen only). Returns an exit code."""
+    import launcher_update as U
+    try:
+        info = U.check(VERSION)
+        if not info:
+            out(f"up to date (v{VERSION})")
+            return 0
+        out(f"v{info['version']} is available (this is v{VERSION})")
+        if not FROZEN:
+            out(f"running from source: update with git, or download {info['page']}")
+            return 0
+        new = U.download(info, update_dir(), lambda d, t: None)
+        out(f"downloaded and verified {info['zip_name']}")
+        U.apply(new, sys.executable, ["--version"])
+        out("updated; the new launcher starts")
+        return 0
+    except U.UpdateError as e:
+        out(f"update failed: {e}")
+        return 1
+
+
 def gui():
     import launcher_qt
     launcher_qt.run(sys.modules[__name__])
@@ -751,6 +778,24 @@ def gui():
 def main(argv):
     if argv and argv[0] == "--recomp":
         return run_recomp(argv[1:])
+    if len(argv) >= 2 and argv[0] == "--updated":  # started by a self-update: remove the old exe, then go on
+        import launcher_update
+        launcher_update.cleanup(argv[1])
+        argv = argv[2:]
+    if argv == ["--version"]:
+        print(VERSION)
+        return 0
+    if argv == ["--update"]:
+        return run_update()
+    if argv == ["--check-update"]:
+        import launcher_update
+        try:
+            info = launcher_update.check(VERSION)
+        except launcher_update.UpdateError as e:
+            print(f"check failed: {e}")
+            return 1
+        print(f"v{info['version']} available: {info['page']}" if info else f"up to date (v{VERSION})")
+        return 0
     if argv == ["--check-tools"]:
         msvc, portable = toolchain.detect(), toolchain.find_portable(TOOLCHAIN_DIR)
         print(f"toolchain mode: {toolchain.mode()}")
