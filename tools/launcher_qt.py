@@ -1440,7 +1440,8 @@ class Window(QWidget):
         if first_run or self.view == "prep":
             self.prep(f"Preparing {self.L.GAMES[g]['title']} (one time, a few minutes)")
         gen = len(list(self.L.gen_dir(g).glob("*.c"))) or 120
-        self.pstate = {"stage": "Starting", "n": 0, "total": gen + len(list((self.L.ROOT / "runtime").glob("*.c*"))), "p": 0.0}
+        self.pstate = {"stage": "Starting", "n": 0, "total": gen + len(list((self.L.ROOT / "runtime").glob("*.c*"))), "p": 0.0,
+                       "t0": time.monotonic()}
         self.refresh()
         threading.Thread(target=lambda: self.build_done(self.L.run_build(c, g, self.build_line, self.ask), g), daemon=True).start()
 
@@ -1460,6 +1461,7 @@ class Window(QWidget):
             st["stage"], st["p"] = "Downloading build tools", 0.005
         elif st["stage"] == "Compiling" and re.match(r"^\[(\d+)/(\d+)\] ", line):  # Ninja (portable toolchain)
             done, total = map(int, re.match(r"^\[(\d+)/(\d+)\] ", line).groups())
+            st["n"], st["total"] = done, total
             st["p"] = 0.2 + 0.74 * done / max(1, total)
         elif st["stage"] == "Compiling" and re.match(r"^\s+[\w.\-]+\.(c|cpp)$", line):
             st["n"] += 1
@@ -1471,6 +1473,9 @@ class Window(QWidget):
         elif "skipping recomp" in line:
             st["p"] = 0.15
         text = f"Compiling {st['n']}/{st['total']}" if st["stage"] == "Compiling" else st["stage"]
+        secs = int(time.monotonic() - st.get("t0", time.monotonic()))
+        if secs >= 5:  # elapsed time, so a long step (recompiling, linking) visibly isn't stuck
+            text += f"  ·  {secs // 60}:{secs % 60:02d}"
         p = st["p"]
         self.bridge.call.emit(lambda: (self.prog.set(p, text), self.prep_prog.set(p, text)))
 
