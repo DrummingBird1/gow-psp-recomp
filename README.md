@@ -77,6 +77,11 @@ You only download **one file**, the launcher. No Python, no manual setup.
 >
 > (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
 
+The launcher opens no console window. Its command-line options (`GoWLauncher.exe --version`, `--check-update`,
+`--update`, `--build coo`) print in the terminal you start them from (in PowerShell, use
+`Start-Process -Wait -NoNewWindow .\GoWLauncher.exe --version` to wait for it), or else to
+`GoW_PSP_data\build\launcher_cli.log`.
+
 The game starts in fullscreen (F11 or Alt+Enter switches to a window; the launcher's Fullscreen option sets the
 default) without a console window. What it prints goes to `GoW_PSP_data\build\launcher_coo.log` (or
 `launcher_gos.log`), and your button presses of that session to `launcher_coo_input.txt` (or

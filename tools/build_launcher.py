@@ -42,7 +42,7 @@ def main():
     (src / "manifest.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"bundling {len(files)} source files")
     sep = ";" if sys.platform == "win32" else ":"
-    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--console", "--name", "GoWLauncher", "--icon", str(ROOT / "tools" / "launcher_assets" / "icon.ico"),
+    cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed", "--name", "GoWLauncher", "--icon", str(ROOT / "tools" / "launcher_assets" / "icon.ico"),
            "--distpath", str(DIST), "--workpath", str(WORK / "pyi"), "--specpath", str(WORK),
            "--paths", str(ROOT / "tools"), "--paths", str(ROOT / "recomp"),
            "--hidden-import", "recomp", "--hidden-import", "toolchain", "--hidden-import", "launcher_qt",

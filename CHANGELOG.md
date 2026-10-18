@@ -22,6 +22,9 @@
 - **Add to Steam / Create desktop shortcut** per game, with the game's icon.
 - **Launcher self-update:** checks GitHub at start (opt-out in Advanced, or skip a version), shows what's new,
   downloads the ZIP, checks it against `SHA256SUMS.txt` and restarts. `GoW_PSP_data` and settings stay as they are.
+- **No console window:** the launcher is now a windowed program, so no black console window opens next to it
+  (from Explorer, a shortcut or Steam). Command-line options (`--version`, `--update`, `--build coo`) print in the
+  terminal they're started from, or to `GoW_PSP_data\build\launcher_cli.log`.
 - **Build progress** shows the real step count and the elapsed time.
 
 ## v1.1.5 (2026-10-17)

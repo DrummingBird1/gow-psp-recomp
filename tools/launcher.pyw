@@ -720,18 +720,22 @@ def add_to_steam(game):
     return steam_shortcuts.add_shortcut(shortcut_name(game), exe, args, start, game_icon(game))
 
 
-def hide_console():
-    """The exe is a console program (so its command-line modes print). Started from a shortcut or Steam with --play,
-    Windows gives it a console window of its own: hide it (only when no terminal it was started from shares it)."""
-    if not (FROZEN and os.name == "nt"):
+def cli_streams():
+    """The exe is a windowed program (no console window when started from Explorer, a shortcut or Steam), so its
+    command-line modes have no stdout. Started from a terminal, print there (attach to its console); with the output
+    redirected, the pipe or file already works; otherwise write to GoW_PSP_data/build/launcher_cli.log."""
+    if not (FROZEN and os.name == "nt") or sys.stdout is not None:
         return
     import ctypes
-    k = ctypes.windll.kernel32
-    ids = (ctypes.c_ulong * 8)()
-    if k.GetConsoleProcessList(ids, 8) <= 2:  # this exe's two processes (one-file bootloader + Python)
-        h = k.GetConsoleWindow()
-        if h:
-            ctypes.windll.user32.ShowWindow(h, 0)
+    if ctypes.windll.kernel32.AttachConsole(-1):  # ATTACH_PARENT_PROCESS
+        sys.stdout = open("CONOUT$", "w", encoding="utf-8", errors="replace", buffering=1)
+        sys.stderr = sys.stdout
+        sys.stdin = open("CONIN$", "r", encoding="utf-8", errors="replace")
+        print()  # the shell already printed its prompt: start on a new line
+        return
+    log = ROOT / "build" / "launcher_cli.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    sys.stdout = sys.stderr = open(log, "a", encoding="utf-8", errors="replace", buffering=1)
 
 
 def show_error(title, text):
@@ -776,6 +780,8 @@ def gui():
 
 
 def main(argv):
+    if argv:
+        cli_streams()
     if argv and argv[0] == "--recomp":
         return run_recomp(argv[1:])
     if len(argv) >= 2 and argv[0] == "--updated":  # started by a self-update: remove the old exe, then go on
@@ -812,7 +818,6 @@ def main(argv):
         if argv[0] == "--print-command":
             print(subprocess.list2cmdline(play_command(cfg, argv[1])))
             return 0
-        hide_console()
         try:
             return start_game(cfg, argv[1]).wait()
         except ValueError as e:  # started from a shortcut or Steam: say why instead of doing nothing
