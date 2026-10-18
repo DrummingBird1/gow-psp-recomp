@@ -313,6 +313,95 @@ static uint32_t g_shot_addr, g_shot_stride, g_shot_format;
 
 static uint64_t now_us(void) { return SDL_GetTicksNS() / 1000; }
 
+/* --- controls ------------------------------------------------------------------------
+ * Bindings: up to 4 keys and 4 gamepad buttons per PSP button and stick direction. The defaults
+ * are below; --controls FILE replaces the bindings of each button it names, one line each:
+ *   cross = Z, pad:a        keys by SDL name (Z, Up, Space, Return, Left Shift...), gamepad buttons
+ *   stick_up = I            as pad:<SDL name> (a b x y back start leftshoulder rightshoulder
+ *                           lefttrigger righttrigger dpup dpdown dpleft dpright leftstick rightstick)
+ * '#' starts a comment. Unknown names are reported and skipped; the game keeps running. */
+enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, NBIND };
+#define PAD_LT 100  /* the triggers are axes: pseudo button numbers */
+#define PAD_RT 101
+static const char *const b_names[NBIND] = { "up", "down", "left", "right", "cross", "circle", "square", "triangle",
+                                            "l", "r", "start", "select", "stick_up", "stick_down", "stick_left", "stick_right" };
+static const uint32_t b_bits[12] = { PSP_UP, PSP_DOWN, PSP_LEFT, PSP_RIGHT, PSP_CROSS, PSP_CIRCLE, PSP_SQUARE, PSP_TRIANGLE,
+                                     PSP_LTRIGGER, PSP_RTRIGGER, PSP_START, PSP_SELECT };
+static struct { int nk, np; SDL_Scancode k[4]; int p[4]; } g_bind[NBIND] = {
+    { 1, 1, { SDL_SCANCODE_UP }, { SDL_GAMEPAD_BUTTON_DPAD_UP } },
+    { 1, 1, { SDL_SCANCODE_DOWN }, { SDL_GAMEPAD_BUTTON_DPAD_DOWN } },
+    { 1, 1, { SDL_SCANCODE_LEFT }, { SDL_GAMEPAD_BUTTON_DPAD_LEFT } },
+    { 1, 1, { SDL_SCANCODE_RIGHT }, { SDL_GAMEPAD_BUTTON_DPAD_RIGHT } },
+    { 1, 1, { SDL_SCANCODE_Z }, { SDL_GAMEPAD_BUTTON_SOUTH } },
+    { 1, 1, { SDL_SCANCODE_X }, { SDL_GAMEPAD_BUTTON_EAST } },
+    { 1, 1, { SDL_SCANCODE_A }, { SDL_GAMEPAD_BUTTON_WEST } },
+    { 1, 1, { SDL_SCANCODE_S }, { SDL_GAMEPAD_BUTTON_NORTH } },
+    { 1, 2, { SDL_SCANCODE_Q }, { SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, PAD_LT } },
+    { 1, 2, { SDL_SCANCODE_W }, { SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PAD_RT } },
+    { 2, 1, { SDL_SCANCODE_SPACE, SDL_SCANCODE_RETURN }, { SDL_GAMEPAD_BUTTON_START } },
+    { 1, 1, { SDL_SCANCODE_V }, { SDL_GAMEPAD_BUTTON_BACK } },
+    { 1, 0, { SDL_SCANCODE_I } }, { 1, 0, { SDL_SCANCODE_K } }, { 1, 0, { SDL_SCANCODE_J } }, { 1, 0, { SDL_SCANCODE_L } },
+};
+
+static char *trim(char *s) {
+    while (*s == ' ' || *s == '\t') s++;
+    char *e = s + strlen(s);
+    while (e > s && (e[-1] == ' ' || e[-1] == '\t' || e[-1] == '\r' || e[-1] == '\n')) *--e = 0;
+    return s;
+}
+
+static void load_controls(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) { fprintf(stderr, "[host] --controls %s: cannot open it; default controls\n", path); return; }
+    char line[512];
+    int n = 0, bad = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char *h = strchr(line, '#');
+        if (h) *h = 0;
+        char *eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char *name = trim(line);
+        int b = -1;
+        for (int i = 0; i < NBIND; i++) if (!SDL_strcasecmp(name, b_names[i])) b = i;
+        if (b < 0) { fprintf(stderr, "[host] --controls: unknown button '%s'\n", name); bad++; continue; }
+        g_bind[b].nk = g_bind[b].np = 0;
+        for (char *tok = strtok(eq + 1, ","); tok; tok = strtok(NULL, ",")) {
+            char *t = trim(tok);
+            if (!*t) continue;
+            if (!SDL_strncasecmp(t, "pad:", 4)) {
+                int p = !SDL_strcasecmp(t + 4, "lefttrigger") ? PAD_LT : !SDL_strcasecmp(t + 4, "righttrigger") ? PAD_RT
+                                                                                                                 : (int)SDL_GetGamepadButtonFromString(t + 4);
+                if (p == SDL_GAMEPAD_BUTTON_INVALID) { fprintf(stderr, "[host] --controls: unknown gamepad button '%s'\n", t); bad++; }
+                else if (g_bind[b].np < 4) g_bind[b].p[g_bind[b].np++] = p;
+            } else {
+                SDL_Scancode sc = SDL_GetScancodeFromName(t);
+                if (sc == SDL_SCANCODE_UNKNOWN) { fprintf(stderr, "[host] --controls: unknown key '%s'\n", t); bad++; }
+                else if (g_bind[b].nk < 4) g_bind[b].k[g_bind[b].nk++] = sc;
+            }
+        }
+        n++;
+    }
+    fclose(f);
+    printf("[host] controls from %s: %d buttons set%s\n", path, n, bad ? " (some names were unknown: see above)" : "");
+}
+
+static int pad_down(SDL_Gamepad *gp, int p) {
+    if (p == PAD_LT) return SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000;
+    if (p == PAD_RT) return SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000;
+    return SDL_GetGamepadButton(gp, (SDL_GamepadButton)p);
+}
+
+/* The mouse pointer hides itself in fullscreen when it has not moved for 2 s. */
+static uint64_t g_mouse_t;
+static int g_cursor_hidden;
+static void update_cursor(void) {
+    int hide = g_fullscreen && now_us() - g_mouse_t > 2000000;
+    if (hide == g_cursor_hidden) return;
+    g_cursor_hidden = hide;
+    if (hide) SDL_HideCursor(); else SDL_ShowCursor();
+}
+
 static void open_pad(SDL_JoystickID id) {
     for (int i = 0; i < 8; i++)
         if (!g_pads[i]) {
@@ -441,7 +530,8 @@ static void pump(void) {
             } else if (e.key.key == SDLK_F12) screenshot();
             else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE) movie_skip_press(PSP_START);
             break;
-        case SDL_EVENT_MOUSE_BUTTON_DOWN: movie_skip_press(0); break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN: g_mouse_t = now_us(); movie_skip_press(0); break;
+        case SDL_EVENT_MOUSE_MOTION: g_mouse_t = now_us(); break;
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
             if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) movie_skip_press(PSP_START);
             else if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) movie_skip_press(PSP_CROSS);
@@ -459,6 +549,7 @@ static void pump(void) {
     else if (!g_quit_hold) g_quit_hold = now_us();
     else if (now_us() - g_quit_hold >= 2000000 && !g_quit) { printf("[host] Back+Start held: quitting\n"); g_quit = 1; }
     if (ask && !g_quit && confirm_quit()) g_quit = 1;
+    update_cursor();
     g_last_pump = now_us();
 }
 
@@ -469,6 +560,7 @@ int rt_host_init(const HostOptions *o) {
     if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     SDL_SetMainReady();
     if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
+    if (g_o.controls) load_controls(g_o.controls);
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
     SDL_SetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "1");  /* Alt+F4 closes the window, as in any Windows program */
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) { fprintf(stderr, "[host] SDL_Init: %s\n", SDL_GetError()); return 0; }
@@ -633,33 +725,24 @@ static int live_input(uint32_t *out_b, int *lx, int *ly) {
     int ax = 128, ay = 128;
     {
         const bool *k = SDL_GetKeyboardState(NULL);
-        static const struct { SDL_Scancode sc; uint32_t bit; } keys[] = {
-            { SDL_SCANCODE_UP, PSP_UP }, { SDL_SCANCODE_DOWN, PSP_DOWN }, { SDL_SCANCODE_LEFT, PSP_LEFT },
-            { SDL_SCANCODE_RIGHT, PSP_RIGHT }, { SDL_SCANCODE_Z, PSP_CROSS }, { SDL_SCANCODE_X, PSP_CIRCLE },
-            { SDL_SCANCODE_A, PSP_SQUARE }, { SDL_SCANCODE_S, PSP_TRIANGLE }, { SDL_SCANCODE_Q, PSP_LTRIGGER },
-            { SDL_SCANCODE_W, PSP_RTRIGGER }, { SDL_SCANCODE_SPACE, PSP_START }, { SDL_SCANCODE_RETURN, PSP_START },
-            { SDL_SCANCODE_V, PSP_SELECT },
-        };
-        for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) if (k[keys[i].sc]) b |= keys[i].bit;
+        int stick[4] = { 0 };
+        for (int i = 0; i < NBIND; i++) {
+            int on = 0;
+            for (int j = 0; j < g_bind[i].nk; j++) on |= k[g_bind[i].k[j]];
+            for (int p = 0; p < 8; p++)
+                if (g_pads[p]) for (int j = 0; j < g_bind[i].np; j++) on |= pad_down(g_pads[p], g_bind[i].p[j]);
+            if (!on) continue;
+            if (i < 12) b |= b_bits[i];
+            else stick[i - B_STICK_UP] = 1;
+        }
         if (b & PSP_START && (SDL_GetModState() & SDL_KMOD_ALT)) b &= ~(uint32_t)PSP_START;  /* Alt+Enter is fullscreen */
-        if (k[SDL_SCANCODE_J]) ax = 0;
-        if (k[SDL_SCANCODE_L]) ax = 255;
-        if (k[SDL_SCANCODE_I]) ay = 0;
-        if (k[SDL_SCANCODE_K]) ay = 255;
-        static const struct { SDL_GamepadButton gb; uint32_t bit; } pad[] = {
-            { SDL_GAMEPAD_BUTTON_SOUTH, PSP_CROSS }, { SDL_GAMEPAD_BUTTON_EAST, PSP_CIRCLE },
-            { SDL_GAMEPAD_BUTTON_WEST, PSP_SQUARE }, { SDL_GAMEPAD_BUTTON_NORTH, PSP_TRIANGLE },
-            { SDL_GAMEPAD_BUTTON_LEFT_SHOULDER, PSP_LTRIGGER }, { SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, PSP_RTRIGGER },
-            { SDL_GAMEPAD_BUTTON_START, PSP_START }, { SDL_GAMEPAD_BUTTON_BACK, PSP_SELECT },
-            { SDL_GAMEPAD_BUTTON_DPAD_UP, PSP_UP }, { SDL_GAMEPAD_BUTTON_DPAD_DOWN, PSP_DOWN },
-            { SDL_GAMEPAD_BUTTON_DPAD_LEFT, PSP_LEFT }, { SDL_GAMEPAD_BUTTON_DPAD_RIGHT, PSP_RIGHT },
-        };
+        if (stick[2]) ax = 0;
+        if (stick[3]) ax = 255;
+        if (stick[0]) ay = 0;
+        if (stick[1]) ay = 255;
         for (int i = 0; i < 8; i++) {
             SDL_Gamepad *gp = g_pads[i];
             if (!gp) continue;
-            for (size_t j = 0; j < sizeof(pad) / sizeof(pad[0]); j++) if (SDL_GetGamepadButton(gp, pad[j].gb)) b |= pad[j].bit;
-            if (SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 16000) b |= PSP_LTRIGGER;
-            if (SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 16000) b |= PSP_RTRIGGER;
             int x = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY);
             if (abs(x) > 6000 || abs(y) > 6000) { ax = (x + 32768) >> 8; ay = (y + 32768) >> 8; }
         }

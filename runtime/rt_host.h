@@ -14,6 +14,7 @@ typedef struct {
     int gpu;                 /* draw with the SDL GPU renderer (rt_gpu.c) */
     const char *gpu_driver;  /* "vulkan", "direct3d12" or NULL (SDL's choice) */
     const char *icon;        /* --icon file.png: window icon (the launcher passes the disc's ICON0.PNG) */
+    const char *controls;    /* --controls file: keyboard and gamepad bindings (the launcher's Controls page) */
 } HostOptions;
 
 /* PSP controller buttons (SceCtrlData.Buttons) */
