@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.0 (unreleased)
+## v1.2.0 (2026-10-18)
 
 - **Fix: crash with anisotropic filtering** on some GPUs (issue #3). Filtering is only applied where it can work, the
   sampler settings are clamped, and a GPU that refuses them gets plain filtering instead of a crash. The log names the
