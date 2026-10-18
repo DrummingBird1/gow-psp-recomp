@@ -906,14 +906,32 @@ class Window(QWidget):
                                    self.on_option()))
         tp.addWidget(b)
         a.addLayout(tp, r + 1, 0, 1, 2)
+        self.tpack_lbl = QLabel("")
+        self.tpack_lbl.setObjectName("dim")
+        self.tpack_lbl.setWordWrap(True)
+        self.tpack_lbl.setStyleSheet("font-size: 8pt;")
+        a.addWidget(self.tpack_lbl, r + 2, 0, 1, 2)
+        ch = QCheckBox("Dump textures (to make a pack)")
+        ch.setToolTip("Writes each new texture as a .png into build/texture_dump/<game>. Edit or upscale them, put them in a "
+                      "folder and choose it as the texture pack folder. PPSSPP texture packs don't work here.")
+        ch.setChecked(bool(c.get("texture_dump")))
+        ch.toggled.connect(self.on_option)
+        a.addWidget(ch, r + 3, 0, 1, 2)
+        self.chk["texture_dump"] = ch
         self.rm = QCheckBox("Reduce motion (launcher animations)")
         self.rm.setChecked(self.reduce_motion)
         self.rm.toggled.connect(self.set_reduce_motion)
-        a.addWidget(self.rm, r + 2, 0, 1, 2)
+        a.addWidget(self.rm, r + 4, 0, 1, 2)
+        self.update_tpack()
         self.adv.hide()
         v.addWidget(self.adv)
         v.addStretch()
         self.update_presets()
+
+    def update_tpack(self):
+        ok, text = self.L.texture_pack_status(self.tpack.text().strip())
+        self.tpack_lbl.setText(text)
+        self.tpack_lbl.setStyleSheet(f"font-size: 8pt; color: {'#9fd18b' if ok else GOLD};")
 
     def set_reduce_motion(self, on):
         self.reduce_motion = on
@@ -1021,6 +1039,8 @@ class Window(QWidget):
         for k, ch in self.chk.items():
             c[k] = ch.isChecked()
         c["texture_pack"] = self.tpack.text()
+        if hasattr(self, "tpack_lbl"):
+            self.update_tpack()
         c["preset"] = self.preset
         c["game_folder"] = self.folder.text()
         c["reduce_motion"] = self.reduce_motion

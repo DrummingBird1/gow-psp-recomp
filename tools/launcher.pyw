@@ -50,7 +50,7 @@ GAMES = {
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
-    "window_scale": 2, "texture_pack": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "window_scale": 2, "texture_pack": "", "texture_dump": False, "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -200,9 +200,39 @@ def play_command(cfg, game):
             cmd += ["--aspect", cfg["aspect"]]
         if cfg["texture_pack"]:
             cmd += ["--texture-pack", cfg["texture_pack"]]
+        if cfg.get("texture_dump"):
+            cmd += ["--texture-dump", str(texture_dump_dir(game))]
     if int(cfg["fps"]) != 60:
         cmd += ["--fps", str(cfg["fps"])]
     return cmd
+
+
+def texture_dump_dir(game):
+    """Where "Dump textures" writes each new texture of this game as <16 hex digits>.png (the pack format)."""
+    return ROOT / "build" / "texture_dump" / game
+
+
+def texture_pack_status(folder):
+    """(ok, text) about a texture pack folder: this port loads <16 hex digits>.png files, named as "Dump textures"
+    (--texture-dump) writes them; PPSSPP packs (textures.ini, PPSSPP's own hashes) don't match them."""
+    import re as _re
+    if not folder:
+        return True, ""
+    d = Path(folder)
+    if not d.is_dir():
+        return False, "This folder doesn't exist."
+    pngs = list(d.glob("*.png"))  # the game looks in the folder itself, not in subfolders
+    ours = [p for p in pngs if _re.fullmatch(r"[0-9a-fA-F]{16}\.png", p.name)]
+    if ours:
+        return True, f"{len(ours)} replacement textures found."
+    if (d / "textures.ini").exists():
+        return False, ("This is a PPSSPP texture pack (textures.ini). It can't work here: PPSSPP names textures by its "
+                       "own hashes. Packs for this port are made with \"Dump textures\".")
+    if pngs:
+        return False, f"{len(pngs)} .png files, but none named as \"Dump textures\" writes them (16 hex digits).png."
+    if any(d.rglob("*.png")):
+        return False, "The .png files are in subfolders: choose the folder that holds them."
+    return False, "No .png files in this folder."
 
 
 def is_configure(cmd):

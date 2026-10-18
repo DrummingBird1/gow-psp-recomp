@@ -45,6 +45,23 @@ Download the new ZIP and extract it over the old `GoW_PSP` folder (or copy the n
 - The launcher minimizes itself while a game runs; if you restored it, minimize it again.
 - V-Sync on gives the most even frame pacing on a 60 Hz display.
 
+## My texture pack does nothing
+
+**PPSSPP texture packs don't work here.** PPSSPP names each replacement by its own texture hash (listed in
+`textures.ini`); this port uses a different key, so none of their files matches. The launcher says so under
+**Options → Advanced → Texture pack folder**, and the game log does too.
+
+What works is a pack in this port's own format:
+
+1. Tick **Dump textures** in Advanced and play the parts you want to change. Each new texture is written once as
+   `<16 hex digits>.png` into `GoW_PSP_data/build/texture_dump/<game>/` (`build/texture_dump/` from source).
+2. Copy the ones you want into a folder of their own and edit or upscale them. Keep each file name; any size works
+   (mipmaps are made on the GPU).
+3. Choose that folder as the texture pack folder (the `.png` files directly in it, not in subfolders) and untick
+   **Dump textures**. The launcher shows how many replacements it found; the log line `[gpu] texture pack: ...
+   replacements loaded` confirms it in game.
+
+Texture packs need the Hardware renderer.
 ## Controls, skipping movies, quitting
 
 See [Controls](../README.md#controls) in the README. In short: Enter, Space, a click or gamepad Start/Cross skips a

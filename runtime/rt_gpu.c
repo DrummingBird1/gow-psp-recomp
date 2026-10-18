@@ -1030,7 +1030,15 @@ static void pack_index(void) {
         g_pack[s].key = key;
     }
     SDL_free(files);
-    printf("[gpu] texture pack %s: %d replacement textures\n", dir, found);
+    printf("[gpu] texture pack %s: %d replacement textures (of %d .png files)\n", dir, found, n);
+    /* PPSSPP packs (textures.ini, its own hashes) don't match: say so instead of silently doing nothing */
+    char ini[1024];
+    snprintf(ini, sizeof(ini), "%s/textures.ini", dir);
+    if (!found && SDL_GetPathInfo(ini, NULL))
+        fprintf(stderr, "[gpu] texture pack %s has a textures.ini: it is a PPSSPP pack, which this port can't load (its file names "
+                        "are PPSSPP's texture hashes). This port loads <16 hex digits>.png files named as --texture-dump writes them.\n", dir);
+    else if (n && !found)
+        fprintf(stderr, "[gpu] texture pack %s: none of its .png files is named <16 hex digits>.png as --texture-dump writes them\n", dir);
 }
 
 static void dump_texture(uint64_t key, int w, int h, const uint32_t *rgba) {
