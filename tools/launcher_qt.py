@@ -776,7 +776,8 @@ class Window(QWidget):
         k.setWordWrap(True)
         k.setStyleSheet("font-size: 8pt;")
         foot.addWidget(k, 1)
-        for text, fn in (("GitHub", lambda: webbrowser.open(REPO_URL)), ("License (GPL-3.0)", self.open_license),
+        for text, fn in (("Report a bug", self.report_bug), ("Open logs folder", self.open_logs),
+                         ("GitHub", lambda: webbrowser.open(REPO_URL)), ("License (GPL-3.0)", self.open_license),
                          ("Third-party notices", self.open_notices)):
             b = QPushButton(text)
             b.setObjectName("link")
@@ -1348,6 +1349,7 @@ class Window(QWidget):
             b_api = box.addButton("Try " + ("Direct3D 12" if self.cfg.get("gpu_api") == "vulkan" else "Vulkan"),
                                   QMessageBox.ButtonRole.AcceptRole)
         b_log = box.addButton("Open the log", QMessageBox.ButtonRole.ActionRole)
+        b_bug = box.addButton("Report a bug", QMessageBox.ButtonRole.ActionRole)
         box.addButton(QMessageBox.StandardButton.Close)
         box.exec()
         hit = box.clickedButton()
@@ -1357,6 +1359,35 @@ class Window(QWidget):
             self.combo["api"][0].setCurrentText(label_of(GPU_API, "direct3d12" if self.cfg.get("gpu_api") == "vulkan" else "vulkan"))
         elif hit is b_log:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.L.game_log(g))))
+        elif hit is b_bug:
+            self.report_bug()
+
+    def open_logs(self):
+        d = self.L.logs_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(d)))
+
+    def report_bug(self):
+        """Zips the last Play's log, recorded input, settings and PC info (no game files), shows the zip in Explorer
+        and opens GitHub's new-issue form, filled in with the game, version and PC info."""
+        g = self.cfg.get("game", "coo")
+        self.setCursor(Qt.CursorShape.WaitCursor)
+        try:
+            z = self.L.make_bug_report(self.collect(), g, self.log_lines[-400:])
+            info = self.L.pc_info()
+        finally:
+            self.unsetCursor()
+        self.log(f"bug report: {z}")
+        if os.name == "nt":
+            subprocess.Popen(["explorer", "/select,", str(z)])
+        has_log = self.L.game_log(g).exists()
+        QMessageBox.information(self, "Report a bug",
+                                f"The report is ready:\n{z}\n\n"
+                                + ("" if has_log else f"(No game log yet: play {self.L.GAMES[g]['title']} once and report right "
+                                   "after the problem.)\n\n")
+                                + "Your browser opens GitHub's bug form next. Describe what happened and drag the zip into the "
+                                  "form. It holds the game's log, your button presses, the settings and PC info; no game files.")
+        webbrowser.open(self.L.new_issue_url(g, info))
 
     def open_license(self):
         f = self.L.ROOT / "LICENSE"

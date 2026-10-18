@@ -472,6 +472,89 @@ def game_input_log(game):
     return ROOT / "build" / f"launcher_{game}_input.txt"
 
 
+# --- bug reports ---------------------------------------------------------------------------------------------
+REPO = "https://github.com/DrummingBird1/gow-psp-recomp"
+
+
+def logs_dir():
+    """The folder with the game logs and recorded input (build/), opened by "Open logs folder"."""
+    return ROOT / "build"
+
+
+def _ps(command):
+    try:
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", command], capture_output=True, text=True, timeout=30,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return r.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def pc_info():
+    """A few lines about this PC for a bug report: Windows, CPU, GPU and driver, memory, displays. Nothing personal."""
+    import platform
+    lines = [f"launcher: {VERSION}{' (exe)' if FROZEN else ' (source)'}", f"os: {platform.platform()}",
+             f"python: {platform.python_version()}"]
+    if os.name == "nt":
+        lines.append("cpu: " + _ps("(Get-CimInstance Win32_Processor).Name -join '; '"))
+        lines.append("gpu: " + _ps("(Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name + ' (driver ' + "
+                                   "$_.DriverVersion + ')' }) -join '; '"))
+        lines.append("ram GB: " + _ps("[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB)"))
+        lines.append("displays: " + _ps("(Get-CimInstance Win32_VideoController | Where-Object CurrentHorizontalResolution | "
+                                        "ForEach-Object { '' + $_.CurrentHorizontalResolution + 'x' + $_.CurrentVerticalResolution + "
+                                        "' @' + $_.CurrentRefreshRate + ' Hz' }) -join '; '"))
+    return "\n".join(lines)
+
+
+def report_settings(cfg):
+    """The settings without paths: disc images by file name only, the rest of the folder layout left out."""
+    import re as _re
+
+    def strip(v):
+        if isinstance(v, dict):
+            return {k: strip(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [strip(x) for x in v]
+        if isinstance(v, str) and _re.match(r"^([A-Za-z]:[\\/]|\\\\|/)", v):
+            return Path(v).name  # an absolute path: only the file name
+        return v
+    out = strip(dict(cfg))
+    for k in ("game_folder", "texture_pack"):
+        if cfg.get(k):
+            out[k] = "(set)"
+    out.pop("geometry", None)
+    return out
+
+
+def make_bug_report(cfg, game, launcher_log=()):
+    """Zips what a bug report needs into build/bug_reports/: the last Play's log and recorded input, the settings
+    (no paths), PC info and the launcher's log. Never game files: no disc image, EBOOT, generated C, saves or
+    screenshots. Returns the zip's path."""
+    import time
+    import zipfile
+    d = ROOT / "build" / "bug_reports"
+    d.mkdir(parents=True, exist_ok=True)
+    z = d / f"gow_bug_{game}_{time.strftime('%Y%m%d_%H%M%S')}.zip"
+    with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as f:
+        for p in (game_log(game), game_input_log(game)):
+            if p.exists():
+                f.write(p, p.name)
+        f.writestr("settings.json", json.dumps(report_settings(cfg), indent=1))
+        f.writestr("pc_info.txt", pc_info() + "\n")
+        if launcher_log:
+            f.writestr("launcher_log.txt", "\n".join(launcher_log) + "\n")
+        f.writestr("README.txt", "God of War PSP native port: bug report. The game's log and recorded button presses of the "
+                   "last Play, the launcher settings (no paths), PC info. No game files.\n")
+    return z
+
+
+def new_issue_url(game, info=""):
+    from urllib.parse import urlencode
+    q = {"template": "bug_report.yml", "game": {"coo": "Chains of Olympus", "gos": "Ghost of Sparta"}.get(game, "Launcher only"),
+         "version": f"v{VERSION}", "settings": info[:1500]}
+    return f"{REPO}/issues/new?{urlencode(q)}"
+
+
 def gui():
     import launcher_qt
     launcher_qt.run(sys.modules[__name__])

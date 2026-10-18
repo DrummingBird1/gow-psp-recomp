@@ -33,7 +33,9 @@ body:
     attributes:
       label: Log and recorded input
       description: |
-        Right after the bug, attach `GoW_PSP_data\build\launcher_coo.log` and `launcher_coo_input.txt`
+        Right after the bug, press **Report a bug** in the launcher and drag the zip it makes in here (it holds the
+        log, your button presses, settings and PC info; no game files). Or attach
+        `GoW_PSP_data\build\launcher_coo.log` and `launcher_coo_input.txt`
         (`launcher_gos.*` for Ghost of Sparta). The next Play overwrites them. They only hold the game's log and
         your button presses. Say whether you started a new game or loaded a save. From the command line, use
         `--record-input input.txt` instead.
