@@ -86,7 +86,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
 #define DISP_H 272
 #define MAX_TARGETS 64
 #define MAX_PIPELINES 512
-#define MAX_SAMPLERS 256
+#define MAX_SAMPLERS 1024
 #define MAX_SNAPS 512
 #define TEX_SLOTS 16384  /* power of two */
 #define F_SRCFIX 128u
@@ -150,6 +150,7 @@ static int g_hdr_out;  /* 0 SDR, 1 scRGB, 2 HDR10 */
 static float g_paper = 200.0f, g_peak = 1000.0f;
 static Samp g_samps[MAX_SAMPLERS];
 static int g_nsamps;
+static int g_samp_overflow, g_samp_failed, g_aniso_failed;  /* sampler problems, reported once and at exit */
 static SDL_GPUSampler *g_point, *g_linear;  /* full-screen passes */
 static SDL_GPUTexture *g_white;  /* bound for untextured draws */
 static Target g_targets[MAX_TARGETS];
@@ -381,6 +382,13 @@ int rt_gpu_init(void *window, const char *driver) {
     pack_index();
     printf("[gpu] SDL GPU device: %s, %s shaders%s\n", SDL_GetGPUDeviceDriver(g_dev),
            use == SDL_GPU_SHADERFORMAT_SPIRV ? "SPIR-V" : "DXIL", window ? "" : " (headless)");
+    {
+        SDL_PropertiesID p = SDL_GetGPUDeviceProperties(g_dev);  /* for bug reports: which GPU and driver */
+        printf("[gpu] adapter: %s; driver: %s %s\n", SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_NAME_STRING, "?"),
+               SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_DRIVER_NAME_STRING, ""),
+               SDL_GetStringProperty(p, SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING, ""));
+        fflush(stdout);
+    }
     if (g_scale > 1 || g_samples > 1 || o->aniso > 1 || o->lod_bias != 0 || o->fxaa || o->sharpen > 0)
         printf("[gpu] internal resolution %dx (%dx%d), effects %dx, MSAA %dx, anisotropic filtering %dx, LOD bias %+.2f, FXAA %s, "
                "sharpening %.2f\n",
@@ -906,8 +914,10 @@ static void post_pass(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *dst, SDL_GPUTex
  * sampling, so that they look as at 1x and do not take in the texels next to them. */
 static SDL_GPUSampler *sampler_for(const GpuDraw *d) {
     int levels = d->textured && d->levels > 1 ? d->levels : 1;
-    int aniso = rt_gpu_opt.aniso > 1 && d->textured && !d->through && !d->tex_target && d->minf && d->magf;
     int nearest = g_scale > 1 && d->pixel_mapped && !d->tex_target;
+    /* anisotropy only with linear filtering (some drivers fail on anisotropic point sampling), and
+     * not after a driver refused an anisotropic sampler once (g_aniso_failed) */
+    int aniso = rt_gpu_opt.aniso > 1 && !g_aniso_failed && d->textured && !d->through && !d->tex_target && d->minf && d->magf && !nearest;
     uint32_t key = (uint32_t)(d->minf & 1) | (uint32_t)(d->magf & 1) << 1 | (uint32_t)(d->mipf & 1) << 2 |
                    (uint32_t)(d->clampS & 1) << 3 | (uint32_t)(d->clampT & 1) << 4 | (uint32_t)(d->lodmode & 3) << 5 |
                    (uint32_t)(d->lodoff & 0x3FF) << 7 | (uint32_t)(levels - 1) << 17 | (uint32_t)aniso << 22 | (uint32_t)nearest << 23;
@@ -926,19 +936,38 @@ static SDL_GPUSampler *sampler_for(const GpuDraw *d) {
         float l = off < 0 ? 0 : off > top ? top : off;
         si.min_lod = si.max_lod = l;
     } else {
-        si.mip_lod_bias = off + (levels > 1 ? rt_gpu_opt.lod_bias : 0.0f);
+        float bias = off + (levels > 1 ? rt_gpu_opt.lod_bias : 0.0f);
+        si.mip_lod_bias = bias < -15.99f ? -15.99f : bias > 15.99f ? 15.99f : bias;  /* the D3D12 / Vulkan limits */
         si.min_lod = 0;
         si.max_lod = top;
     }
     if (aniso) {
         si.enable_anisotropy = true;
         si.max_anisotropy = (float)(rt_gpu_opt.aniso > 16 ? 16 : rt_gpu_opt.aniso);
+        si.min_filter = si.mag_filter = SDL_GPU_FILTER_LINEAR;
+        si.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+    }
+    if (g_nsamps >= MAX_SAMPLERS) {
+        /* never create samplers without bound (drivers have a limited sampler heap): use a shared one */
+        if (!g_samp_overflow++) fprintf(stderr, "[gpu] more than %d sampler kinds: using a plain linear sampler for the rest\n", MAX_SAMPLERS);
+        return g_linear;
     }
     SDL_GPUSampler *s = SDL_CreateGPUSampler(g_dev, &si);
-    if (g_nsamps < MAX_SAMPLERS) {
-        g_samps[g_nsamps].key = key;
-        g_samps[g_nsamps++].s = s;
+    if (!s && aniso) {
+        /* the driver refused anisotropic filtering: carry on without it rather than crash */
+        fprintf(stderr, "[gpu] the driver refused an anisotropic sampler (%dx): %s; anisotropic filtering is off from here\n",
+                rt_gpu_opt.aniso, SDL_GetError());
+        g_aniso_failed = 1;
+        si.enable_anisotropy = false;
+        si.max_anisotropy = 0;
+        s = SDL_CreateGPUSampler(g_dev, &si);
     }
+    if (!s) {
+        if (!g_samp_failed++) fprintf(stderr, "[gpu] SDL_CreateGPUSampler failed: %s; using a plain linear sampler\n", SDL_GetError());
+        return g_linear;
+    }
+    g_samps[g_nsamps].key = key;
+    g_samps[g_nsamps++].s = s;
     return s;
 }
 
@@ -1955,6 +1984,8 @@ void rt_gpu_shutdown(void) {
     for (int i = 0; i < g_nrelease; i++) SDL_ReleaseGPUTexture(g_dev, g_release[i]);
     for (int i = 0; i < g_npipes; i++) if (g_pipes[i].p) SDL_ReleaseGPUGraphicsPipeline(g_dev, g_pipes[i].p);
     for (int i = 0; i < g_nppipes; i++) if (g_ppipes[i].p) SDL_ReleaseGPUGraphicsPipeline(g_dev, g_ppipes[i].p);
+    printf("[gpu] %d samplers%s%s\n", g_nsamps, g_samp_overflow ? " (cache full: some draws used a plain sampler)" : "",
+           g_aniso_failed ? "; anisotropic filtering was refused by the driver and turned off" : "");
     for (int i = 0; i < g_nsamps; i++) SDL_ReleaseGPUSampler(g_dev, g_samps[i].s);
     g_nsamps = g_nsnaps = g_ntargets = g_nrelease = g_npipes = g_nppipes = 0;
     if (g_rb) SDL_ReleaseGPUTexture(g_dev, g_rb);
