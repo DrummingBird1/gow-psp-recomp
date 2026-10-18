@@ -50,7 +50,7 @@ GAMES = {
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
-    "window_scale": 2, "texture_pack": "", "texture_dump": False, "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -180,6 +180,8 @@ def play_command(cfg, game):
     if cfg["mute"]:
         cmd.append("--mute")
     if cfg["renderer"] == "gpu":
+        if cfg.get("gpu_api") in ("direct3d12", "vulkan"):
+            cmd += ["--gpu-driver", cfg["gpu_api"]]
         if cfg["res_scale"] > 1:
             cmd += ["--res-scale", str(cfg["res_scale"])]
         if cfg["fx_scale"]:
@@ -453,6 +455,16 @@ def start_game(cfg, game):
 def game_log(game):
     """What the game printed during the last Play (build/launcher_<game>.log)."""
     return ROOT / "build" / f"launcher_{game}.log"
+
+
+def crash_summary(game):
+    """The lines of the last Play's log that say why it stopped early ([crash], GPU or SDL errors), at most 6."""
+    try:
+        lines = game_log(game).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return []
+    keys = ("[crash]", "SDL_CreateGPUDevice", "refused", "SDL_Init", "SDL_CreateWindow", "failed", "cannot")
+    return [l for l in lines if any(k in l for k in keys)][-6:]
 
 
 def game_input_log(game):

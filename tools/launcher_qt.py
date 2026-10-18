@@ -47,6 +47,7 @@ WINDOW = [("x1 480x272", 1), ("x2 960x544", 2), ("x3 1440x816", 3), ("x4 1920x10
 RENDERER = [("Hardware", "gpu"), ("Software (accurate, slow)", "soft")]
 FX = [("Match resolution", 0), ("Original glow", 1)]
 ANISO = [("Off", 1), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
+GPU_API = [("Auto (Direct3D 12)", ""), ("Direct3D 12", "direct3d12"), ("Vulkan", "vulkan")]
 
 
 def label_of(table, value):
@@ -868,7 +869,7 @@ class Window(QWidget):
         a.setContentsMargins(0, 6, 0, 0)
         a.setColumnStretch(1, 1)
         arows = [("Renderer", "renderer", RENDERER, c["renderer"]), ("Effects resolution", "fx", FX, 1 if int(c["fx_scale"]) == 1 else 0),
-                 ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"]))]
+                 ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"])), ("Graphics API", "api", GPU_API, c.get("gpu_api", ""))]
         for i, (lab, key, table, val) in enumerate(arows):
             a.addWidget(QLabel(lab), i, 0)
             cb = QComboBox()
@@ -877,7 +878,9 @@ class Window(QWidget):
             cb.currentTextChanged.connect(self.on_option)
             a.addWidget(cb, i, 1)
             self.combo[key] = (cb, table)
-        a.addWidget(QLabel("Sharpening"), 3, 0)
+        self.combo["api"][0].setToolTip("Which graphics API the Hardware renderer uses. If the game crashes or draws wrongly "
+                                        "on your graphics card, try the other one.")
+        a.addWidget(QLabel("Sharpening"), 4, 0)
         sh = QHBoxLayout()
         self.sharpen = QSlider(Qt.Orientation.Horizontal)
         self.sharpen.setRange(0, 100)
@@ -887,8 +890,8 @@ class Window(QWidget):
         self.sharpen.valueChanged.connect(lambda x: (self.sharpen_lbl.setText(f"{x / 100:.2f}"), self.on_option()))
         sh.addWidget(self.sharpen, 1)
         sh.addWidget(self.sharpen_lbl)
-        a.addLayout(sh, 3, 1)
-        r = 4
+        a.addLayout(sh, 4, 1)
+        r = 5
         for key, text in (("vsync", "V-Sync"), ("mute", "Mute")):
             ch = QCheckBox(text)
             ch.setChecked(bool(c[key]))
@@ -1035,6 +1038,7 @@ class Window(QWidget):
         c["msaa"], c["fxaa"] = get("aa")
         c["fps"], c["aspect"], c["hdr"], c["window_scale"] = get("fps"), get("aspect"), get("hdr"), get("window")
         c["renderer"], c["fx_scale"], c["aniso"] = get("renderer"), get("fx"), get("aniso")
+        c["gpu_api"] = get("api")
         c["sharpen"] = round(self.sharpen.value() / 100, 2)
         for k, ch in self.chk.items():
             c[k] = ch.isChecked()
@@ -1323,6 +1327,35 @@ class Window(QWidget):
             self.timer.start(FRAME_MS)
         self.cache_dirty = True
         self.refresh()
+        if code:
+            self.game_failed(code)
+
+    def game_failed(self, code):
+        """The game stopped with an error or crashed: say so, show why (from its log) and offer what may help."""
+        g = self.cfg.get("game", "coo")
+        why = self.L.crash_summary(g)
+        for line in why:
+            self.log("game log: " + line)
+        text = f"{self.L.GAMES[g]['title']} closed unexpectedly (exit code {code & 0xFFFFFFFF:#x})."
+        if why:
+            text += "\n\nFrom its log:\n" + "\n".join(why)
+        box = QMessageBox(QMessageBox.Icon.Warning, "The game closed", text, parent=self)
+        b_aniso = b_api = None
+        if self.cfg.get("renderer") == "gpu" and int(self.cfg.get("aniso", 1)) > 1:
+            b_aniso = box.addButton("Turn off anisotropic filtering", QMessageBox.ButtonRole.AcceptRole)
+        elif self.cfg.get("renderer") == "gpu":
+            b_api = box.addButton("Try " + ("Direct3D 12" if self.cfg.get("gpu_api") == "vulkan" else "Vulkan"),
+                                  QMessageBox.ButtonRole.AcceptRole)
+        b_log = box.addButton("Open the log", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        hit = box.clickedButton()
+        if hit is b_aniso:
+            self.combo["aniso"][0].setCurrentText(label_of(ANISO, 1))
+        elif hit is b_api:
+            self.combo["api"][0].setCurrentText(label_of(GPU_API, "direct3d12" if self.cfg.get("gpu_api") == "vulkan" else "vulkan"))
+        elif hit is b_log:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.L.game_log(g))))
 
     def open_license(self):
         f = self.L.ROOT / "LICENSE"
