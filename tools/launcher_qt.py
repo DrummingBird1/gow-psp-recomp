@@ -852,6 +852,8 @@ class Window(QWidget):
             grid.addWidget(cb, i, 1)
             self.combo[key] = (cb, table)
         v.addLayout(grid)
+        self.combo["fps"][0].setToolTip("Above 60 the game runs smoother if your PC holds that rate every frame. If it can't, "
+                                        "the game skips ahead to keep time and the sound gets choppy: go back to 60.")
         self.chk = {}
         for key, text in (("fullscreen", "Fullscreen"),):
             ch = QCheckBox(text)
@@ -1081,9 +1083,8 @@ class Window(QWidget):
         self.apply_preset("High" if discrete else "Balanced")
         self.applying = True
         self.combo["hdr"][0].setCurrentText("Auto")
-        if hz >= 120:
-            best = max((v for _, v in FPS if v <= hz and v != 1000), default=60)
-            self.combo["fps"][0].setCurrentText(label_of(FPS, best))
+        # the frame rate stays at the original 60 even on a high-refresh display: above 60, a PC that can't hold the
+        # rate makes the game skip ahead, which costs sound (issue #3); players can raise it themselves
         self.applying = False
         self.collect()
 

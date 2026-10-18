@@ -45,6 +45,13 @@ Download the new ZIP and extract it over the old `GoW_PSP` folder (or copy the n
 - The launcher minimizes itself while a game runs; if you restored it, minimize it again.
 - V-Sync on gives the most even frame pacing on a 60 Hz display.
 
+## The sound is choppy, but the music plays fine
+
+This comes from a frame rate above 60 that the PC can't hold every frame: the game then skips ahead to keep time,
+and a sound channel can run dry for a moment. Since this version the skips leave the sound alone as far as they can,
+but the cure is **Frame rate: 60 (original)** in Options, or a lower preset. The game log reports `dropouts per
+channel` and `virtual-time skips` when the game closes; include it in a bug report.
+
 ## My texture pack does nothing
 
 **PPSSPP texture packs don't work here.** PPSSPP names each replacement by its own texture hash (listed in
