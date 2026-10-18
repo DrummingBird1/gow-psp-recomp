@@ -173,8 +173,19 @@ static void boot_report(void) {
 
 #ifdef _WIN32
 static LPTOP_LEVEL_EXCEPTION_FILTER g_prev_filter;
+/* A crash (also inside a graphics or sound driver) leaves a line in the log, which the launcher
+ * writes to a file: otherwise the buffered output would be lost and a bug report would show nothing. */
 static LONG WINAPI on_crash(EXCEPTION_POINTERS *e) {
     rt_host_record_close();
+    char mod[MAX_PATH] = "?";
+    HMODULE hm = NULL;
+    void *addr = e && e->ExceptionRecord ? e->ExceptionRecord->ExceptionAddress : NULL;
+    if (addr && GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   (LPCSTR)addr, &hm))
+        GetModuleFileNameA(hm, mod, sizeof(mod));
+    const char *base = strrchr(mod, '\\');
+    printf("[crash] exception %08lX at %p (%s+%llX)\n", e && e->ExceptionRecord ? (unsigned long)e->ExceptionRecord->ExceptionCode : 0ul,
+           addr, base ? base + 1 : mod, (unsigned long long)((char *)addr - (char *)hm));
     fflush(NULL);
     return g_prev_filter ? g_prev_filter(e) : EXCEPTION_CONTINUE_SEARCH;
 }
@@ -195,10 +206,10 @@ static int run_boot(const BootOptions *o) {
     memcpy(rt_ptr(argp), path, sizeof(path));
     KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
     k_thread_start(t, sizeof(path), argp);
-    if (!rt_host_init(&o->host)) return 1;
 #ifdef _WIN32
-    if (o->host.record_input) g_prev_filter = SetUnhandledExceptionFilter(on_crash);
+    g_prev_filter = SetUnhandledExceptionFilter(on_crash);  /* before the window and GPU start: drivers crash there too */
 #endif
+    if (!rt_host_init(&o->host)) return 1;
     AudioOptions ao = { o->wav, o->host.window && !o->mute };
     if (!rt_audio_init(&ao)) return 1;
     /* An interactive window runs until it is closed, unless limits were given explicitly. */
