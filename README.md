@@ -15,7 +15,7 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 
 ![The launcher](docs/images/launcher-main.png)
 
-## Status: preview (v1.1.5)
+## Status: preview (v1.2.0)
 
 - Every level of both games loads and runs (automated tours: [phase 11](docs/phase11-level-tour.md),
   [phase 12](docs/phase12-gos-level-tour.md)).
@@ -28,7 +28,7 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 
 - Neither game has had a full playthrough yet: late levels, boss fights and endings may still have bugs.
 - Only the US releases (UCUS98653 / UCUS98737) are supported.
-- Key mapping is fixed (see [Controls](#controls)); gamepads use the PSP layout.
+- Default controls are listed under [Controls](#controls); change them with the launcher's *Controls…* button.
 - Warping into Ghost of Sparta's `scb_010_climb` at spawn point 1 (a developer option) stops after a checkpoint restart;
   a normal playthrough does not start there ([phase 12](docs/phase12-gos-level-tour.md), bug 2).
 - Some movies end on a black frame, and some Ghost of Sparta geometry clips: both look the same on a PSP and in PPSSPP.
@@ -54,7 +54,7 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 
 You only download **one file**, the launcher. No Python, no manual setup.
 
-1. Download [`GoW_PSP_Launcher-v1.1.5.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.1.5.zip)
+1. Download [`GoW_PSP_Launcher-v1.2.0.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.2.0.zip)
    from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
    one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`.
    Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
@@ -71,9 +71,9 @@ You only download **one file**, the launcher. No Python, no manual setup.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
 > "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
-> PyInstaller programs as a false positive. Check that your download is the real one (v1.1.5 SHA-256):
-> - `GoW_PSP_Launcher-v1.1.5.zip`: `bd2d3520b3cab06c01565db8b3e06d99c625a2db802d1bae6561ccf2e82d4611`
-> - `GoW_PSP\GoWLauncher.exe`: `ab06477fec084badadb74a181e7c4daa6e1caa5e5bb35e013bae355fb778a2e1`
+> PyInstaller programs as a false positive. Check that your download is the real one (v1.2.0 SHA-256):
+> - `GoW_PSP_Launcher-v1.2.0.zip`: (SHA-256 added when v1.2.0 is published)
+> - `GoW_PSP\GoWLauncher.exe`: (added when v1.2.0 is published)
 >
 > (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
 

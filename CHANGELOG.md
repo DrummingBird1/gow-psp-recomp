@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.2.0 (unreleased)
+
+- **Fix: crash with anisotropic filtering** on some GPUs (issue #3). Filtering is only applied where it can work, the
+  sampler settings are clamped, and a GPU that refuses them gets plain filtering instead of a crash. The log names the
+  graphics adapter and driver.
+- **Crashes are always logged** with the module and offset, and the launcher says why the game closed and offers a
+  fix (turn off anisotropic filtering, try the other graphics API, open the log, report a bug).
+- **Graphics API option** in the launcher: Auto, Direct3D 12 or Vulkan.
+- **Fix: choppy sound at high frame rates** (issue #4). Skipped time is capped so sound that is playing stays whole;
+  the starting preset keeps 60 FPS, and the FPS setting says what a higher rate costs. Remaining dropouts are logged.
+- **Texture packs:** the launcher shows whether a pack matches the game and warns about PPSSPP packs, which use a
+  different format (issue #5); a *Dump textures* option writes the game's textures as a starting point.
+- **Controls page:** rebind keyboard keys and gamepad buttons in the launcher (`--controls FILE` for the game).
+  The mouse pointer hides in fullscreen after 2 seconds.
+- **Settings check:** out-of-range or broken settings are reset to defaults with a note, instead of failing.
+- **Report a bug / Open logs folder:** collects the logs, input recording and PC details (no file paths) into a ZIP
+  and opens a prefilled GitHub issue. Play records the input to `GoW_PSP_data\build` for bug reports.
+- **Add to Steam / Create desktop shortcut** per game, with the game's icon.
+- **Launcher self-update:** checks GitHub at start (opt-out in Advanced, or skip a version), shows what's new,
+  downloads the ZIP, checks it against `SHA256SUMS.txt` and restarts. `GoW_PSP_data` and settings stay as they are.
+- **Build progress** shows the real step count and the elapsed time.
+
 ## v1.1.5 (2026-10-17)
 
 The number jumps from 1.1.0 to 1.1.5 on purpose: this release started as the v1.1.1 Git fix, which was never
