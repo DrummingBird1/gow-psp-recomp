@@ -21,7 +21,7 @@ from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoi
                             QTimer, QUrl, Signal, Property)
 from PySide6.QtGui import (QIcon, QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QLinearGradient,
                            QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QRegion, QShortcut)
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QGraphicsDropShadowEffect,
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsDropShadowEffect,
                                QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QVBoxLayout, QWidget)
 
@@ -350,6 +350,172 @@ class Progress(QWidget):
         p.drawText(r, Qt.AlignmentFlag.AlignCenter, self.text)
 
 
+# Qt key -> SDL key name (what --controls reads); keys not listed can't be bound
+def sdl_key_name(e):
+    k = e.key()
+    if Qt.Key.Key_A <= k <= Qt.Key.Key_Z or Qt.Key.Key_0 <= k <= Qt.Key.Key_9:
+        return chr(k)
+    if Qt.Key.Key_F1 <= k <= Qt.Key.Key_F10:
+        return f"F{k - Qt.Key.Key_F1 + 1}"
+    nat = e.nativeVirtualKey()
+    if k == Qt.Key.Key_Shift:
+        return "Right Shift" if nat == 0xA1 or e.nativeScanCode() == 0x36 else "Left Shift"
+    if k == Qt.Key.Key_Control:
+        return "Right Ctrl" if e.nativeScanCode() & 0x100 else "Left Ctrl"
+    if k == Qt.Key.Key_Alt:
+        return "Left Alt"
+    names = {Qt.Key.Key_Up: "Up", Qt.Key.Key_Down: "Down", Qt.Key.Key_Left: "Left", Qt.Key.Key_Right: "Right",
+             Qt.Key.Key_Space: "Space", Qt.Key.Key_Return: "Return", Qt.Key.Key_Enter: "Keypad Enter",
+             Qt.Key.Key_Tab: "Tab", Qt.Key.Key_Backspace: "Backspace", Qt.Key.Key_Comma: ",", Qt.Key.Key_Period: ".",
+             Qt.Key.Key_Slash: "/", Qt.Key.Key_Semicolon: ";", Qt.Key.Key_Apostrophe: "'", Qt.Key.Key_BracketLeft: "[",
+             Qt.Key.Key_BracketRight: "]", Qt.Key.Key_Minus: "-", Qt.Key.Key_Equal: "=", Qt.Key.Key_Escape: "Escape",
+             Qt.Key.Key_F11: "F11", Qt.Key.Key_F12: "F12", Qt.Key.Key_Insert: "Insert", Qt.Key.Key_Delete: "Delete",
+             Qt.Key.Key_Home: "Home", Qt.Key.Key_End: "End", Qt.Key.Key_PageUp: "PageUp", Qt.Key.Key_PageDown: "PageDown"}
+    return names.get(k)
+
+
+PSP_LABELS = [("up", "D-pad up"), ("down", "D-pad down"), ("left", "D-pad left"), ("right", "D-pad right"),
+              ("cross", "Cross \u2715"), ("circle", "Circle \u25cb"), ("square", "Square \u25a1"), ("triangle", "Triangle \u25b3"),
+              ("l", "L"), ("r", "R"), ("start", "Start"), ("select", "Select"), ("stick_up", "Stick up (keyboard)"),
+              ("stick_down", "Stick down (keyboard)"), ("stick_left", "Stick left (keyboard)"), ("stick_right", "Stick right (keyboard)")]
+PAD_LABELS = [("(none)", ""), ("A / Cross", "a"), ("B / Circle", "b"), ("X / Square", "x"), ("Y / Triangle", "y"),
+              ("LB / L1", "leftshoulder"), ("RB / R1", "rightshoulder"), ("LT / L2", "lefttrigger"), ("RT / R2", "righttrigger"),
+              ("Back / Share", "back"), ("Start / Options", "start"), ("D-pad up", "dpup"), ("D-pad down", "dpdown"),
+              ("D-pad left", "dpleft"), ("D-pad right", "dpright"), ("Left stick click", "leftstick"), ("Right stick click", "rightstick")]
+
+
+class KeyButton(QPushButton):
+    """Shows a key; click it, then press the new key (Backspace alone clears it, Esc cancels)."""
+    changed = Signal()
+
+    def __init__(self, key):
+        super().__init__(key or "\u2014")
+        self.key = key
+        self.waiting = False
+        self.setMinimumWidth(110)
+        self.clicked.connect(self.listen)
+
+    def listen(self):
+        self.waiting = True
+        self.setText("press a key\u2026")
+        self.grabKeyboard()
+
+    def keyPressEvent(self, e):
+        if not self.waiting:
+            return super().keyPressEvent(e)
+        self.waiting = False
+        self.releaseKeyboard()
+        name = sdl_key_name(e)
+        if e.key() == Qt.Key.Key_Escape:
+            pass
+        elif e.key() == Qt.Key.Key_Backspace:
+            self.key = ""
+        elif name and name not in ("Escape", "F11", "F12"):
+            self.key = name
+        self.setText(self.key or "\u2014")
+        self.changed.emit()
+
+    def focusOutEvent(self, e):
+        if self.waiting:
+            self.waiting = False
+            self.releaseKeyboard()
+            self.setText(self.key or "\u2014")
+        super().focusOutEvent(e)
+
+
+class ControlsDialog(QDialog):
+    """Keyboard and gamepad bindings per PSP button: two keys and two gamepad buttons each. Saved in the launcher
+    settings and passed to the game as --controls."""
+
+    def __init__(self, win):
+        super().__init__(win)
+        self.win, self.L = win, win.L
+        self.setWindowTitle("Controls")
+        self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
+        v = QVBoxLayout(self)
+        l = QLabel("Click a key box, then press the key (Backspace clears it). Esc, F11, F12 and Alt+F4 stay fixed; "
+                   "Enter/Space/click/Start still skip movies. The gamepad's left stick is always the PSP stick.")
+        l.setObjectName("dim")
+        l.setWordWrap(True)
+        v.addWidget(l)
+        grid = QGridLayout()
+        for c, t in enumerate(("PSP button", "Key", "Key 2", "Gamepad", "Gamepad 2")):
+            h = QLabel(t)
+            h.setObjectName("head")
+            grid.addWidget(h, 0, c)
+        self.rows = {}
+        cur = self.L.controls_of(win.cfg)
+        for r, (b, label) in enumerate(PSP_LABELS, 1):
+            keys, pads = cur[b]
+            grid.addWidget(QLabel(label), r, 0)
+            kb = [KeyButton(keys[i] if i < len(keys) else "") for i in range(2)]
+            for i, w in enumerate(kb):
+                w.changed.connect(self.check)
+                grid.addWidget(w, r, 1 + i)
+            pc = []
+            for i in range(2):
+                cb = QComboBox()
+                cb.setMinimumWidth(150)
+                cb.addItems([t for t, _ in PAD_LABELS])
+                cb.setCurrentText(label_of(PAD_LABELS, pads[i] if i < len(pads) else ""))
+                cb.setEnabled(not b.startswith("stick"))
+                cb.currentTextChanged.connect(self.check)
+                grid.addWidget(cb, r, 3 + i)
+                pc.append(cb)
+            self.rows[b] = (kb, pc)
+        v.addLayout(grid)
+        self.warn = QLabel("")
+        self.warn.setWordWrap(True)
+        self.warn.setStyleSheet(f"color: {GOLD};")
+        v.addWidget(self.warn)
+        h = QHBoxLayout()
+        b = QPushButton("Defaults")
+        b.clicked.connect(self.defaults)
+        h.addWidget(b)
+        h.addStretch()
+        self.ok = QPushButton("Save")
+        self.ok.clicked.connect(self.save)
+        h.addWidget(self.ok)
+        b = QPushButton("Cancel")
+        b.clicked.connect(self.reject)
+        h.addWidget(b)
+        v.addLayout(h)
+        self.check()
+
+    def current(self):
+        out = {}
+        for b, (kb, pc) in self.rows.items():
+            keys = [w.key for w in kb if w.key]
+            pads = [value_of(PAD_LABELS, cb.currentText()) for cb in pc]
+            out[b] = (keys, [p for p in pads if p])
+        return out
+
+    def check(self):
+        probs = self.L.controls_problems(self.current())
+        self.warn.setText("\n".join(probs[:6]))
+        self.ok.setEnabled(not any("reserved" in p for p in probs))
+
+    def defaults(self):
+        for b, (kb, pc) in self.rows.items():
+            keys, pads = self.L.CONTROLS[b]
+            for i, w in enumerate(kb):
+                w.key = keys[i] if i < len(keys) else ""
+                w.setText(w.key or "\u2014")
+            for i, cb in enumerate(pc):
+                cb.setCurrentText(label_of(PAD_LABELS, pads[i] if i < len(pads) else ""))
+        self.check()
+
+    def save(self):
+        cur = self.current()
+        dflt = {b: (list(k), list(p)) for b, (k, p) in self.L.CONTROLS.items()}
+        # only what differs from the defaults is stored (the 3rd+ default entries, e.g. RT, count as changed
+        # when a row is edited: the dialog shows two per column)
+        self.win.cfg["controls"] = {b: {"keys": k, "pad": p} for b, (k, p) in cur.items()
+                                    if (k, p) != tuple(dflt[b]) and (k, p) != (dflt[b][0][:2], dflt[b][1][:2])}
+        self.win.collect()
+        self.accept()
+
+
 class Window(QWidget):
     def __init__(self, L):
         super().__init__()
@@ -380,6 +546,8 @@ class Window(QWidget):
         if not self.cfg.get("preset"):
             self.auto_preset()
         self.load_found_discs()
+        for fix in self.cfg.get("_fixed", []):
+            self.log(f"settings: invalid value reset: {fix}")
         self.timer = QTimer(self)
         self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self.tick)
@@ -938,6 +1106,10 @@ class Window(QWidget):
         ch.toggled.connect(self.on_option)
         a.addWidget(ch, r + 3, 0, 1, 2)
         self.chk["texture_dump"] = ch
+        cb = QPushButton("Controls\u2026")
+        cb.setToolTip("Keyboard and gamepad bindings")
+        cb.clicked.connect(lambda: ControlsDialog(self).exec())
+        a.addWidget(cb, r + 5, 0, 1, 2)
         self.rm = QCheckBox("Reduce motion (launcher animations)")
         self.rm.setChecked(self.reduce_motion)
         self.rm.toggled.connect(self.set_reduce_motion)

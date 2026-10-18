@@ -54,7 +54,110 @@ DEFAULTS = {
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
-        "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, Esc = quit. Gamepads: PSP layout.")
+        "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, Esc = quit. Gamepads: PSP layout. "
+        "Change them in Options > Controls.")
+
+
+# --- controls ---------------------------------------------------------------------------------------------------
+# PSP button -> (keys, gamepad buttons), in SDL names; the runtime's defaults (runtime/rt_host.c, --controls).
+CONTROLS = {
+    "up": (["Up"], ["dpup"]), "down": (["Down"], ["dpdown"]), "left": (["Left"], ["dpleft"]), "right": (["Right"], ["dpright"]),
+    "cross": (["Z"], ["a"]), "circle": (["X"], ["b"]), "square": (["A"], ["x"]), "triangle": (["S"], ["y"]),
+    "l": (["Q"], ["leftshoulder", "lefttrigger"]), "r": (["W"], ["rightshoulder", "righttrigger"]),
+    "start": (["Space", "Return"], ["start"]), "select": (["V"], ["back"]),
+    "stick_up": (["I"], []), "stick_down": (["K"], []), "stick_left": (["J"], []), "stick_right": (["L"], []),
+}
+PAD_BUTTONS = ["a", "b", "x", "y", "leftshoulder", "rightshoulder", "lefttrigger", "righttrigger", "back", "start",
+               "dpup", "dpdown", "dpleft", "dpright", "leftstick", "rightstick"]
+RESERVED_KEYS = {"Escape", "F11", "F12", "F4"}  # quit box, fullscreen, screenshot, Alt+F4
+
+
+def controls_of(cfg):
+    """{button: (keys, pads)}: the defaults with the player's changes."""
+    out = {b: (list(k), list(p)) for b, (k, p) in CONTROLS.items()}
+    for b, v in (cfg.get("controls") or {}).items():
+        if b in out and isinstance(v, dict):
+            out[b] = ([str(x) for x in v.get("keys", [])][:4], [x for x in v.get("pad", []) if x in PAD_BUTTONS][:4])
+    return out
+
+
+def controls_problems(controls):
+    """Warnings about a set of bindings: a key or gamepad button on two PSP buttons, a reserved key, a button with
+    nothing on it."""
+    out, seen_k, seen_p = [], {}, {}
+    for b, (keys, pads) in controls.items():
+        if not keys and not pads:
+            out.append(f"{b}: nothing assigned")
+        for k in keys:
+            if k in RESERVED_KEYS:
+                out.append(f"{k} is reserved (Esc quit box, F11 fullscreen, F12 screenshot, Alt+F4)")
+            elif k in seen_k:
+                out.append(f"key {k} is on both {seen_k[k]} and {b}")
+            seen_k.setdefault(k, b)
+        for p in pads:
+            if p in seen_p and not (b.startswith("stick") or seen_p[p].startswith("stick")):
+                out.append(f"gamepad {p} is on both {seen_p[p]} and {b}")
+            seen_p.setdefault(p, b)
+    return out
+
+
+def write_controls(cfg):
+    """build/controls.ini for --controls when the player changed any binding, else None (the runtime's defaults)."""
+    if not cfg.get("controls"):
+        return None
+    f = ROOT / "build" / "controls.ini"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# written by the launcher (Options > Controls); see runtime/rt_host.c, --controls"]
+    for b, (keys, pads) in controls_of(cfg).items():
+        lines.append(f"{b} = " + ", ".join(keys + [f"pad:{p}" for p in pads]))
+    f.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return f
+
+
+# --- settings ---------------------------------------------------------------------------------------------------
+ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
+           "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan")}
+BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion")
+
+
+def validate_config(cfg):
+    """Puts any setting outside what the options offer (a hand-edited or damaged launcher.json) back to its default;
+    returns what was changed."""
+    fixed = []
+    for k, allowed in ALLOWED.items():
+        v = cfg.get(k, DEFAULTS.get(k))
+        if isinstance(allowed[0], int):
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                v = None
+        if v not in allowed:
+            fixed.append(f"{k}={cfg.get(k)!r} -> {DEFAULTS.get(k, allowed[0])!r}")
+            v = DEFAULTS.get(k, allowed[0])
+        cfg[k] = v
+    for k in BOOLS:
+        if k in cfg and not isinstance(cfg[k], bool):
+            fixed.append(f"{k}={cfg[k]!r} -> {bool(cfg[k])}")
+            cfg[k] = bool(cfg[k])
+    try:
+        s = float(cfg.get("sharpen", 0.0))
+    except (TypeError, ValueError):
+        s = -1
+    if not 0.0 <= s <= 1.0:
+        fixed.append(f"sharpen={cfg.get('sharpen')!r} -> 0.0")
+        s = 0.0
+    cfg["sharpen"] = s
+    if not isinstance(cfg.get("disc"), dict):
+        fixed.append("disc -> {}")
+        cfg["disc"] = {}
+    if cfg.get("game") not in GAMES:
+        fixed.append(f"game={cfg.get('game')!r} -> 'coo'")
+        cfg["game"] = "coo"
+    if cfg.get("controls") is not None and not isinstance(cfg.get("controls"), dict):
+        fixed.append("controls -> defaults")
+        cfg["controls"] = {}
+    return fixed
 
 
 def load_config():
@@ -68,12 +171,13 @@ def load_config():
         # new default (fullscreen) once; the Fullscreen option and F11 still switch back to a window.
         saved["fullscreen"], saved["settings_version"] = True, 2
     cfg.update(saved)
+    cfg["_fixed"] = validate_config(cfg)
     return cfg
 
 
 def save_config(cfg):
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
+    CONFIG.write_text(json.dumps({k: v for k, v in cfg.items() if not k.startswith("_")}, indent=1), encoding="utf-8")
 
 
 # Build folders per toolchain: the portable one (Ninja, single-config) and Visual Studio (multi-config, Release/).
@@ -206,6 +310,8 @@ def play_command(cfg, game):
             cmd += ["--texture-dump", str(texture_dump_dir(game))]
     if int(cfg["fps"]) != 60:
         cmd += ["--fps", str(cfg["fps"])]
+    if cfg.get("controls"):
+        cmd += ["--controls", str(ROOT / "build" / "controls.ini")]
     return cmd
 
 
@@ -445,6 +551,7 @@ def start_game(cfg, game):
     (ROOT / "build" / "screenshots").mkdir(parents=True, exist_ok=True)
     # gow_rt is a console program (so developers see its log in a terminal); started from here it gets no console
     # window, and its output goes to game_log(game) instead, for bug reports.
+    write_controls(cfg)
     log = open(game_log(game), "w", encoding="utf-8", errors="replace")
     # every Play also records the button presses (a few KB), so a bug report can include them without a command line
     cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game))]
@@ -518,7 +625,7 @@ def report_settings(cfg):
         if isinstance(v, str) and _re.match(r"^([A-Za-z]:[\\/]|\\\\|/)", v):
             return Path(v).name  # an absolute path: only the file name
         return v
-    out = strip(dict(cfg))
+    out = strip({k: v for k, v in cfg.items() if not k.startswith("_")})
     for k in ("game_folder", "texture_pack"):
         if cfg.get(k):
             out[k] = "(set)"
