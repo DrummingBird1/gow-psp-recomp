@@ -81,3 +81,39 @@ jobs:
           name: GoWLauncher-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
           path: build/launcher_dist/GoWLauncher.exe
           if-no-files-found: error
+
+  android-launcher-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned SDL source
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+          path: SDL
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Create a harmless native stub
+        run: |
+          printf '#include <SDL3/SDL_main.h>\\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\\n' > stub.c
+
+      - name: Generate disposable SDL Android project
+        run: |
+          python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-android-project"
+
+      - name: Integrate launcher
+        run: |
+          python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+
+      - name: Build Android debug APK
+        run: |
+          cd "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          ./gradlew --no-daemon assembleDebug
