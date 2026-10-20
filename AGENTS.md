@@ -1,6 +1,6 @@
 # Instructions for AI coding agents
 
-You are working on the user's Windows PC in `E:\AI\GoW_PSP\repo`, a static recompilation of the two PSP God of War
+You are working on the user's Windows PC in `E:\AI\projects\gow-psp-recomp`, a static recompilation of the two PSP God of War
 games into native PC ports. The user speaks Hebrew: report to them in Hebrew, briefly, and ask before anything risky.
 Read `README.md`, `docs/phase13-graphics.md` and `docs/phase14-plan.md` first.
 
@@ -20,7 +20,7 @@ with v1.0.0 (step 3). Nothing is public before step 3.
 ## Step 1: back up to a private GitHub repository (no release)
 
 The work is committed on branch `phase2/threads-and-fs`, tag `v0.1.0` is local, `gh` is logged in as DrummingBird1.
-Run these from `E:\AI\GoW_PSP\repo`, one by one, and stop if one fails:
+Run these from `E:\AI\projects\gow-psp-recomp`, one by one, and stop if one fails:
 
 ```bash
 git status --short
