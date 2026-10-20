@@ -239,6 +239,8 @@ set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 
 if(GOW_ANDROID)
   set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "main")
   set_source_files_properties(runtime/rt_main.c PROPERTIES COMPILE_DEFINITIONS "main=gow_main")
+  # Do not rely solely on toolchain predefined macros for Android-only SDL safeguards.
+  target_compile_definitions(gow_rt PRIVATE GOW_ANDROID=1)
   target_link_options(gow_rt PRIVATE -Wl,--allow-shlib-undefined)
 endif()
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")

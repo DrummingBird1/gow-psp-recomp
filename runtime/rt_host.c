@@ -292,13 +292,13 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 #ifdef GOW_HAVE_SDL
 #define SDL_MAIN_HANDLED  /* the runtime keeps its own main() */
 #include <SDL3/SDL.h>
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
 #define SDL_HideCursor() true
 #define SDL_ShowCursor() true
 #define SDL_SetWindowFullscreen(w, f) true
 #endif
 static inline bool gow_set_title(SDL_Window *w, const char *t) {
-#ifdef __ANDROID__
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
     (void)w; (void)t;
     return true;
 #else
