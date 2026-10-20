@@ -1,0 +1,49 @@
+name: android-fiber-check
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - work/android-fiber-investigation
+    paths:
+      - 'runtime/rt_android.c'
+      - 'runtime/rt_fiber.c'
+      - 'runtime/rt_host.c'
+      - 'runtime/rt_fiber.h'
+      - 'runtime/rt_internal.h'
+      - 'runtime/psp_rt.h'
+      - '.github/workflows/android-fiber-check.yml'
+
+jobs:
+  syntax-aarch64:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout port branch
+        uses: actions/checkout@v4
+        with:
+          ref: work/android-fiber-investigation
+
+      - name: Checkout pinned SDL3
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+          path: SDL
+
+      - name: Configure SDL3 headers for Android
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          cmake -S SDL -B build-sdl -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+
+      - name: Syntax-check changed runtime files for Android ARM64
+        run: |
+          set -eux
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+          INC="-Iruntime -ISDL/include -Ibuild-sdl/include"
+          "$CC" -D__ANDROID__ -D_GNU_SOURCE -std=gnu11 $INC -fsyntax-only runtime/rt_fiber.c
+          "$CC" -D__ANDROID__ -D_GNU_SOURCE -std=gnu11 $INC -fsyntax-only runtime/rt_android.c
+          "$CC" -D__ANDROID__ -D_GNU_SOURCE -std=gnu11 $INC -fsyntax-only runtime/rt_host.c
