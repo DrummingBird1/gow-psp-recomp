@@ -111,9 +111,9 @@ public final class LauncherActivity extends Activity {
         performanceToggle.setText("Mostrar HUD durante o jogo");
         performanceToggle.setTextColor(TEXT);
         performanceToggle.setButtonTintList(android.content.res.ColorStateList.valueOf(GOLD));
-        performanceToggle.setChecked(getPreferences(MODE_PRIVATE).getBoolean("performance_hud_enabled", false));
+        performanceToggle.setChecked(getSharedPreferences("gow_settings", MODE_PRIVATE).getBoolean("performance_hud_enabled", false));
         performanceToggle.setOnCheckedChangeListener((button, checked) ->
-            getPreferences(MODE_PRIVATE).edit().putBoolean("performance_hud_enabled", checked).apply());
+            getSharedPreferences("gow_settings", MODE_PRIVATE).edit().putBoolean("performance_hud_enabled", checked).apply());
         performance.addView(performanceToggle, matchWrap());
         root.addView(performance, matchWidthWithBottom(pad));
 
