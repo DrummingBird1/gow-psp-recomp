@@ -9,7 +9,7 @@ on:
         description: "Direct HTTPS URL to the known-working ARM64 game APK"
         required: true
         type: string
-        default: "https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/God.of.War.PSP.Recomp"
+        default: "https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/GodOfWar-PSP-Recomp-Android.apk"
 
 permissions:
   contents: read
@@ -36,7 +36,7 @@ jobs:
 
       - name: Download and validate source game APK
         env:
-          SOURCE_APK_URL: ${{ inputs.source_apk_url || 'https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/God.of.War.PSP.Recomp' }}
+          SOURCE_APK_URL: ${{ inputs.source_apk_url || 'https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/GodOfWar-PSP-Recomp-Android.apk' }}
         run: |
           case "$SOURCE_APK_URL" in https://*) ;; *) echo "source_apk_url must be HTTPS"; exit 1 ;; esac
           curl --fail --location --retry 3 --max-time 300 "$SOURCE_APK_URL" -o "$RUNNER_TEMP/source-game.apk"
