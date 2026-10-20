@@ -681,7 +681,7 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
 #if defined(__ANDROID__) || defined(GOW_ANDROID)
         /* Android has no visible desktop window title in fullscreen. Keep a low-cost
          * once-per-second performance sample in the app log for device-side diagnosis. */
-        fprintf(stderr, "[gow-perf] fps=%.1f frame=%llu frame_ms=%.2f renderer=%s gpu=%s\\n",
+        fprintf(stderr, "[gow-perf] fps=%.1f frame=%llu frame_ms=%.2f renderer=%s gpu=%s\n",
                 fps, (unsigned long long)frame, fps > 0.0 ? 1000.0 / fps : 0.0,
                 SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "unknown",
                 rt_gpu_active() ? "active" : "inactive");
