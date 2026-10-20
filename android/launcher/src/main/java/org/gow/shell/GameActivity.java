@@ -78,7 +78,7 @@ public final class GameActivity extends SDLActivity {
         overlay.addView(toggle, toggleLp);
 
         hud = new TextView(this);
-        hud.setText("GOW PERF\\nLendo métricas...");
+        hud.setText("GOW PERF\nLendo métricas...");
         hud.setTextColor(Color.rgb(245, 239, 224));
         hud.setTextSize(11);
         hud.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
@@ -117,16 +117,16 @@ public final class GameActivity extends SDLActivity {
             if (hud != null && hudEnabled) {
                 String line = readLatestPerfLine();
                 if (line == null) {
-                    hud.setText("GOW PERF\\nFPS nativo indisponível nesta build");
+                    hud.setText("GOW PERF\nFPS nativo indisponível nesta build");
                 } else {
                     Matcher m = PERF.matcher(line);
                     if (m.find()) {
                         hud.setText(String.format(java.util.Locale.US,
-                            "GOW PERF  %.1f FPS\\n%.2f ms/frame  •  frame %s\\nVídeo: %s  •  GPU: %s",
+                            "GOW PERF  %.1f FPS\n%.2f ms/frame  •  frame %s\nVídeo: %s  •  GPU: %s",
                             Double.parseDouble(m.group(1)), Double.parseDouble(m.group(3)),
                             m.group(2), m.group(4), m.group(5)));
                     } else {
-                        hud.setText("GOW PERF\\nAguardando amostra nativa...");
+                        hud.setText("GOW PERF\nAguardando amostra nativa...");
                     }
                 }
                 hudHandler.postDelayed(this, HUD_REFRESH_MS);
