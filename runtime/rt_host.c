@@ -292,6 +292,20 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 #ifdef GOW_HAVE_SDL
 #define SDL_MAIN_HANDLED  /* the runtime keeps its own main() */
 #include <SDL3/SDL.h>
+#ifdef __ANDROID__
+#define SDL_HideCursor() true
+#define SDL_ShowCursor() true
+#define SDL_SetWindowFullscreen(w, f) true
+#endif
+static inline bool gow_set_title(SDL_Window *w, const char *t) {
+#ifdef __ANDROID__
+    (void)w; (void)t;
+    return true;
+#else
+    return SDL_SetWindowTitle(w, t);
+#endif
+}
+
 #include <SDL3/SDL_main.h>
 
 static SDL_Window *g_win;
@@ -658,7 +672,7 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
         char title[160];
         double fps = (frame - g_title_frame) * 1e6 / (double)(t - g_title_t);
         snprintf(title, sizeof(title), "God of War (PSP native port)  |  %.1f fps  |  frame %llu", fps, (unsigned long long)frame);
-        SDL_SetWindowTitle(g_win, title);
+        gow_set_title(g_win, title);
         g_title_t = t;
         g_title_frame = frame;
     }
