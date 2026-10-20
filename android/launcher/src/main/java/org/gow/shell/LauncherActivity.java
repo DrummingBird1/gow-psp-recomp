@@ -120,6 +120,7 @@ public final class LauncherActivity extends Activity {
         play.setOnClickListener(v -> launchGame());
         root.addView(play, withBottom(pad));
 
+        addMenuButton("CONFIGURAÇÕES", "Proporção da imagem e modo de tela.");
         addMenuButton("DESEMPENHO  /  HUD", "FPS, tempo por quadro e informações do renderizador.");
         addMenuButton("ARQUIVOS DO JOGO", "Verifique a localização dos arquivos necessários.");
         addMenuButton("DIAGNÓSTICO E LOG", "Consulte o registro do runtime para investigar erros.");
@@ -153,13 +154,49 @@ public final class LauncherActivity extends Activity {
         button.setPadding(pad / 2, pad / 2, pad / 2, pad / 2);
         button.setBackground(shape(PANEL, 0xFF44372A, 8));
         button.setOnClickListener(v -> {
-            if (label.startsWith("DESEMPENHO")) showPerformance();
+            if (label.startsWith("CONFIGURAÇÕES")) showSettings();
+            else if (label.startsWith("DESEMPENHO")) showPerformance();
             else if (label.startsWith("ARQUIVOS")) showFiles();
             else if (label.startsWith("DIAGNÓSTICO")) showLog();
             else new AlertDialog.Builder(this).setTitle("SOBRE").setMessage(description)
                     .setPositiveButton("OK", null).show();
         });
         root.addView(button, withBottom(dp(8)));
+    }
+
+    private void showSettings() {
+        final String[] modes = {
+                "16:9 — Padrão",
+                "Full Screen — preencher a tela",
+                "4:3 — Clássico"
+        };
+        final String[] values = { "16:9", "FULLSCREEN", "4:3" };
+        android.content.SharedPreferences prefs =
+                getSharedPreferences("gow_settings", MODE_PRIVATE);
+        String selected = prefs.getString("screen_mode", "16:9");
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(selected)) checked = i;
+        }
+
+        new AlertDialog.Builder(this)
+                .setTitle("CONFIGURAÇÕES DE TELA")
+                .setSingleChoiceItems(modes, checked, (dialog, which) -> {
+                    prefs.edit().putString("screen_mode", values[which]).apply();
+                    dialog.dismiss();
+                    String message;
+                    if ("FULLSCREEN".equals(values[which])) {
+                        message = "Modo Full Screen selecionado. O jogo será aberto sem as barras do Android; preencher completamente a imagem também depende do enquadramento do renderizador.";
+                    } else if ("4:3".equals(values[which])) {
+                        message = "Modo 4:3 selecionado e salvo. O enquadramento 4:3 precisa ser aplicado pelo renderizador para alterar a imagem do jogo.";
+                    } else {
+                        message = "Modo 16:9 selecionado e salvo como padrão. O enquadramento final depende do renderizador.";
+                    }
+                    new AlertDialog.Builder(this).setTitle("MODO SALVO")
+                            .setMessage(message).setPositiveButton("OK", null).show();
+                })
+                .setNegativeButton("FECHAR", null)
+                .show();
     }
 
     private void showPerformance() {
