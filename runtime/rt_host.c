@@ -674,9 +674,18 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
     uint64_t t = now_us();
     if (t - g_title_t >= 1000000) {
         char title[160];
-        double fps = (frame - g_title_frame) * 1e6 / (double)(t - g_title_t);
+        double elapsed_s = (double)(t - g_title_t) / 1e6;
+        double fps = (double)(frame - g_title_frame) / elapsed_s;
         snprintf(title, sizeof(title), "God of War (PSP native port)  |  %.1f fps  |  frame %llu", fps, (unsigned long long)frame);
         gow_set_title(g_win, title);
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
+        /* Android has no visible desktop window title in fullscreen. Keep a low-cost
+         * once-per-second performance sample in the app log for device-side diagnosis. */
+        fprintf(stderr, "[gow-perf] fps=%.1f frame=%llu frame_ms=%.2f renderer=%s gpu=%s\\n",
+                fps, (unsigned long long)frame, fps > 0.0 ? 1000.0 / fps : 0.0,
+                SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "unknown",
+                rt_gpu_active() ? "active" : "inactive");
+#endif
         g_title_t = t;
         g_title_frame = frame;
     }
