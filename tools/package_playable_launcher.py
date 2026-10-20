@@ -38,6 +38,7 @@ def main() -> int:
         with zipfile.ZipFile(output, "w") as out:
             out.comment = base.comment
             replaced = set()
+            seen = set()
             for info in base.infolist():
                 name = info.filename
                 # The target game is ARM64-only. Remove stub native libraries for other ABIs.
@@ -46,16 +47,19 @@ def main() -> int:
                 if name in REQUIRED:
                     out.writestr(info, libraries[name])
                     replaced.add(name)
+                    seen.add(name)
                     continue
                 # Rewriting the ZIP invalidates APK signatures; remove v1 signature files too.
                 upper = name.upper()
                 if upper.startswith("META-INF/") and upper.endswith((".RSA", ".DSA", ".EC", ".SF", ".MF")):
                     continue
                 out.writestr(info, base.read(name))
-            absent = set(REQUIRED) - replaced
-            if absent:
-                print("Generated SDL APK is missing expected native-library slots: " + ", ".join(sorted(absent)), file=sys.stderr)
-                return 1
+            # SDL's generated project may not bundle libc++_shared.so, so add any missing
+            # required game libraries as fresh ZIP entries instead of requiring placeholder slots.
+            for name in REQUIRED:
+                if name not in seen:
+                    out.writestr(name, libraries[name], compress_type=zipfile.ZIP_STORED)
+                    replaced.add(name)
 
     with zipfile.ZipFile(output, "r") as result:
         bad = result.testzip()
