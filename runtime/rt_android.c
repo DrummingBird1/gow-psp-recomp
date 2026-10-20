@@ -63,6 +63,7 @@ static void install_handlers(void) {
 
 extern void *rt_fiber_main_parked_sp(void);
 static uintptr_t g_lo, g_hi;
+static unsigned g_host_event_calls;
 
 __asm__(
     ".text\n"
@@ -86,11 +87,44 @@ static void on_host(void (*fn)(void *), void *arg) {
     uintptr_t sp;
     __asm__ volatile("mov %0, sp" : "=r"(sp));
     uintptr_t parked = (uintptr_t)rt_fiber_main_parked_sp();
-    if (!parked || parked < g_lo || parked >= g_hi || (sp >= g_lo && sp < g_hi)) {
+    unsigned call = ++g_host_event_calls;
+
+    /* If already on the pthread stack, there is no reason to switch stacks. */
+    if (g_lo && sp >= g_lo && sp < g_hi) {
+        if (call <= 8)
+            fprintf(stderr, "rt_android: SDL event call %u already on pthread stack\n", call);
         fn(arg);
         return;
     }
-    gow_call_on_stack((void *)((parked - 1024) & ~(uintptr_t)15), fn, arg);
+
+    /*
+     * The main fiber's saved SP is a valid starting point for a downward-growing
+     * AArch64 stack. Require at least 64 KiB below it; otherwise don't attempt a
+     * stack switch that could run into the pthread stack guard/limit.
+     */
+    if (!g_lo || g_hi <= g_lo || !parked ||
+        parked < g_lo + 65536u || parked >= g_hi) {
+        if (call <= 8)
+            fprintf(stderr,
+                    "rt_android: SDL event call %u using current fiber stack (bounds=%p..%p parked=%p)\n",
+                    call, (void *)g_lo, (void *)g_hi, (void *)parked);
+        fn(arg);
+        return;
+    }
+
+    /* Keep SP 16-byte aligned; function prologues grow down from this saved SP. */
+    uintptr_t target = parked & ~(uintptr_t)15;
+    if (target < g_lo + 32768u || target >= g_hi) {
+        if (call <= 8)
+            fprintf(stderr, "rt_android: SDL event call %u rejected stack target=%p\n",
+                    call, (void *)target);
+        fn(arg);
+        return;
+    }
+    if (call <= 8)
+        fprintf(stderr, "rt_android: SDL event call %u switching stack parked=%p target=%p\n",
+                call, (void *)parked, (void *)target);
+    gow_call_on_stack((void *)target, fn, arg);
 }
 
 typedef struct { SDL_Event *e; Sint32 t; bool r; } hostev_t;
