@@ -292,6 +292,24 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 #ifdef GOW_HAVE_SDL
 #define SDL_MAIN_HANDLED  /* the runtime keeps its own main() */
 #include <SDL3/SDL.h>
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
+bool gow_host_poll(SDL_Event *e);
+bool gow_host_wait(SDL_Event *e, Sint32 timeout_ms);
+#define SDL_PollEvent(e) gow_host_poll(e)
+#define SDL_WaitEventTimeout(e, timeout_ms) gow_host_wait(e, timeout_ms)
+#define SDL_HideCursor() true
+#define SDL_ShowCursor() true
+#define SDL_SetWindowFullscreen(w, f) true
+#endif
+static inline bool gow_set_title(SDL_Window *w, const char *t) {
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
+    (void)w; (void)t;
+    return true;
+#else
+    return SDL_SetWindowTitle(w, t);
+#endif
+}
+
 #include <SDL3/SDL_main.h>
 
 static SDL_Window *g_win;
@@ -656,9 +674,18 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
     uint64_t t = now_us();
     if (t - g_title_t >= 1000000) {
         char title[160];
-        double fps = (frame - g_title_frame) * 1e6 / (double)(t - g_title_t);
+        double elapsed_s = (double)(t - g_title_t) / 1e6;
+        double fps = (double)(frame - g_title_frame) / elapsed_s;
         snprintf(title, sizeof(title), "God of War (PSP native port)  |  %.1f fps  |  frame %llu", fps, (unsigned long long)frame);
-        SDL_SetWindowTitle(g_win, title);
+        gow_set_title(g_win, title);
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
+        /* Android has no visible desktop window title in fullscreen. Keep a low-cost
+         * once-per-second performance sample in the app log for device-side diagnosis. */
+        fprintf(stderr, "[gow-perf] fps=%.1f frame=%llu frame_ms=%.2f video_driver=%s gpu_backend=%s\n",
+                fps, (unsigned long long)frame, fps > 0.0 ? 1000.0 / fps : 0.0,
+                SDL_GetCurrentVideoDriver() ? SDL_GetCurrentVideoDriver() : "unknown",
+                rt_gpu_active() ? "vulkan" : "inactive");
+#endif
         g_title_t = t;
         g_title_frame = frame;
     }
