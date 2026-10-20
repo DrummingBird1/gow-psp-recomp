@@ -108,8 +108,13 @@ static void fiber_entry(RtFiber *f) {
     abort();
 }
 
+static RtFiber *g_main;
+void *rt_fiber_main_parked_sp(void) { return g_main ? g_main->sp : NULL; }
+
 RtFiber *rt_fiber_init_main(void) {
-    return (RtFiber *)calloc(1, sizeof(RtFiber));
+    RtFiber *f = (RtFiber *)calloc(1, sizeof(RtFiber));
+    if (!g_main) g_main = f;
+    return f;
 }
 
 RtFiber *rt_fiber_create(size_t stack_size, RtFiberProc proc, void *arg) {
