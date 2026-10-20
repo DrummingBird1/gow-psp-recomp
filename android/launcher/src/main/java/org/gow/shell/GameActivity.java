@@ -19,7 +19,7 @@ public final class GameActivity extends SDLActivity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        if (getPreferences(MODE_PRIVATE).getBoolean("performance_hud_enabled", false)) {
+        if (getSharedPreferences("gow_settings", MODE_PRIVATE).getBoolean("performance_hud_enabled", false)) {
             showPerformanceHud();
         }
     }
