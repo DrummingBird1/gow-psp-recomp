@@ -36,7 +36,7 @@ public final class GameActivity extends SDLActivity {
         GradientDrawable panel = new GradientDrawable();
         panel.setColor(0xD90E0D0E);
         panel.setCornerRadius(8 * density);
-        panel.setStroke(Math.max(1, (int)density, 0), Color.rgb(163, 32, 32));
+        panel.setStroke(Math.max(1, (int)density), Color.rgb(163, 32, 32));
         hud.setBackground(panel);
         hud.setClickable(false);
         hud.setFocusable(false);
