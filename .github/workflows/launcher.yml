@@ -67,7 +67,7 @@ jobs:
       # The release download: GoW_PSP_Launcher-v<VERSION>.zip (one GoW_PSP/ folder with the exe and README.txt)
       - uses: actions/upload-artifact@v7
         with:
-          name: GoW_PSP_Launcher-${{ github.ref_name }}-${{ github.sha }}
+          name: GoW_PSP_Launcher-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
           path: |
             build/launcher_dist/GoW_PSP_Launcher-v*.zip
             build/launcher_dist/SHA256SUMS.txt
@@ -75,6 +75,6 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: GoWLauncher-${{ github.ref_name }}-${{ github.sha }}
+          name: GoWLauncher-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
           path: build/launcher_dist/GoWLauncher.exe
           if-no-files-found: error
