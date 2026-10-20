@@ -198,5 +198,5 @@ CHD/ISO של המשתמש ──► runtime (מקומפל, נייטיב ל-Windo
 **הרצה חוזרת של המדדים** (ממצב read-only):
 
 ```bash
-"E:/AI/GoW_PSP/tools/ghidra_12.1.3_PUBLIC/support/analyzeHeadless.bat" E:/AI/GoW_PSP/repo/re/ghidra GoW_PSP -process -noanalysis -readOnly -scriptPath E:/AI/GoW_PSP/repo/re/scripts -postScript ExportRecompMetrics.java E:/AI/GoW_PSP/repo/re/out
+"E:/AI/projects/gow-psp/tools/ghidra_12.1.3_PUBLIC/support/analyzeHeadless.bat" E:/AI/projects/gow-psp-recomp/re/ghidra GoW_PSP -process -noanalysis -readOnly -scriptPath E:/AI/projects/gow-psp-recomp/re/scripts -postScript ExportRecompMetrics.java E:/AI/projects/gow-psp-recomp/re/out
 ```
