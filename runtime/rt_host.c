@@ -295,6 +295,10 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 #ifdef __ANDROID__
 #define SDL_HideCursor() true
 #define SDL_ShowCursor() true
+bool gow_host_poll(SDL_Event *e);
+bool gow_host_wait(SDL_Event *e, Sint32 t);
+#define SDL_PollEvent(e) gow_host_poll(e)
+#define SDL_WaitEventTimeout(e, t) gow_host_wait(e, t)
 #define SDL_SetWindowFullscreen(w, f) true
 #endif
 static inline bool gow_set_title(SDL_Window *w, const char *t) {
