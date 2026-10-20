@@ -9,6 +9,12 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      source_apk_url:
+        description: "Direct HTTPS URL to the currently working ARM64 game APK (used only to reuse its native libraries)"
+        required: false
+        default: "https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/GodOfWar-PSP-Recomp-Android.apk"
+        type: string
 
 permissions:
   contents: read
@@ -27,6 +33,9 @@ jobs:
 
       - name: Install build requirements
         run: python -m pip install -r tools/requirements-dev.txt
+
+      - name: Test Android launcher integration
+        run: python tests/test_install_android_launcher.py
 
       - name: Build GoWLauncher.exe
         run: python tools/build_launcher.py
@@ -67,7 +76,7 @@ jobs:
       # The release download: GoW_PSP_Launcher-v<VERSION>.zip (one GoW_PSP/ folder with the exe and README.txt)
       - uses: actions/upload-artifact@v7
         with:
-          name: GoW_PSP_Launcher-${{ github.ref_name }}-${{ github.sha }}
+          name: GoW_PSP_Launcher-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
           path: |
             build/launcher_dist/GoW_PSP_Launcher-v*.zip
             build/launcher_dist/SHA256SUMS.txt
@@ -75,6 +84,121 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: GoWLauncher-${{ github.ref_name }}-${{ github.sha }}
+          name: GoWLauncher-${{ github.event.pull_request.number || github.ref_name }}-${{ github.sha }}
           path: build/launcher_dist/GoWLauncher.exe
           if-no-files-found: error
+
+
+  # Optional real-package test: rebuild the launcher shell, then transplant the known-working ARM64
+  # game libraries from the existing APK. This never changes or republishes the source APK.
+  android-playable-apk:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.source_apk_url != '')
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned SDL source
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+          path: SDL
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download and validate source game APK
+        env:
+          SOURCE_APK_URL: ${{ inputs.source_apk_url || 'https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/GodOfWar-PSP-Recomp-Android.apk' }}
+        run: |
+          case "$SOURCE_APK_URL" in https://*) ;; *) echo "source_apk_url must be HTTPS"; exit 1 ;; esac
+          curl --fail --location --retry 3 --max-time 300 "$SOURCE_APK_URL" -o "$RUNNER_TEMP/source-game.apk"
+          unzip -tq "$RUNNER_TEMP/source-game.apk"
+          python3 - <<'PY'
+          import zipfile, os, sys
+          path = os.path.join(os.environ["RUNNER_TEMP"], "source-game.apk")
+          required = ("lib/arm64-v8a/libmain.so", "lib/arm64-v8a/libSDL3.so", "lib/arm64-v8a/libc++_shared.so")
+          with zipfile.ZipFile(path) as z:
+              missing = [n for n in required if n not in z.namelist() or z.getinfo(n).file_size == 0]
+          if missing:
+              print("Source APK lacks required ARM64 libraries: " + ", ".join(missing))
+              sys.exit(1)
+          print("Source APK contains all required ARM64 game libraries.")
+          PY
+
+      - name: Create launcher shell and build
+        run: |
+          printf '#include <SDL3/SDL_main.h>\\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\\n' > stub.c
+          python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-android-project"
+          python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          cd "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Package real native game libraries into launcher APK
+        run: |
+          python3 tools/package_playable_launcher.py \
+            "$RUNNER_TEMP/gow-android-project/org.gow.shell/app/build/outputs/apk/debug/app-debug.apk" \
+            "$RUNNER_TEMP/source-game.apk" \
+            "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-unsigned.apk"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          test -x "$BUILD_TOOLS/zipalign"
+          test -x "$BUILD_TOOLS/apksigner"
+          "$BUILD_TOOLS/zipalign" -f -p 4 \
+            "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-unsigned.apk" \
+            "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-aligned.apk"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/launcher-test.keystore" \
+            -storepass android -keypass android -alias androiddebugkey \
+            -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/launcher-test.keystore" \
+            --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
+            --out "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk" \
+            "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk"
+          unzip -tq "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GodOfWar-PSP-Recomp-Launcher-test-${{ github.sha }}
+          path: ${{ runner.temp }}/GodOfWar-PSP-Recomp-Launcher-test.apk
+          if-no-files-found: error
+          retention-days: 7
+
+  android-launcher-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout project
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned SDL source
+        uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+          path: SDL
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Create a harmless native stub
+        run: |
+          printf '#include <SDL3/SDL_main.h>\\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\\n' > stub.c
+
+      - name: Generate disposable SDL Android project
+        run: |
+          python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-android-project"
+
+      - name: Integrate launcher
+        run: |
+          python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+
+      - name: Build Android debug APK
+        run: |
+          cd "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          ./gradlew --no-daemon assembleDebug
