@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ucontext.h>
+#include <pthread.h>
 #include <unistd.h>
 
 extern int gow_main(int argc, char **argv);
@@ -59,6 +60,88 @@ static void install_handlers(void) {
     for (unsigned i = 0; i < sizeof sigs / sizeof *sigs; i++) sigaction(sigs[i], &sa, NULL);
 }
 
+/* SDL's Android event path can call into Java. The PSP scheduler runs on a custom
+ * fiber stack, so route SDL_PollEvent/SDL_WaitEventTimeout to the parked scheduler
+ * stack on the same SDL pthread. */
+extern void *rt_fiber_main_parked_sp(void);
+static uintptr_t g_lo, g_hi;
+static unsigned g_host_event_calls;
+
+__asm__(
+    ".text\n"
+    ".align 4\n"
+    ".global gow_call_on_stack\n"
+    ".type gow_call_on_stack, %function\n"
+    "gow_call_on_stack:\n"
+    "    stp x29, x30, [sp, #-16]!\n"
+    "    mov x29, sp\n"
+    "    mov sp, x0\n"
+    "    mov x0, x2\n"
+    "    blr x1\n"
+    "    mov sp, x29\n"
+    "    ldp x29, x30, [sp], #16\n"
+    "    ret\n"
+    ".size gow_call_on_stack, .-gow_call_on_stack\n"
+);
+void gow_call_on_stack(void *newsp, void (*fn)(void *), void *arg);
+
+static void on_host(void (*fn)(void *), void *arg) {
+    uintptr_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    uintptr_t parked = (uintptr_t)rt_fiber_main_parked_sp();
+    unsigned call = ++g_host_event_calls;
+
+    if (g_lo && g_hi > g_lo && sp >= g_lo && sp < g_hi) {
+        if (call <= 8)
+            fprintf(stderr, "rt_android: SDL event call %u already on pthread stack\n", call);
+        fn(arg);
+        return;
+    }
+
+    /* Keep a safety margin above the pthread stack guard and retain 16-byte ABI alignment. */
+    if (!g_lo || g_hi <= g_lo || !parked ||
+        parked < g_lo + 65536u || parked >= g_hi) {
+        if (call <= 8)
+            fprintf(stderr,
+                    "rt_android: SDL event call %u using current stack (bounds=%p..%p parked=%p)\n",
+                    call, (void *)g_lo, (void *)g_hi, (void *)parked);
+        fn(arg);
+        return;
+    }
+
+    uintptr_t target = parked & ~(uintptr_t)15;
+    if (target < g_lo + 32768u || target >= g_hi) {
+        if (call <= 8)
+            fprintf(stderr, "rt_android: SDL event call %u rejected stack target=%p\n",
+                    call, (void *)target);
+        fn(arg);
+        return;
+    }
+    if (call <= 8)
+        fprintf(stderr, "rt_android: SDL event call %u switching to pthread stack at %p\n",
+                call, (void *)target);
+    gow_call_on_stack((void *)target, fn, arg);
+}
+
+typedef struct { SDL_Event *e; Sint32 t; bool r; } hostev_t;
+static void poll_fn(void *a) { hostev_t *h = (hostev_t *)a; h->r = SDL_PollEvent(h->e); }
+static void wait_fn(void *a) { hostev_t *h = (hostev_t *)a; h->r = SDL_WaitEventTimeout(h->e, h->t); }
+bool gow_host_poll(SDL_Event *e) { hostev_t h = { e, 0, false }; on_host(poll_fn, &h); return h.r; }
+bool gow_host_wait(SDL_Event *e, Sint32 t) { hostev_t h = { e, t, false }; on_host(wait_fn, &h); return h.r; }
+
+static void init_stack_bounds(void) {
+    pthread_attr_t at;
+    void *addr = NULL;
+    size_t sz = 0;
+    if (pthread_getattr_np(pthread_self(), &at) == 0) {
+        if (pthread_attr_getstack(&at, &addr, &sz) != 0) { addr = NULL; sz = 0; }
+        pthread_attr_destroy(&at);
+    }
+    g_lo = (uintptr_t)addr;
+    g_hi = g_lo + sz;
+    fprintf(stderr, "rt_android: pthread stack %p..%p (%zu bytes)\n", addr, (void *)g_hi, sz);
+}
+
 __attribute__((visibility("default")))
 int SDL_main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -71,6 +154,7 @@ int SDL_main(int argc, char **argv) {
     snprintf(logp, sizeof logp, "%s/log.txt", base);
     freopen(logp, "w", stderr);
     setvbuf(stderr, NULL, _IONBF, 0);
+    init_stack_bounds();
     install_handlers();
     atexit(on_exit_log);
     char *args[] = { "gow", "--image", image, "--boot", "--disc", disc,

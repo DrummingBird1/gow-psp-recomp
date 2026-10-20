@@ -108,8 +108,16 @@ static void fiber_entry(RtFiber *f) {
     abort();
 }
 
+/* The scheduler fiber is parked on the SDL thread's original pthread stack while a
+ * PSP thread runs on its own fiber stack. Android SDL event polling must use that
+ * original stack because SDL may cross into Java through JNI. */
+static RtFiber *g_main;
+void *rt_fiber_main_parked_sp(void) { return g_main ? g_main->sp : NULL; }
+
 RtFiber *rt_fiber_init_main(void) {
-    return (RtFiber *)calloc(1, sizeof(RtFiber));
+    RtFiber *f = (RtFiber *)calloc(1, sizeof(RtFiber));
+    if (!g_main) g_main = f;
+    return f;
 }
 
 RtFiber *rt_fiber_create(size_t stack_size, RtFiberProc proc, void *arg) {

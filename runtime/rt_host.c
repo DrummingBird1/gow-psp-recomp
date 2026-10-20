@@ -293,6 +293,10 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 #define SDL_MAIN_HANDLED  /* the runtime keeps its own main() */
 #include <SDL3/SDL.h>
 #if defined(__ANDROID__) || defined(GOW_ANDROID)
+bool gow_host_poll(SDL_Event *e);
+bool gow_host_wait(SDL_Event *e, Sint32 timeout_ms);
+#define SDL_PollEvent(e) gow_host_poll(e)
+#define SDL_WaitEventTimeout(e, timeout_ms) gow_host_wait(e, timeout_ms)
 #define SDL_HideCursor() true
 #define SDL_ShowCursor() true
 #define SDL_SetWindowFullscreen(w, f) true
