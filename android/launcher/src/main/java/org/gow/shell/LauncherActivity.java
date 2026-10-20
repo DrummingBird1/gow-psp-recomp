@@ -10,6 +10,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import java.io.File;
 
@@ -23,6 +24,7 @@ public final class LauncherActivity extends Activity {
     private static final int MUTED = Color.rgb(177, 169, 158);
     private TextView status;
     private TextView play;
+    private Switch performanceToggle;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -93,6 +95,27 @@ public final class LauncherActivity extends Activity {
         status.setPadding(0, pad / 3, 0, 0);
         card.addView(status, matchWrap());
         root.addView(card, matchWidthWithBottom(pad));
+
+        LinearLayout performance = new LinearLayout(this);
+        performance.setOrientation(LinearLayout.VERTICAL);
+        performance.setPadding(pad / 2, pad / 2, pad / 2, pad / 2);
+        performance.setBackground(shape(PANEL, 0xFF44372A, 12));
+        TextView performanceTitle = text("DESEMPENHO", 16, TEXT, true);
+        performance.addView(performanceTitle, matchWrap());
+        TextView performanceDescription = text(
+            "Exibe o painel de diagnóstico durante o jogo. As métricas dependem do suporte do runtime.",
+            12, MUTED, false);
+        performanceDescription.setPadding(0, pad / 4, 0, pad / 4);
+        performance.addView(performanceDescription, matchWrap());
+        performanceToggle = new Switch(this);
+        performanceToggle.setText("Mostrar HUD durante o jogo");
+        performanceToggle.setTextColor(TEXT);
+        performanceToggle.setButtonTintList(android.content.res.ColorStateList.valueOf(GOLD));
+        performanceToggle.setChecked(getPreferences(MODE_PRIVATE).getBoolean("performance_hud_enabled", false));
+        performanceToggle.setOnCheckedChangeListener((button, checked) ->
+            getPreferences(MODE_PRIVATE).edit().putBoolean("performance_hud_enabled", checked).apply());
+        performance.addView(performanceToggle, matchWrap());
+        root.addView(performance, matchWidthWithBottom(pad));
 
         play = text("JOGAR", 18, Color.WHITE, true);
         play.setLetterSpacing(0.15f);
