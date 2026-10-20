@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 PACKAGE = "org.gow.shell"
+USB_ATTACH = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
 
 
 def class_name(activity: ET.Element) -> str:
@@ -79,14 +80,23 @@ def main() -> int:
             if is_launcher_filter(intent):
                 generated_activity.remove(intent)
 
+    # Preserve all non-launcher filters (notably USB_DEVICE_ATTACHED) and the original
+    # SDL activity attributes. These filters may require the activity to remain exported.
+    remaining_filters = list(generated_activity.findall("intent-filter"))
+    has_usb_attach = any(
+        any(action.get(ANDROID + "name") == USB_ATTACH for action in intent.findall("action"))
+        for intent in remaining_filters
+    )
+
     java_dir.mkdir(parents=True, exist_ok=True)
     for name in ("LauncherActivity.java", "GameActivity.java"):
         shutil.copy2(source_dir / name, java_dir / name)
 
     generated_activity.set(ANDROID + "name", "GameActivity")
     generated_activity.set(ANDROID + "label", "God of War PSP Recomp")
-    generated_activity.set(ANDROID + "exported", "false")
-    generated_activity.set(ANDROID + "launchMode", "singleInstance")
+    generated_activity.set(ANDROID + "exported", "true" if has_usb_attach else "false")
+    # Do not overwrite launchMode/configChanges/other SDL-generated attributes.
+
     app.set(ANDROID + "label", "God of War PSP Recomp")
 
     if launcher is None:
@@ -109,6 +119,8 @@ def main() -> int:
     print("Launcher integrated.")
     print(f"Project: {project}")
     print("LauncherActivity is the app entry; GameActivity hosts SDL and libmain.so.")
+    if has_usb_attach:
+        print("USB_DEVICE_ATTACHED filter preserved on exported GameActivity.")
     print("Ensure the real libmain.so and libSDL3.so are packaged before building a playable APK.")
     return 0
 
