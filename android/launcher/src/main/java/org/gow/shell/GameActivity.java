@@ -1,6 +1,6 @@
 package org.gow.shell;
 
-import org.gow.shell.SDLActivity;
+import org.libsdl.app.SDLActivity;
 
 /** SDL host for the native recompilation runtime. */
 public final class GameActivity extends SDLActivity {
