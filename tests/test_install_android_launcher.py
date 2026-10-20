@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "tools" / "install_android_launcher.py"
 ANDROID = "{http://schemas.android.com/apk/res/android}"
+USB_ATTACH = "android.hardware.usb.action.USB_DEVICE_ATTACHED"
 
 
 def main() -> int:
@@ -21,7 +22,8 @@ def main() -> int:
             """<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="org.gow.shell">
   <application android:label="SDL">
-    <activity android:name="ShellActivity" android:exported="true">
+    <activity android:name="ShellActivity" android:exported="true"
+      android:launchMode="singleTask" android:configChanges="orientation|screenSize|keyboardHidden">
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />
@@ -59,13 +61,24 @@ def main() -> int:
             categories = {x.get(ANDROID + "name") for x in intent.findall("category")}
             return "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories
 
-        launcher_filters = [i for i in launcher_activities[0].findall("intent-filter") if is_launcher(i)]
-        game_filters = [i for i in game_activities[0].findall("intent-filter") if is_launcher(i)]
+        launcher = launcher_activities[0]
+        game = game_activities[0]
+        launcher_filters = [i for i in launcher.findall("intent-filter") if is_launcher(i)]
+        game_filters = [i for i in game.findall("intent-filter") if is_launcher(i)]
         assert len(launcher_filters) == 1, f"expected one launcher intent-filter, got {len(launcher_filters)}"
         assert not game_filters, "GameActivity must not remain the launcher"
+
+        usb_filters = [
+            i for i in game.findall("intent-filter")
+            if USB_ATTACH in {a.get(ANDROID + "name") for a in i.findall("action")}
+        ]
+        assert len(usb_filters) == 1, "USB_DEVICE_ATTACHED filter must remain on GameActivity"
+        assert game.get(ANDROID + "exported") == "true", "GameActivity must stay exported for USB attach dispatch"
+        assert game.get(ANDROID + "launchMode") == "singleTask", "original SDL launchMode must be preserved"
+        assert game.get(ANDROID + "configChanges") == "orientation|screenSize|keyboardHidden", "original SDL configChanges must be preserved"
         assert (project / "app/src/main/java/org/gow/shell/LauncherActivity.java").is_file()
         assert (project / "app/src/main/java/org/gow/shell/GameActivity.java").is_file()
-        print("PASS: launcher integration is idempotent and keeps a single Android entry activity.")
+        print("PASS: launcher is idempotent; USB filter and original SDL activity settings are preserved.")
     return 0
 
 
