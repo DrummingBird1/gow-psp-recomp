@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Integrate the native God of War PSP Recomp launcher into a generated SDL Android project.
+"""Integrate the native Android launcher into a generated SDL Android project.
 
 Usage: python3 tools/install_android_launcher.py PATH/TO/org.gow.shell
-This script edits only the project path passed on the command line.
+Only the explicitly supplied generated project is modified.
 """
 from pathlib import Path
 import shutil
@@ -24,44 +24,41 @@ def main() -> int:
     if not manifest.is_file() or not (project / "gradlew").is_file():
         print(f"Not an SDL Android project (missing manifest or gradlew): {project}", file=sys.stderr)
         return 1
-    if not (java_dir / "SDLActivity.java").is_file():
-        print(f"SDLActivity.java not found at {java_dir}; verify the generated package name.", file=sys.stderr)
-        return 1
 
-    # Copy new Java classes without deleting or replacing SDL's own sources.
-    java_dir.mkdir(parents=True, exist_ok=True)
     for name in ("LauncherActivity.java", "GameActivity.java"):
-        src = source_dir / name
-        if not src.is_file():
-            print(f"Launcher source is missing: {src}", file=sys.stderr)
+        if not (source_dir / name).is_file():
+            print(f"Launcher source is missing: {source_dir / name}", file=sys.stderr)
             return 1
-        shutil.copy2(src, java_dir / name)
 
     tree = ET.parse(manifest)
     root = tree.getroot()
     app = root.find("application")
     if app is None:
         raise RuntimeError("AndroidManifest.xml has no <application>")
-    app.set(ANDROID + "label", "God of War PSP Recomp")
 
-    sdl = None
+    # The SDL project generator creates an activity named after the package's last segment
+    # (for org.gow.shell, this is ShellActivity). Reuse its manifest slot for GameActivity.
+    generated_activity = None
     for activity in list(app.findall("activity")):
-        name = activity.get(ANDROID + "name", "")
-        if name in ("SDLActivity", ".SDLActivity", PACKAGE + ".SDLActivity"):
-            sdl = activity
-        # Remove any launcher filter from every activity before assigning it below.
         for intent in list(activity.findall("intent-filter")):
             actions = [x.get(ANDROID + "name") for x in intent.findall("action")]
             categories = [x.get(ANDROID + "name") for x in intent.findall("category")]
             if "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories:
+                generated_activity = activity
                 activity.remove(intent)
-    if sdl is None:
-        raise RuntimeError("Could not find SDLActivity in the manifest")
 
-    sdl.set(ANDROID + "name", "GameActivity")
-    sdl.set(ANDROID + "label", "God of War PSP Recomp")
-    sdl.set(ANDROID + "exported", "false")
-    sdl.set(ANDROID + "launchMode", "singleInstance")
+    if generated_activity is None:
+        raise RuntimeError("Could not find the generated SDL launcher activity in the manifest")
+
+    java_dir.mkdir(parents=True, exist_ok=True)
+    for name in ("LauncherActivity.java", "GameActivity.java"):
+        shutil.copy2(source_dir / name, java_dir / name)
+
+    generated_activity.set(ANDROID + "name", "GameActivity")
+    generated_activity.set(ANDROID + "label", "God of War PSP Recomp")
+    generated_activity.set(ANDROID + "exported", "false")
+    generated_activity.set(ANDROID + "launchMode", "singleInstance")
+    app.set(ANDROID + "label", "God of War PSP Recomp")
 
     launcher = next((a for a in app.findall("activity") if a.get(ANDROID + "name") == "LauncherActivity"), None)
     if launcher is None:
@@ -80,7 +77,7 @@ def main() -> int:
     print("Launcher integrated.")
     print(f"Project: {project}")
     print("LauncherActivity is the app entry; GameActivity hosts SDL and libmain.so.")
-    print("Build the generated project only after libSDL3.so and the real libmain.so are included.")
+    print("Ensure the real libmain.so and libSDL3.so are packaged before building a playable APK.")
     return 0
 
 
