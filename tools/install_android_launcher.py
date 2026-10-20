@@ -2,7 +2,7 @@
 """Integrate the native Android launcher into a generated SDL Android project.
 
 Usage: python3 tools/install_android_launcher.py PATH/TO/org.gow.shell
-Only the explicitly supplied generated project is modified.
+Only the explicitly supplied generated project is modified. Safe to run repeatedly.
 """
 from pathlib import Path
 import shutil
@@ -13,6 +13,20 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 PACKAGE = "org.gow.shell"
 
 
+def class_name(activity: ET.Element) -> str:
+    """Return the simple activity class name for relative or fully qualified manifest names."""
+    return activity.get(ANDROID + "name", "").rsplit(".", 1)[-1]
+
+
+def is_launcher_filter(intent: ET.Element) -> bool:
+    actions = {x.get(ANDROID + "name") for x in intent.findall("action")}
+    categories = {x.get(ANDROID + "name") for x in intent.findall("category")}
+    return (
+        "android.intent.action.MAIN" in actions
+        and "android.intent.category.LAUNCHER" in categories
+    )
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Usage: install_android_launcher.py PATH/TO/org.gow.shell", file=sys.stderr)
@@ -20,7 +34,11 @@ def main() -> int:
     project = Path(sys.argv[1]).expanduser().resolve()
     manifest = project / "app/src/main/AndroidManifest.xml"
     java_dir = project / "app/src/main/java" / Path(PACKAGE.replace(".", "/"))
-    source_dir = Path(__file__).resolve().parents[1] / "android/launcher/src/main/java" / Path(PACKAGE.replace(".", "/"))
+    source_dir = (
+        Path(__file__).resolve().parents[1]
+        / "android/launcher/src/main/java"
+        / Path(PACKAGE.replace(".", "/"))
+    )
     if not manifest.is_file() or not (project / "gradlew").is_file():
         print(f"Not an SDL Android project (missing manifest or gradlew): {project}", file=sys.stderr)
         return 1
@@ -36,19 +54,30 @@ def main() -> int:
     if app is None:
         raise RuntimeError("AndroidManifest.xml has no <application>")
 
-    # The SDL project generator creates an activity named after the package's last segment
-    # (for org.gow.shell, this is ShellActivity). Reuse its manifest slot for GameActivity.
-    generated_activity = None
-    for activity in list(app.findall("activity")):
-        for intent in list(activity.findall("intent-filter")):
-            actions = [x.get(ANDROID + "name") for x in intent.findall("action")]
-            categories = [x.get(ANDROID + "name") for x in intent.findall("category")]
-            if "android.intent.action.MAIN" in actions and "android.intent.category.LAUNCHER" in categories:
-                generated_activity = activity
-                activity.remove(intent)
+    activities = list(app.findall("activity"))
+    launcher = next((a for a in activities if class_name(a) == "LauncherActivity"), None)
+    game_activity = next((a for a in activities if class_name(a) == "GameActivity"), None)
 
-    if generated_activity is None:
-        raise RuntimeError("Could not find the generated SDL launcher activity in the manifest")
+    # If this script has already run, reuse GameActivity. Otherwise convert SDL's generated
+    # MAIN/LAUNCHER activity (e.g. ShellActivity) into GameActivity.
+    if game_activity is None:
+        generated_activity = None
+        for activity in activities:
+            if activity is launcher:
+                continue
+            matching = [i for i in list(activity.findall("intent-filter")) if is_launcher_filter(i)]
+            if matching:
+                generated_activity = activity
+                for intent in matching:
+                    activity.remove(intent)
+                break
+        if generated_activity is None:
+            raise RuntimeError("Could not find the generated SDL launcher activity in the manifest")
+    else:
+        generated_activity = game_activity
+        for intent in list(generated_activity.findall("intent-filter")):
+            if is_launcher_filter(intent):
+                generated_activity.remove(intent)
 
     java_dir.mkdir(parents=True, exist_ok=True)
     for name in ("LauncherActivity.java", "GameActivity.java"):
@@ -60,10 +89,13 @@ def main() -> int:
     generated_activity.set(ANDROID + "launchMode", "singleInstance")
     app.set(ANDROID + "label", "God of War PSP Recomp")
 
-    launcher = next((a for a in app.findall("activity") if a.get(ANDROID + "name") == "LauncherActivity"), None)
     if launcher is None:
         launcher = ET.Element("activity")
         app.insert(0, launcher)
+    # Make reruns deterministic: keep exactly one launcher intent-filter.
+    for intent in list(launcher.findall("intent-filter")):
+        if is_launcher_filter(intent):
+            launcher.remove(intent)
     launcher.set(ANDROID + "name", "LauncherActivity")
     launcher.set(ANDROID + "label", "God of War PSP Recomp")
     launcher.set(ANDROID + "exported", "true")
