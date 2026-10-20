@@ -142,6 +142,22 @@ static void init_stack_bounds(void) {
     fprintf(stderr, "rt_android: pthread stack %p..%p (%zu bytes)\n", addr, (void *)g_hi, sz);
 }
 
+static void *mem_thread(void *u) {
+    (void)u;
+    for (;;) {
+        long rss = 0, swap = 0;
+        char l[128];
+        FILE *f = fopen("/proc/self/status", "r");
+        if (f) {
+            while (fgets(l, sizeof l, f)) { sscanf(l, "VmRSS: %ld", &rss); sscanf(l, "VmSwap: %ld", &swap); }
+            fclose(f);
+        }
+        fprintf(stderr, "[mem] rss=%ld MB swap=%ld MB\n", rss / 1024, swap / 1024);
+        sleep(3);
+    }
+    return NULL;
+}
+
 __attribute__((visibility("default")))
 int SDL_main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -154,6 +170,9 @@ int SDL_main(int argc, char **argv) {
     snprintf(logp, sizeof logp, "%s/log.txt", base);
     freopen(logp, "w", stderr);
     setvbuf(stderr, NULL, _IONBF, 0);
+    dup2(fileno(stderr), fileno(stdout));
+    setvbuf(stdout, NULL, _IONBF, 0);
+    { pthread_t mt; pthread_create(&mt, NULL, mem_thread, NULL); pthread_detach(mt); }
     init_stack_bounds();
     install_handlers();
     atexit(on_exit_log);
