@@ -92,7 +92,7 @@ jobs:
   # Optional real-package test: rebuild the launcher shell, then transplant the known-working ARM64
   # game libraries from the existing APK. This never changes or republishes the source APK.
   android-playable-apk:
-    if: github.event_name == 'workflow_dispatch' && inputs.source_apk_url != ''
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.source_apk_url != '')
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout project
@@ -113,7 +113,7 @@ jobs:
 
       - name: Download and validate source game APK
         env:
-          SOURCE_APK_URL: ${{ inputs.source_apk_url }}
+          SOURCE_APK_URL: ${{ inputs.source_apk_url || 'https://github.com/flavinxs0/gow-psp-recomp-android/releases/download/android-v0.1.0/GodOfWar-PSP-Recomp-Android.apk' }}
         run: |
           case "$SOURCE_APK_URL" in https://*) ;; *) echo "source_apk_url must be HTTPS"; exit 1 ;; esac
           curl --fail --location --retry 3 --max-time 300 "$SOURCE_APK_URL" -o "$RUNNER_TEMP/source-game.apk"
