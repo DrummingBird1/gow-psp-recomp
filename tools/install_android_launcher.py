@@ -56,7 +56,12 @@ def main() -> int:
     if app is None:
         raise RuntimeError("AndroidManifest.xml has no <application>")
 
-    # Permite baixar um APK e abrir o instalador do Android dentro do launcher.
+    # O verificador consulta a API do GitHub e baixa APKs pela internet.
+    internet_permission = "android.permission.INTERNET"
+    if not any(p.get(ANDROID + "name") == internet_permission for p in root.findall("uses-permission")):
+        root.insert(0, ET.Element("uses-permission", {ANDROID + "name": internet_permission}))
+
+    # Permite abrir o instalador do Android após baixar um APK.
     install_permission = "android.permission.REQUEST_INSTALL_PACKAGES"
     if not any(p.get(ANDROID + "name") == install_permission for p in root.findall("uses-permission")):
         root.insert(0, ET.Element("uses-permission", {ANDROID + "name": install_permission}))
