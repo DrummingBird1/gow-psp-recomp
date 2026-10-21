@@ -69,7 +69,7 @@ public final class LauncherActivity extends Activity {
     private static final String PREFS = "gow_settings";
     private static final int PICK_GAME_ISO = 401;
     private static final int PICK_IMAGE_BIN = 402;
-    private static final String VERSION = "v1.0.0";
+    private static final String VERSION = "v1.0.1";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
     private static final String[] MODES = { "16:9", "4:3", "FULLSCREEN" };
 
