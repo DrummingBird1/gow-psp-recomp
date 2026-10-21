@@ -14,6 +14,8 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.io.BufferedReader;
 import java.io.FileReader;
 
@@ -166,12 +168,12 @@ public final class LauncherActivity extends Activity {
 
     private void showSettings() {
         final String[] modes = {
-                "16:9 — Padrão",
-                "Full Screen — preencher a tela",
-                "4:3 — Clássico"
+                "16:9 \u2014 Padr\u00e3o (original do PSP)",
+                "4:3 \u2014 Cl\u00e1ssico",
+                "Esticar tela \u2014 preencher tudo"
         };
-        final String[] values = { "16:9", "FULLSCREEN", "4:3" };
-        android.content.SharedPreferences prefs =
+        final String[] values = { "16:9", "4:3", "FULLSCREEN" };
+        final android.content.SharedPreferences prefs =
                 getSharedPreferences("gow_settings", MODE_PRIVATE);
         String selected = prefs.getString("screen_mode", "16:9");
         int checked = 0;
@@ -180,23 +182,74 @@ public final class LauncherActivity extends Activity {
         }
 
         new AlertDialog.Builder(this)
-                .setTitle("CONFIGURAÇÕES DE TELA")
+                .setTitle("PROPOR\u00c7\u00c3O DA IMAGEM")
                 .setSingleChoiceItems(modes, checked, (dialog, which) -> {
                     prefs.edit().putString("screen_mode", values[which]).apply();
+                    writeArgs();
                     dialog.dismiss();
-                    String message;
-                    if ("FULLSCREEN".equals(values[which])) {
-                        message = "Modo Full Screen selecionado. O jogo será aberto sem as barras do Android; preencher completamente a imagem também depende do enquadramento do renderizador.";
-                    } else if ("4:3".equals(values[which])) {
-                        message = "Modo 4:3 selecionado e salvo. O enquadramento 4:3 precisa ser aplicado pelo renderizador para alterar a imagem do jogo.";
-                    } else {
-                        message = "Modo 16:9 selecionado e salvo como padrão. O enquadramento final depende do renderizador.";
-                    }
+                    String args = buildArgsLine();
+                    String message = modes[which]
+                            + "\n\nValer\u00e1 na pr\u00f3xima vez que voc\u00ea tocar em JOGAR."
+                            + "\n\nargs.txt: " + (args.isEmpty() ? "(vazio)" : args);
                     new AlertDialog.Builder(this).setTitle("MODO SALVO")
                             .setMessage(message).setPositiveButton("OK", null).show();
                 })
                 .setNegativeButton("FECHAR", null)
                 .show();
+    }
+
+    /** Propor\u00e7\u00e3o real da tela na horizontal, reduzida (ex.: 2400x1080 -> 20:9). */
+    @SuppressWarnings("deprecation")
+    private String stretchRatio() {
+        android.util.DisplayMetrics m = new android.util.DisplayMetrics();
+        getWindowManager().getDefaultDisplay().getRealMetrics(m);
+        int w = Math.max(m.widthPixels, m.heightPixels);
+        int h = Math.min(m.widthPixels, m.heightPixels);
+        if (w <= 0 || h <= 0) return "16:9";
+        int a = w, b = h;
+        while (b != 0) { int t = a % b; a = b; b = t; }
+        return (w / a) + ":" + (h / a);
+    }
+
+    /**
+     * Monta a linha do args.txt: mant\u00e9m o que j\u00e1 estava l\u00e1 (ex.: --res-scale 1),
+     * troca s\u00f3 o --aspect conforme o modo escolhido. 16:9 n\u00e3o escreve --aspect.
+     */
+    private String buildArgsLine() {
+        String mode = getSharedPreferences("gow_settings", MODE_PRIVATE)
+                .getString("screen_mode", "16:9");
+        String aspect = "";
+        if ("4:3".equals(mode)) aspect = "4:3";
+        else if ("FULLSCREEN".equals(mode)) aspect = stretchRatio();
+
+        StringBuilder keep = new StringBuilder();
+        File f = new File(gameDir(), "args.txt");
+        if (f.isFile()) {
+            try (BufferedReader reader = new BufferedReader(new FileReader(f))) {
+                StringBuilder all = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) all.append(line).append(' ');
+                String[] tokens = all.toString().trim().split("\\s+");
+                for (int i = 0; i < tokens.length; i++) {
+                    if (tokens[i].isEmpty()) continue;
+                    if (tokens[i].equals("--aspect")) { i++; continue; }
+                    keep.append(tokens[i]).append(' ');
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (!aspect.isEmpty()) keep.append("--aspect ").append(aspect);
+        return keep.toString().trim();
+    }
+
+    private void writeArgs() {
+        // A linha tem de ser montada ANTES de abrir o arquivo: abrir trunca o args.txt.
+        String line = buildArgsLine();
+        File f = new File(gameDir(), "args.txt");
+        try (FileOutputStream out = new FileOutputStream(f)) {
+            out.write((line + "\n").getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ignored) {
+        }
     }
 
     private void showPerformance() {
@@ -292,6 +345,7 @@ public final class LauncherActivity extends Activity {
     }
 
     private void launchGame() {
+        writeArgs();
         startActivity(new Intent(this, GameActivity.class));
     }
 }

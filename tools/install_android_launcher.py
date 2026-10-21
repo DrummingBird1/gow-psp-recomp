@@ -110,6 +110,7 @@ def main() -> int:
     launcher.set(ANDROID + "label", "God of War PSP Recomp")
     launcher.set(ANDROID + "exported", "true")
     launcher.set(ANDROID + "configChanges", "orientation|screenSize|keyboardHidden")
+    launcher.set(ANDROID + "screenOrientation", "sensorLandscape")
     intent = ET.SubElement(launcher, "intent-filter")
     ET.SubElement(intent, "action", {ANDROID + "name": "android.intent.action.MAIN"})
     ET.SubElement(intent, "category", {ANDROID + "name": "android.intent.category.LAUNCHER"})
