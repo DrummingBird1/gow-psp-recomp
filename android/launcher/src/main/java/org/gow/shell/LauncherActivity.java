@@ -29,6 +29,7 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.core.content.FileProvider;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
@@ -706,25 +707,60 @@ public final class LauncherActivity extends Activity {
     }
 
     private void downloadUpdate(String apkUrl, String apkName) {
-        try {
-            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
-            if (manager == null) throw new IllegalStateException("DownloadManager indisponível.");
-            String safeName = apkName == null || !apkName.toLowerCase(Locale.US).endsWith(".apk")
-                    ? "GodOfWar-PSP-Recomp-Android.apk" : apkName.replaceAll("[^A-Za-z0-9._-]", "_");
-            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
-            request.setTitle("God of War PSP Recomp");
-            request.setDescription("Baixando APK da Release do GitHub");
-            request.setMimeType("application/vnd.android.package-archive");
-            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
-            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, safeName);
-            manager.enqueue(request);
-            toast("Download iniciado. Toque na notificação quando terminar para abrir o instalador do Android.");
-        } catch (Exception e) {
-            toast("Não foi possível iniciar o download. Abrindo a Release.");
-            openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases");
-        }
+        toast("Baixando atualização...");
+        new Thread(() -> {
+            File target = null;
+            HttpURLConnection connection = null;
+            try {
+                File dir = new File(getCacheDir(), "updates");
+                if (!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("Não foi possível criar a pasta temporária.");
+                String safeName = apkName == null || !apkName.toLowerCase(Locale.US).endsWith(".apk") ? "GodOfWar-PSP-Recomp-Android.apk" : apkName.replaceAll("[^A-Za-z0-9._-]", "_");
+                target = new File(dir, safeName);
+                connection = (HttpURLConnection) new URL(apkUrl).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setRequestProperty("User-Agent", "GodOfWar-PSP-Recomp-Android");
+                connection.connect();
+                if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new java.io.IOException("HTTP " + connection.getResponseCode());
+                try (InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(target)) {
+                    byte[] buffer = new byte[32768]; int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                    out.getFD().sync();
+                }
+                if (target.length() < 1024) throw new java.io.IOException("O APK baixado está incompleto.");
+                try (FileInputStream in = new FileInputStream(target)) {
+                    if (in.read() != 'P' || in.read() != 'K') throw new java.io.IOException("O arquivo baixado não é um APK válido.");
+                }
+                File ready = target;
+                runOnUiThread(() -> {
+                    if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                        dialog().setTitle("Permitir instalação")
+                            .setMessage("O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir.")
+                            .setPositiveButton("Abrir permissões", (d, w) -> {
+                                try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
+                                catch (Exception e) { toast("Ative a permissão de instalação nas configurações do Android."); }
+                            }).setNegativeButton("Fechar", null).show();
+                        return;
+                    }
+                    launchApkInstaller(ready);
+                });
+            } catch (Exception e) {
+                if (target != null) target.delete();
+                final String message = e.getMessage() == null ? "erro desconhecido" : e.getMessage();
+                runOnUiThread(() -> dialog().setTitle("Falha na atualização").setMessage("Não foi possível baixar o APK: " + message).setPositiveButton("OK", null).show());
+            } finally { if (connection != null) connection.disconnect(); }
+        }, "gow-update-download").start();
     }
 
+    private void launchApkInstaller(File apk) {
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+            Intent install = new Intent(Intent.ACTION_VIEW);
+            install.setDataAndType(uri, "application/vnd.android.package-archive");
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(install);
+        } catch (Exception e) { toast("Não foi possível abrir o instalador do Android."); }
+    }
     private String normalizeVersion(String version) {
         String value = version == null ? "" : version.trim().toLowerCase(Locale.US);
         if (value.startsWith("android-")) value = value.substring("android-".length());
