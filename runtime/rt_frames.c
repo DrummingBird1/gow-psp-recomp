@@ -21,9 +21,6 @@
 #include "rt_frames.h"
 #include "rt_gpu.h"
 #include "rt_ge_internal.h"
-#ifdef __ANDROID__
-#include <jni.h>
-#endif
 
 #define DISP_W 480
 #define DISP_H 272
@@ -46,11 +43,6 @@ static uint64_t g_presents, g_t0, g_tprev;
 static double g_ft_sum, g_ft_max;
 #define FT_BUCKETS 2000
 static uint32_t g_ft_hist[FT_BUCKETS];  /* host frame times in 1 ms buckets (last = 1999 ms and more) */
-static uint64_t g_hud_window_t0;
-static uint64_t g_hud_window_frames;
-static double g_hud_window_ms;
-static volatile double g_hud_fps;
-static volatile double g_hud_frame_ms;
 
 static uint64_t host_us(void) {
 #ifdef _WIN32
@@ -68,17 +60,6 @@ static uint64_t host_us(void) {
 
 uint64_t rt_perf_us[RT_PERF_PARTS];
 uint64_t rt_frames_host_us(void) { return host_us(); }
-
-#ifdef __ANDROID__
-JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFps(JNIEnv *env, jclass cls) {
-    (void)env; (void)cls;
-    return g_hud_fps;
-}
-JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFrameMs(JNIEnv *env, jclass cls) {
-    (void)env; (void)cls;
-    return g_hud_frame_ms;
-}
-#endif
 
 /* PSP framebuffer formats: 0 = 565, 1 = 5551, 2 = 4444, 3 = 8888 (red in the low bits) */
 static void to_rgb(uint8_t *out, uint32_t addr, uint32_t stride, uint32_t format) {
@@ -275,16 +256,6 @@ void rt_frames_present(uint64_t frame, uint64_t now_us, uint32_t addr, uint32_t 
     uint64_t t = host_us();
     double ft = (t - g_tprev) / 1000.0;
     g_tprev = t;
-    if (g_hud_window_t0 == 0) g_hud_window_t0 = t;
-    g_hud_window_frames++;
-    g_hud_window_ms += ft;
-    if (t - g_hud_window_t0 >= 1000000) {
-        g_hud_fps = (double)g_hud_window_frames * 1000000.0 / (double)(t - g_hud_window_t0);
-        g_hud_frame_ms = g_hud_window_frames ? g_hud_window_ms / (double)g_hud_window_frames : 0.0;
-        g_hud_window_t0 = t;
-        g_hud_window_frames = 0;
-        g_hud_window_ms = 0.0;
-    }
     if (g_presents++) {
         g_ft_sum += ft;
         if (ft > g_ft_max) g_ft_max = ft;
