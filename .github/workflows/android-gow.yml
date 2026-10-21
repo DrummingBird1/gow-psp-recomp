@@ -53,7 +53,7 @@ jobs:
           OK=0
           for ATTEMPT in 1 2 3; do
             rm -f game.iso
-            if gdown --fuzzy "$GOW_DISC_URL" -O game.iso; then
+            if gdown "$GOW_DISC_URL" -O game.iso; then
               SIZE=$(stat -c%s game.iso 2>/dev/null || echo 0)
               if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
             fi
