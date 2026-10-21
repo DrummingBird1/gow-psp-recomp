@@ -28,6 +28,9 @@
 #include "rt_audio.h"
 #include "rt_debug.h"
 #include "rt_frames.h"
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 #include "rt_gpu.h"
 #include "rt_host.h"
 #include "rt_kernel.h"
@@ -318,6 +321,19 @@ static SDL_Texture *g_tex;
 static SDL_Gamepad *g_pads[8];
 static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
+static volatile double g_hud_fps;
+static volatile double g_hud_frame_ms;
+
+#ifdef __ANDROID__
+JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFps(JNIEnv *env, jclass cls) {
+    (void)env; (void)cls;
+    return g_hud_fps;
+}
+JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFrameMs(JNIEnv *env, jclass cls) {
+    (void)env; (void)cls;
+    return g_hud_frame_ms;
+}
+#endif
 static uint64_t g_skips_made, g_skipped_us;  /* virtual-time skips at a high frame rate (rt_host_idle) */
 static uint64_t g_skips_capped;              /* skips shortened (or left out) to keep the sound whole */
 static int g_anchored;
@@ -674,7 +690,11 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
     uint64_t t = now_us();
     if (t - g_title_t >= 1000000) {
         char title[160];
-        double fps = (frame - g_title_frame) * 1e6 / (double)(t - g_title_t);
+        uint64_t elapsed_us = t - g_title_t;
+        uint64_t frames = frame - g_title_frame;
+        double fps = frames ? (double)frames * 1e6 / (double)elapsed_us : 0.0;
+        g_hud_fps = fps;
+        g_hud_frame_ms = frames ? (double)elapsed_us / 1000.0 / (double)frames : 0.0;
         snprintf(title, sizeof(title), "God of War (PSP native port)  |  %.1f fps  |  frame %llu", fps, (unsigned long long)frame);
         gow_set_title(g_win, title);
         g_title_t = t;
