@@ -1,0 +1,131 @@
+name: android-gow
+# Gera o APK do God of War CoO a partir do SEU disco (secret GOW_DISC_URL).
+# O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+env:
+  GAME_ID: UCUS98653
+  SDL_COMMIT: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: ${{ env.SDL_COMMIT }}
+          path: SDL
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Baixar o disco (link secreto)
+        env:
+          GOW_DISC_URL: ${{ secrets.GOW_DISC_URL }}
+        run: |
+          test -n "$GOW_DISC_URL" || { echo "secret GOW_DISC_URL vazio"; exit 1; }
+          echo "::add-mask::$GOW_DISC_URL"
+          python3 -m pip install --break-system-packages -q gdown
+          gdown --fuzzy "$GOW_DISC_URL" -O game.iso > /dev/null 2>&1 || { echo "falha ao baixar (link nao esta publico?)"; exit 1; }
+          SIZE=$(stat -c%s game.iso)
+          echo "disco baixado: $SIZE bytes"
+          test "$SIZE" -gt 50000000 || { echo "arquivo pequeno demais, nao parece uma ISO"; exit 1; }
+
+      - name: Ferramentas do host (gow_disc)
+        run: |
+          cmake -S . -B build/cmake_tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DGOW_TOOLS_ONLY=ON
+          cmake --build build/cmake_tools --target gow_disc --parallel
+          find build/cmake_tools -name gow_disc -type f
+
+      - name: Decifrar o EBOOT do disco
+        run: |
+          DISC_TOOL="$(find build/cmake_tools -name gow_disc -type f | head -1)"
+          mkdir -p build/eboot
+          "$DISC_TOOL" --disc game.iso --id --decrypt-eboot "build/eboot/${GAME_ID}_EBOOT.BIN"
+          ls -l build/eboot
+
+      - name: Recompilar para C (recomp.py)
+        run: |
+          [ -f recomp/requirements.txt ] && python3 -m pip install --break-system-packages -q -r recomp/requirements.txt || true
+          python3 -I recomp/recomp.py \
+            --elf "build/eboot/${GAME_ID}_EBOOT.BIN" \
+            --ghidra "re/out/recomp/${GAME_ID}_EBOOT.BIN.recomp.json" \
+            --nids re/out/psp_nids_ppsspp.tsv \
+            --out "build/gen/${GAME_ID}_full" \
+            --difftest 0 --boot 0 --all
+          ls -l "build/gen/${GAME_ID}_full" | head
+
+      - name: libSDL3.so (arm64-v8a)
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          cmake -S SDL -B build-sdl -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build build-sdl
+          test -s build-sdl/libSDL3.so
+
+      - name: libmain.so do jogo (arm64-v8a)
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          mkdir -p build/deps
+          ln -sfn "$PWD/SDL" "build/deps/SDL3-${SDL_COMMIT}"
+          cmake -S . -B build/cmake_android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGAME="${GAME_ID}_full" -DGOW_ANDROID=ON \
+            -DGOW_SDL_SO="$PWD/build-sdl/libSDL3.so"
+          cmake --build build/cmake_android --parallel
+          find build/cmake_android -name 'libmain.so' -type f
+
+      - name: Montar as 3 bibliotecas
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          mkdir -p pack/lib/arm64-v8a
+          cp "$(find build/cmake_android -name libmain.so -type f | head -1)" pack/lib/arm64-v8a/
+          cp build-sdl/libSDL3.so pack/lib/arm64-v8a/
+          cp "$(find "$NDK/toolchains/llvm/prebuilt" -path '*aarch64-linux-android/libc++_shared.so' | head -1)" pack/lib/arm64-v8a/
+          (cd pack && zip -qr "$RUNNER_TEMP/source-game.apk" lib)
+          unzip -l "$RUNNER_TEMP/source-game.apk"
+
+      - name: Shell SDL e launcher
+        run: |
+          printf '#include <SDL3/SDL_main.h>\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\n' > stub.c
+          python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-android-project"
+          python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          cd "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Empacotar e assinar o APK
+        run: |
+          python3 tools/package_playable_launcher.py \
+            "$RUNNER_TEMP/gow-android-project/org.gow.shell/app/build/outputs/apk/debug/app-debug.apk" \
+            "$RUNNER_TEMP/source-game.apk" \
+            "$RUNNER_TEMP/unsigned.apk"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$RUNNER_TEMP/unsigned.apk" "$RUNNER_TEMP/aligned.apk"
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/test.keystore" \
+            -storepass android -keypass android -alias androiddebugkey \
+            -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/test.keystore" \
+            --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
+            --out "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk" "$RUNNER_TEMP/aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GodOfWar-CoO-apk-${{ github.run_number }}
+          path: ${{ runner.temp }}/GodOfWar-PSP-Recomp-Launcher-test.apk
+          if-no-files-found: error
+          retention-days: 1
