@@ -6,6 +6,7 @@ Only the explicitly supplied generated project is modified. Safe to run repeated
 """
 from pathlib import Path
 import shutil
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -54,6 +55,50 @@ def main() -> int:
     app = root.find("application")
     if app is None:
         raise RuntimeError("AndroidManifest.xml has no <application>")
+
+    # Permite baixar um APK e abrir o instalador do Android dentro do launcher.
+    install_permission = "android.permission.REQUEST_INSTALL_PACKAGES"
+    if not any(p.get(ANDROID + "name") == install_permission for p in root.findall("uses-permission")):
+        root.insert(0, ET.Element("uses-permission", {ANDROID + "name": install_permission}))
+
+    providers = app.findall("provider")
+    provider = next((p for p in providers if p.get(ANDROID + "authorities") == "${applicationId}.fileprovider"), None)
+    if provider is None:
+        provider = ET.SubElement(app, "provider")
+    provider.set(ANDROID + "name", "androidx.core.content.FileProvider")
+    provider.set(ANDROID + "authorities", "${applicationId}.fileprovider")
+    provider.set(ANDROID + "exported", "false")
+    provider.set(ANDROID + "grantUriPermissions", "true")
+    for old_meta in list(provider.findall("meta-data")):
+        if old_meta.get(ANDROID + "name") == "android.support.FILE_PROVIDER_PATHS":
+            provider.remove(old_meta)
+    ET.SubElement(provider, "meta-data", {
+        ANDROID + "name": "android.support.FILE_PROVIDER_PATHS",
+        ANDROID + "resource": "@xml/gow_file_paths",
+    })
+
+    # FileProvider só expõe o APK temporário que o próprio launcher baixou.
+    xml_dir = project / "app/src/main/res/xml"
+    xml_dir.mkdir(parents=True, exist_ok=True)
+    (xml_dir / "gow_file_paths.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\\n'
+        '<paths xmlns:android="http://schemas.android.com/apk/res/android">\\n'
+        '    <cache-path name="updates" path="updates/" />\\n'
+        '</paths>\\n', encoding="utf-8")
+
+    # A SDL gera o projeto Gradle em tempo de build; adicionar FileProvider nele.
+    gradle = project / "app/build.gradle"
+    gradle_kts = project / "app/build.gradle.kts"
+    gradle_file = gradle if gradle.is_file() else gradle_kts
+    if gradle_file.is_file():
+        gradle_text = gradle_file.read_text(encoding="utf-8")
+        if "androidx.core:core" not in gradle_text:
+            match = re.search(r"dependencies\\s*\\{", gradle_text)
+            if not match:
+                raise RuntimeError("Não foi encontrado o bloco dependencies do Gradle")
+            dep = '\\n    implementation "androidx.core:core:1.13.1"'
+            gradle_text = gradle_text[:match.end()] + dep + gradle_text[match.end():]
+            gradle_file.write_text(gradle_text, encoding="utf-8")
 
     activities = list(app.findall("activity"))
     launcher = next((a for a in activities if class_name(a) == "LauncherActivity"), None)
