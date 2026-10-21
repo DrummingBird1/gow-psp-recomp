@@ -1,4 +1,4 @@
-name: android-sdl
+name: "Compilar SDL3 para Android / Build SDL3 for Android"
 on: workflow_dispatch
 jobs:
   build:
