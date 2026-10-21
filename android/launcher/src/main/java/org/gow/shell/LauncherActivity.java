@@ -494,7 +494,6 @@ public final class LauncherActivity extends Activity {
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.addView(button("Jogar", true, this::launchGame), withBottom(dp(8)));
         right.addView(button("Instalar arquivos do jogo", false, this::showGameFiles), withBottom(dp(8)));
-        right.addView(button("Verificar atualizações", false, this::checkForUpdates), withBottom(dp(8)));
         right.addView(button("Gr\u00e1ficos", false, this::showGraphics), withBottom(dp(8)));
         right.addView(button("Desempenho / HUD", false, this::showHud), withBottom(dp(8)));
         right.addView(button("Controles", false, this::showControls), withBottom(dp(8)));
@@ -1035,8 +1034,6 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
         left.addView(row("Zona morta do anal\u00f3gico", "Ajustável: 0% a 50%",
                 deadZoneControl(p), false));
-        left.addView(row("Mapeamento dos bot\u00f5es", "Configure os quatro bot\u00f5es de a\u00e7\u00e3o",
-                button("Configurar", false, () -> showButtonMapping(p)), false));
         right.addView(row("Editor de controles individuais", "No jogo, abra a aba lateral e escolha PlayStation ou Xbox para mover cada botão separadamente",
                 button("Como usar", false, () -> new AlertDialog.Builder(this)
                         .setTitle("Editor de controles")
