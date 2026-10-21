@@ -1,215 +1,100 @@
-# God of War PSP: native PC ports (unofficial)
+# God of War PSP Recomp Android
 
-[![Latest release](https://img.shields.io/github/v/release/DrummingBird1/gow-psp-recomp)](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest)
-[![CI](https://github.com/DrummingBird1/gow-psp-recomp/actions/workflows/launcher.yml/badge.svg?branch=main)](https://github.com/DrummingBird1/gow-psp-recomp/actions/workflows/launcher.yml)
-[![License: GPL-3.0](https://img.shields.io/github/license/DrummingBird1/gow-psp-recomp)](LICENSE)
-[![Downloads](https://img.shields.io/github/downloads/DrummingBird1/gow-psp-recomp/total)](https://github.com/DrummingBird1/gow-psp-recomp/releases)
+**🇧🇷 Português | 🇺🇸 English**
 
-Play **God of War: Chains of Olympus** and **God of War: Ghost of Sparta** natively on Windows, recompiled from your own
-PSP disc, with 4K, MSAA, HDR and high frame rates.
+Projeto independente para executar a recompilação nativa de **God of War: Chains of Olympus (PSP)** no Android, usando ARM64 e SDL3. Este repositório é uma adaptação comunitária não oficial do projeto original.
 
-> **Unofficial fan project.** Not affiliated with or endorsed by Sony Interactive Entertainment or Santa Monica Studio.
-> God of War is a trademark of its owner. **No game content is included or downloadable here:** you need your own,
-> legally dumped disc image (`.chd` or `.iso`) of the US release (UCUS98653 / UCUS98737). Everything built from it stays
-> on your PC.
+An independent community port to run the native recompilation of **God of War: Chains of Olympus (PSP)** on Android, using ARM64 and SDL3. This is an unofficial adaptation of the original project.
 
-![The launcher](docs/images/launcher-main.png)
-
-## Status: preview (v1.2.0)
-
-- Every level of both games loads and runs (automated tours: [phase 11](docs/phase11-level-tour.md),
-  [phase 12](docs/phase12-gos-level-tour.md)).
-- Saving and loading work; sound, music and movies play.
-- **No full playthrough of either game yet**, so expect bugs late in a game. Known issues are listed in the
-  [phase write-ups](docs/), the [launcher acceptance test](docs/phase14-launcher.md) and the [changelog](CHANGELOG.md).
-- Windows only for now (Linux / Steam Deck planned).
-
-### Known issues
-
-- Neither game has had a full playthrough yet: late levels, boss fights and endings may still have bugs.
-- Only the US releases (UCUS98653 / UCUS98737) are supported.
-- Default controls are listed under [Controls](#controls); change them with the launcher's *Controls…* button.
-- Warping into Ghost of Sparta's `scb_010_climb` at spawn point 1 (a developer option) stops after a checkpoint restart;
-  a normal playthrough does not start there ([phase 12](docs/phase12-gos-level-tour.md), bug 2).
-- Some movies end on a black frame, and some Ghost of Sparta geometry clips: both look the same on a PSP and in PPSSPP.
-- The launcher is unsigned, so SmartScreen and some antivirus programs warn about it ([FAQ](docs/troubleshooting.md)).
-
-Found something else? See [Reporting a bug](#reporting-a-bug).
-
-Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log and input files the launcher writes), **never game files or screenshots of the game**.
-
-## Features
-
-- Native executables: every function of the game recompiled to C, no emulator at run time.
-- Internal resolution up to 4K (and beyond), MSAA, anisotropic filtering, FXAA, sharpening.
-- HDR10 / scRGB output.
-- 60, 120, 144 FPS and more (both games step by elapsed time), V-Sync.
-- 21:9 and other aspect ratios.
-- Keyboard and gamepads (PSP layout), saves, texture dump and replacement packs.
-- A one-download launcher: finds your disc images, builds each game, graphics presets, Play.
-
-![Launcher tour](docs/images/launcher-tour.gif)
-
-## Quick start
-
-You only download **one file**, the launcher. No Python, no manual setup.
-
-1. Download [`GoW_PSP_Launcher-v1.2.0.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.2.0.zip)
-   from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
-   one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`.
-   Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
-   even a launcher started straight from Downloads adds only that one folder.
-2. Run `GoWLauncher.exe` and choose the folder with **your own disc images** (`.chd` or `.iso`). It detects each game by its disc ID,
-   not by the file name.
-3. Press **Build**. The first time, the launcher asks to download its portable build tools (**about 246 MB**, once;
-   about 550 MB unpacked): [llvm-mingw](https://github.com/mstorsjo/llvm-mingw) (Clang compiler), CMake and Ninja,
-   from their official releases, checked against pinned SHA-256 hashes. They stay in `GoW_PSP_data`; **no Visual
-   Studio, no administrator rights, nothing installed in Windows.**
-4. Wait for the one-time build: about 4 minutes for the first game (including the download) and under 3 for the
-   second, on a 20-thread CPU.
-5. Pick a graphics preset and press **Play**.
-
-> **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
-> "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
-> PyInstaller programs as a false positive. Check that your download is the real one (v1.2.0 SHA-256):
-> - `GoW_PSP_Launcher-v1.2.0.zip`: `df103bf9996012c6e2518343044f65618d5ba1104315435b08475758e1dfb648`
-> - `GoW_PSP\GoWLauncher.exe`: `5d3802944caf644f955fa004d9e051709ffdce28a094028314277c660e32dab7`
+> **Aviso legal / Legal notice:** projeto feito por fãs, sem afiliação ou aprovação da Sony Interactive Entertainment ou da Santa Monica Studio. God of War é uma marca de seu titular. Você deve fornecer sua própria cópia do jogo obtida legalmente. **Este repositório não distribui imagens de disco, arquivos do jogo ou conteúdo protegido por direitos autorais.**
 >
-> (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
+> Unofficial fan project, not affiliated with or endorsed by Sony Interactive Entertainment or Santa Monica Studio. God of War is a trademark of its owner. You must provide your own legally obtained copy of the game. **This repository does not distribute disc images, game files, or copyrighted game content.**
 
-The launcher opens no console window. Its command-line options (`GoWLauncher.exe --version`, `--check-update`,
-`--update`, `--build coo`) print in the terminal you start them from (in PowerShell, use
-`Start-Process -Wait -NoNewWindow .\GoWLauncher.exe --version` to wait for it), or else to
-`GoW_PSP_data\build\launcher_cli.log`.
+---
 
-The game starts in fullscreen (F11 or Alt+Enter switches to a window; the launcher's Fullscreen option sets the
-default) without a console window. What it prints goes to `GoW_PSP_data\build\launcher_coo.log` (or
-`launcher_gos.log`), and your button presses of that session to `launcher_coo_input.txt` (or
-`launcher_gos_input.txt`). Both are overwritten by the next Play, so copy them right after the bug happens.
+## 🇧🇷 Português
 
-### Reporting a bug
+### Sobre o projeto
 
-Open an [issue](https://github.com/DrummingBird1/gow-psp-recomp/issues/new/choose), say which level and what happens, and
-attach those two files from `GoW_PSP_data\build\`. They hold only text: the game's log and your key presses.
-Mention whether you started from a new game or a save. Never attach game files, saves or screenshots of the game.
+O objetivo é disponibilizar uma versão Android do projeto de recompilação, com um inicializador próprio, controles por toque e opções de exibição. O projeto está em desenvolvimento; compatibilidade e desempenho podem variar de acordo com o aparelho.
 
-Problems? See [Troubleshooting and FAQ](docs/troubleshooting.md): SmartScreen, where files are, updating, build
-failures, stutter.
+### Recursos
 
-Why build on your PC? The game code is generated from your own disc, so it can't be distributed; the launcher
-compiles it locally, once.
+- Inicializador Android personalizado com tema de God of War.
+- Tela para iniciar o jogo.
+- Controles por toque na tela.
+- Opções gráficas e de proporção de tela disponíveis na compilação.
+- Compilação nativa Android ARM64 com SDL3.
+- Projeto voltado para testes e melhorias contínuas.
 
-| | |
-|---|---|
-| ![Options](docs/images/launcher-options.png) | ![Advanced options](docs/images/launcher-advanced.png) |
+### Instalação
 
-### Controls
+1. Abra a página de [Lançamentos / Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases).
+2. Baixe o APK anexado ao lançamento desejado.
+3. Abra o APK no Android e confirme a instalação quando o sistema solicitar.
+4. Forneça sua própria cópia legal do jogo quando o aplicativo solicitar.
 
-| Keyboard | PSP | Gamepad |
-|---|---|---|
-| Arrows | D-pad | D-pad |
-| Z / X / A / S | Cross / Circle / Square / Triangle | A / B / X / Y (PSP layout) |
-| Q / W | L / R | shoulders or triggers |
-| Space or Enter | Start | Start |
-| V | Select | Back |
-| I / J / K / L | analog stick | left stick |
+Se o Android bloquear a instalação, confira as permissões para instalar aplicativos da fonte usada para abrir o APK. Instale apenas APKs de uma fonte em que você confia.
 
-- **Skip a movie:** Enter, Space, a mouse click, or gamepad Start or Cross. The game goes on to the menu or level as if
-  the movie had ended; the press that skipped isn't passed on to the game.
-- **Quit:** Alt+F4 or the window's close button quit at once. Esc asks "Quit the game?" with the game paused: Enter or
-  gamepad Cross = yes, Esc or gamepad Circle = no. On a gamepad, hold Back + Start for 2 seconds. The game saves only
-  at its own save points, so quitting loses progress since the last save. The launcher comes back when the game exits.
-- F11 or Alt+Enter: fullscreen / window. F12: screenshot.
+### Atualizações
 
-While the game runs, the launcher minimizes itself and stops its animation, so it doesn't take time from the game.
+As novas versões serão publicadas na página de [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases). Um verificador de atualizações dentro do aplicativo é uma melhoria planejada; até estar implementado, consulte a página de lançamentos manualmente.
 
-## Build from source
+### Relatar um problema
 
-Install Python 3.15. For the compiler, either let the launcher download its portable toolchain (llvm-mingw, CMake,
-Ninja; `GOW_TOOLCHAIN=portable`, or `python tools/check_portable_toolchain.py`), or install CMake and Visual Studio
-2022 or later (or its Build Tools) with the C++ workload; run from source, the launcher uses Visual Studio when it
-finds it (`GOW_TOOLCHAIN=auto`, the default; `msvc` forces it). Both produce identical software-renderer output.
-Then:
+- Abra [Issues](https://github.com/flavinxs0/gow-psp-recomp-android/issues) para relatar erros.
+- Inclua o modelo do aparelho, a versão do Android, a versão do aplicativo e os passos para reproduzir o problema.
+- **Nunca envie ISO, arquivos do jogo, dumps de memória ou conteúdo protegido por direitos autorais.** Envie apenas logs técnicos que não contenham esses arquivos.
 
-```bash
-py -3 -m venv .venv
-.venv/Scripts/python -m pip install -r tools/requirements-dev.txt
-.venv/Scripts/python tools/launcher.pyw            # the launcher UI
-.venv/Scripts/python tools/launcher.pyw --build coo # or build from the command line (coo / gos)
-.venv/Scripts/python tools/build_launcher.py        # GoWLauncher.exe (PyInstaller)
-```
+### Contribuir
 
-Details: [`recomp/README.md`](recomp/README.md). The research setup (Ghidra, PPSSPP references) is under
-[Research and development](#research-and-development).
+Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes de enviar alterações. Mudanças de código devem ser testadas sempre que possível, e mudanças visíveis ao usuário devem ser registradas no changelog.
 
-## How it works
+---
 
-This is a **static recompilation**, not an emulator. The game's MIPS (Allegrex) code is decrypted from your disc and
-every function is translated ahead of time into C (`recomp/`), which is compiled with the C runtime (`runtime/`) into a
-normal Windows program. The runtime replaces the PSP's operating system and hardware: threads and kernel objects,
-the file system (reading straight from your `.chd` / `.iso`), the VFPU, the GE graphics chip (a software renderer and
-a hardware renderer on SDL3 GPU / Direct3D 12 / Vulkan), sound, ATRAC3+, movies and saves. Because the GE output is
-redrawn on the PC's GPU, it can render at any resolution and frame rate.
+## 🇺🇸 English
 
-![Welcome screen](docs/images/launcher-welcome.png)
+### About
 
-## Research and development
+The goal is to provide an Android version of the recompilation project, with a custom launcher, on-screen touch controls, and display options. This project is under development; compatibility and performance may vary by device.
 
-### Layout
+### Features
 
-| Path | Contents |
-|---|---|
-| `docs/` | Player FAQ, feasibility report and phase write-ups ([index](docs/README.md)) |
-| `re/scripts/` | Ghidra scripts (analysis export, metrics, import naming, function seeding) and `build_nid_db.mjs` |
-| `re/out/` | Analysis results: metrics, function lists, imports, NID table (no game code) |
-| `recomp/` | Recompiler (Python): loader/relocator, decoder, C emitter, driver, differential tests |
-| `runtime/` | C runtime the generated code links against |
-| `CMakeLists.txt` | Builds `gow_rt_<GAME>` from `build/gen/<GAME>` |
-| `cmake/` | Pinned file lists (SHA-256) of third-party sources CMake downloads, e.g. OpenH264's decoder |
-| `tools/` | `launcher.pyw` (build and play), play/replay scripts, level tour, frame checks, documentation helpers |
+- Custom God of War-themed Android launcher.
+- Integrated game launch screen.
+- On-screen touch controls.
+- Graphics and aspect-ratio options available in the build.
+- Native Android ARM64 build using SDL3.
+- Ongoing community testing and improvements.
 
-Local only (ignored): `*.chd`, `re/dumps/`, `re/ghidra/`, `build/`, `.venv/`, `re/ppsspp-*`, `media/` (screenshots and recordings; see [`docs/progress.md`](docs/progress.md)).
+### Installation
 
-### Setup on a new machine
+1. Open the [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases) page.
+2. Download the APK attached to the release you want.
+3. Open the APK on Android and confirm installation when prompted.
+4. Provide your own legally obtained copy of the game when requested by the app.
 
-1. Tools: Ghidra 12.1.3 + ghidra-allegrex v21.4, JDK 21 and Python 3.15 for the analysis. For compiling, the portable
-   toolchain is enough (llvm-mingw, CMake, Ninja: `python tools/check_portable_toolchain.py` downloads it, or
-   `GOW_TOOLCHAIN=portable`); Visual Studio 2022+ with the C++ workload and CMake also works. Git is only needed to
-   clone this repository: the build downloads its third-party sources as pinned archives.
-2. Decrypted EBOOT: the launcher does this for you (into `build/eboot/`). By hand, build `gow_disc`
-   (`cmake -S . -B build/cmake_tools -DGOW_TOOLS_ONLY=ON` then `cmake --build build/cmake_tools --config Release`) and run
-   `build/cmake_tools/Release/gow_disc.exe --disc <your disc>.chd --decrypt-eboot re/dumps/UCUS98653_EBOOT.BIN`
-   (`UCUS98737_EBOOT.BIN` for Ghost of Sparta). A PPSSPP dump (`DumpFileTypes = 3`) gives the same bytes and is no
-   longer needed.
-3. Python environment for the tests: `py -3 -m venv .venv` then `.venv/Scripts/python -m pip install unicorn`.
-4. PPSSPP reference sources used by `build_nid_db.mjs` (optional, re-fetchable):
-   `Core/HLE/*.cpp` (and, for the movies, `Core/HW/MediaEngine.*` and `Core/HW/MpegDemux.*`) into `re/ppsspp-hle/`, `Core/MIPS/MIPSInt.cpp` and `MIPSTables.cpp` into `re/ppsspp-mips/`,
-   and the GE references (`GPU/Software/*`, `GPU/GPUState.*`, `GPU/ge_constants.h`, `GPU/Common/VertexDecoderCommon.*`,
-   `GPU/Common/TextureDecoder.*`, `GPU/GPUCommon*.cpp`) into `re/ppsspp-gpu/`, and the audio references
-   (`Core/HW/SasAudio.*`, `Core/HW/SasReverb.*`, `Core/HW/Atrac3Standalone.*`, `Core/HLE/AtracCtx2.h`,
-   `Core/Util/AtracTrack.*`, `ext/at3_standalone/`) into `re/ppsspp-audio/` (tag v1.20.4).
-5. For progress screenshots and recordings: `.venv/Scripts/python.exe -m pip install pillow numpy`, and ffmpeg.
+If Android blocks installation, check the permission to install apps for the source used to open the APK. Only install APKs from sources you trust.
 
-See [`recomp/README.md`](recomp/README.md) for the recompile/build/test commands and
-[`docs/`](docs/) for results.
+### Updates
 
-## Contributing
+New versions will be published on the [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases) page. An in-app update checker is planned; until it is implemented, visit the releases page manually.
 
-Questions, ideas and help: [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions). Bugs:
-[Issues](https://github.com/DrummingBird1/gow-psp-recomp/issues). Contributions are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md). **Never attach or commit game files.** Releases
-are numbered `vMAJOR.MINOR.PATCH`, roughly following semantic versioning, and are listed in [`CHANGELOG.md`](CHANGELOG.md).
+### Report a problem
 
-## Credits
+- Open [Issues](https://github.com/flavinxs0/gow-psp-recomp-android/issues) to report bugs.
+- Include your device model, Android version, app version, and steps to reproduce the issue.
+- **Never upload ISO files, game files, memory dumps, or copyrighted content.** Share only technical logs that do not contain those files.
 
-- [PPSSPP](https://www.ppsspp.org/): the reference for the PSP's hardware and HLE; parts of it are ported in the runtime
-  (GPL-2.0-or-later), and its `at3_standalone` decoder and PrxDecrypter are used.
-- libkirk (PSP crypto), libchdr, SDL3, OpenH264.
-- [Cinzel](https://fonts.google.com/specimen/Cinzel) font (SIL Open Font License).
-- [Qt for Python / PySide6](https://doc.qt.io/qtforpython/) (LGPL-3.0, linked dynamically) for the launcher.
-- The icon is original art (`tools/make_icon.py`).
+### Contributing
 
-## License
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Test code changes whenever possible, and record user-visible changes in the changelog.
 
-GPL-3.0-or-later (see [`LICENSE`](LICENSE)). CMake downloads the third-party sources at configure time (SDL3, libchdr,
-OpenH264, PPSSPP's `at3_standalone` and `libkirk`) with pinned SHA-256s; they keep their own licenses and are not part
-of this repository. The launcher ships its third-party notices (`tools/launcher_assets/THIRD_PARTY_NOTICES.txt`).
+---
+
+## Links
+
+- [Releases / Lançamentos](https://github.com/flavinxs0/gow-psp-recomp-android/releases)
+- [Actions / Compilações automáticas](https://github.com/flavinxs0/gow-psp-recomp-android/actions)
+- [Issues / Problemas e sugestões](https://github.com/flavinxs0/gow-psp-recomp-android/issues)
+- [Código-fonte / Source code](https://github.com/flavinxs0/gow-psp-recomp-android/tree/android)
