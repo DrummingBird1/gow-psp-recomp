@@ -94,10 +94,12 @@ def main() -> int:
 
     generated_activity.set(ANDROID + "name", "GameActivity")
     generated_activity.set(ANDROID + "label", "God of War PSP Recomp")
+    generated_activity.set(ANDROID + "icon", "@mipmap/ic_launcher")  # gow_icon_v1
     generated_activity.set(ANDROID + "exported", "true" if has_usb_attach else "false")
     # Do not overwrite launchMode/configChanges/other SDL-generated attributes.
 
     app.set(ANDROID + "label", "God of War PSP Recomp")
+    app.set(ANDROID + "icon", "@mipmap/ic_launcher")  # gow_icon_v1
 
     if launcher is None:
         launcher = ET.Element("activity")
@@ -108,6 +110,7 @@ def main() -> int:
             launcher.remove(intent)
     launcher.set(ANDROID + "name", "LauncherActivity")
     launcher.set(ANDROID + "label", "God of War PSP Recomp")
+    launcher.set(ANDROID + "icon", "@mipmap/ic_launcher")  # gow_icon_v1
     launcher.set(ANDROID + "exported", "true")
     launcher.set(ANDROID + "configChanges", "orientation|screenSize|keyboardHidden")
     launcher.set(ANDROID + "screenOrientation", "sensorLandscape")
@@ -116,6 +119,25 @@ def main() -> int:
     ET.SubElement(intent, "category", {ANDROID + "name": "android.intent.category.LAUNCHER"})
 
     ET.indent(tree, space="    ")
+    # gow_icon_v1: icone proprio (substitui o icone padrao do SDL)
+    import shutil
+    icon_src = Path(__file__).resolve().parent.parent / "android/launcher/icon"
+    res = project / "app/src/main/res"
+    for dens in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
+        dst = res / ("mipmap-" + dens)
+        dst.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(icon_src / ("ic_launcher-" + dens + ".png"), dst / "ic_launcher.png")
+    xx = res / "mipmap-xxxhdpi"
+    shutil.copyfile(icon_src / "ic_launcher_foreground.png", xx / "ic_launcher_foreground.png")
+    shutil.copyfile(icon_src / "ic_launcher_background.png", xx / "ic_launcher_background.png")
+    ad = res / "mipmap-anydpi-v26"
+    ad.mkdir(parents=True, exist_ok=True)
+    (ad / "ic_launcher.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <background android:drawable="@mipmap/ic_launcher_background"/>\n'
+        '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
+        '</adaptive-icon>\n', encoding="utf-8")
     tree.write(manifest, encoding="utf-8", xml_declaration=True)
     print("Launcher integrated.")
     print(f"Project: {project}")

@@ -114,9 +114,19 @@ jobs:
           python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-android-project"
           python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-android-project/org.gow.shell"
           cd "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          # versionCode crescente: o Android so atualiza por cima se nao for menor
+          for f in app/build.gradle app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i -E 's/versionCode([ =]+)[0-9]+/versionCode\1${{ github.run_number }}/' "$f"
+              grep -n versionCode "$f" || true
+            fi
+          done
           ./gradlew --no-daemon assembleDebug
 
       - name: Empacotar e assinar o APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           python3 tools/package_playable_launcher.py \
             "$RUNNER_TEMP/gow-android-project/org.gow.shell/app/build/outputs/apk/debug/app-debug.apk" \
@@ -124,11 +134,19 @@ jobs:
             "$RUNNER_TEMP/unsigned.apk"
           BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
           "$BUILD_TOOLS/zipalign" -f -p 4 "$RUNNER_TEMP/unsigned.apk" "$RUNNER_TEMP/aligned.apk"
-          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/test.keystore" \
-            -storepass android -keypass android -alias androiddebugkey \
-            -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
-          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/test.keystore" \
-            --ks-key-alias androiddebugkey --ks-pass pass:android --key-pass pass:android \
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/gow.keystore"
+            KS="$RUNNER_TEMP/gow.keystore"; ALIAS=gow; export SIGN_PASS="$KS_PASS"
+            echo "assinando com a chave fixa (atualiza por cima do app instalado)"
+          else
+            echo "::warning::sem keystore fixo nos secrets: usando chave temporaria (o Android vai exigir desinstalar)"
+            keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/test.keystore" \
+              -storepass android -keypass android -alias androiddebugkey \
+              -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
+            KS="$RUNNER_TEMP/test.keystore"; ALIAS=androiddebugkey; export SIGN_PASS=android
+          fi
+          "$BUILD_TOOLS/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" \
+            --ks-pass env:SIGN_PASS --key-pass env:SIGN_PASS \
             --out "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk" "$RUNNER_TEMP/aligned.apk"
           "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk"
 
