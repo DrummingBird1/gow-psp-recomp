@@ -158,6 +158,12 @@ static void *mem_thread(void *u) {
     return NULL;
 }
 
+static SDL_LogOutputFunction g_def_log;
+static void SDLCALL sdl_log_to_file(void *u, int cat, SDL_LogPriority pri, const char *msg) {
+    fprintf(stderr, "[sdl cat=%d pri=%d] %s\n", cat, (int)pri, msg);
+    if (g_def_log) g_def_log(u, cat, pri, msg);
+}
+
 __attribute__((visibility("default")))
 int SDL_main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -173,6 +179,9 @@ int SDL_main(int argc, char **argv) {
     dup2(fileno(stderr), fileno(stdout));
     setvbuf(stdout, NULL, _IONBF, 0);
     { pthread_t mt; pthread_create(&mt, NULL, mem_thread, NULL); pthread_detach(mt); }
+    g_def_log = SDL_GetDefaultLogOutputFunction();
+    SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
+    SDL_SetLogOutputFunction(sdl_log_to_file, NULL);
     init_stack_bounds();
     install_handlers();
     atexit(on_exit_log);
