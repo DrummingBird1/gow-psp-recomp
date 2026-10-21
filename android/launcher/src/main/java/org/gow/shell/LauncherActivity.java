@@ -687,8 +687,8 @@ public final class LauncherActivity extends Activity {
                             .setMessage(sameVersion
                                     ? "Versão instalada: " + VERSION + "\nÚltima release: " + tag + "\n\nVocê está na versão mais recente publicada."
                                     : "Nova release: " + releaseName + " (" + tag + ")\nVersão instalada: " + VERSION + "\n\nBaixe o APK para atualizar pelo instalador do Android.");
-                    if (apkUrl != null && !apkUrl.isEmpty()) {
-                        builder.setPositiveButton("Baixar APK", (d, w) -> downloadUpdate(apkUrl, apkName));
+                    if (!sameVersion && apkUrl != null && !apkUrl.isEmpty()) {
+                        builder.setPositiveButton("Baixar atualização", (d, w) -> downloadUpdate(apkUrl, apkName));
                         builder.setNeutralButton("Ver release", (d, w) -> openUrl(releaseUrl));
                     } else {
                         builder.setPositiveButton("Abrir release", (d, w) -> openUrl(releaseUrl));
