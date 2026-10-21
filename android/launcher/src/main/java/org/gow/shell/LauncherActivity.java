@@ -3,6 +3,7 @@ package org.gow.shell;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.database.Cursor;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -10,6 +11,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.provider.OpenableColumns;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -30,6 +32,10 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -37,6 +43,7 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import org.json.JSONObject;
 
 /**
  * God of War PSP Recomp Android launcher (layout horizontal, 6 telas).
@@ -57,6 +64,8 @@ public final class LauncherActivity extends Activity {
     private static final int GREEN = Color.rgb(155, 203, 145);
 
     private static final String PREFS = "gow_settings";
+    private static final int PICK_GAME_ISO = 401;
+    private static final int PICK_IMAGE_BIN = 402;
     private static final String VERSION = "v0.1.0";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
     private static final String[] MODES = { "16:9", "4:3", "FULLSCREEN" };
@@ -474,6 +483,8 @@ public final class LauncherActivity extends Activity {
         LinearLayout right = column();
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.addView(button("Jogar", true, this::launchGame), withBottom(dp(8)));
+        right.addView(button("Instalar arquivos do jogo", false, this::showGameFiles), withBottom(dp(8)));
+        right.addView(button("Verificar atualizações", false, this::checkForUpdates), withBottom(dp(8)));
         right.addView(button("Gr\u00e1ficos", false, this::showGraphics), withBottom(dp(8)));
         right.addView(button("Desempenho / HUD", false, this::showHud), withBottom(dp(8)));
         right.addView(button("Controles", false, this::showControls), withBottom(dp(8)));
@@ -501,7 +512,186 @@ public final class LauncherActivity extends Activity {
 
     private void launchGame() {
         writeArgs();
+        File iso = new File(gameDir(), "game.iso");
+        File image = new File(gameDir(), "image.bin");
+        if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
+            dialog().setTitle("Arquivos do jogo")
+                    .setMessage("game.iso: " + (iso.isFile() && iso.length() > 0 ? "pronto" : "pendente")
+                            + "\nimage.bin: " + (image.isFile() && image.length() > 0 ? "pronto" : "pendente")
+                            + "\n\nO jogo pode não iniciar sem os arquivos necessários.")
+                    .setNegativeButton("Voltar", null)
+                    .setNeutralButton("Instalar arquivos", (d, w) -> showGameFiles())
+                    .setPositiveButton("Tentar jogar", (d, w) -> startActivity(new Intent(this, GameActivity.class)))
+                    .show();
+            return;
+        }
         startActivity(new Intent(this, GameActivity.class));
+    }
+
+    private void showGameFiles() {
+        File iso = new File(gameDir(), "game.iso");
+        File image = new File(gameDir(), "image.bin");
+        String isoState = iso.isFile() && iso.length() > 0
+                ? String.format(Locale.US, "Pronto (%.1f GB)", iso.length() / 1073741824.0) : "Pendente";
+        String imageState = image.isFile() && image.length() > 0
+                ? String.format(Locale.US, "Pronto (%.1f MB)", image.length() / 1048576.0) : "Pendente";
+        dialog().setTitle("Instalar arquivos do jogo")
+                .setMessage("game.iso — " + isoState + "\nimage.bin — " + imageState
+                        + "\n\nSelecione seus próprios arquivos. O app fará uma cópia na pasta privada dele.")
+                .setPositiveButton("Selecionar game.iso", (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
+                .setNeutralButton("Selecionar image.bin", (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
+                .setNegativeButton("Fechar", null)
+                .show();
+    }
+
+    private void pickGameFile(int requestCode, String expectedName) {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        pick.setType("*/*");
+        pick.putExtra(Intent.EXTRA_TITLE, "Selecione " + expectedName);
+        try {
+            startActivityForResult(pick, requestCode);
+        } catch (ActivityNotFoundException e) {
+            toast("Não foi possível abrir o seletor de arquivos.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final String expectedName;
+        if (requestCode == PICK_GAME_ISO) expectedName = "game.iso";
+        else if (requestCode == PICK_IMAGE_BIN) expectedName = "image.bin";
+        else return;
+        importGameFile(data.getData(), expectedName);
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri,
+                new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) return cursor.getString(index);
+            }
+        } catch (Exception ignored) { }
+        String last = uri.getLastPathSegment();
+        return last == null ? "" : last;
+    }
+
+    private void importGameFile(Uri uri, String expectedName) {
+        String pickedName = displayName(uri);
+        String requiredExtension = expectedName.endsWith(".iso") ? ".iso" : ".bin";
+        if (pickedName == null || !pickedName.toLowerCase(Locale.US).endsWith(requiredExtension)) {
+            toast("Selecione um arquivo " + requiredExtension + " para " + expectedName + ".");
+            return;
+        }
+        toast("Copiando " + pickedName + " para o armazenamento do app...");
+        new Thread(() -> {
+            File dir = gameDir();
+            File temp = new File(dir, expectedName + ".importing");
+            File target = new File(dir, expectedName);
+            File backup = new File(dir, expectedName + ".previous");
+            String error = null;
+            try {
+                if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("Não foi possível criar a pasta do app.");
+                if (temp.exists() && !temp.delete()) throw new java.io.IOException("Não foi possível limpar a cópia temporária.");
+                long total = 0;
+                try (InputStream in = getContentResolver().openInputStream(uri);
+                     FileOutputStream out = new FileOutputStream(temp)) {
+                    if (in == null) throw new java.io.IOException("O seletor não forneceu acesso ao arquivo.");
+                    byte[] buffer = new byte[1024 * 1024];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, count);
+                        total += count;
+                    }
+                    out.getFD().sync();
+                }
+                if (total <= 0 || !temp.isFile() || temp.length() != total)
+                    throw new java.io.IOException("O arquivo copiado está vazio ou incompleto.");
+                if (backup.exists() && !backup.delete()) throw new java.io.IOException("Não foi possível preparar o backup.");
+                if (target.exists() && !target.renameTo(backup))
+                    throw new java.io.IOException("Não foi possível preservar o arquivo anterior.");
+                if (!temp.renameTo(target)) {
+                    if (backup.exists()) backup.renameTo(target);
+                    throw new java.io.IOException("Não foi possível concluir a importação.");
+                }
+                if (backup.exists()) backup.delete();
+            } catch (Exception e) {
+                error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                if (temp.exists()) temp.delete();
+                if (!target.exists() && backup.exists()) backup.renameTo(target);
+            }
+            final String failure = error;
+            runOnUiThread(() -> {
+                if (failure == null) {
+                    toast(expectedName + " instalado (" + new File(dir, expectedName).length() / 1048576L + " MB).");
+                    if ("main".equals(current) && status != null) refreshStatus();
+                } else {
+                    toast("Falha ao importar " + expectedName + ": " + failure);
+                }
+            });
+        }, "gow-file-import").start();
+    }
+
+    private void checkForUpdates() {
+        toast("Verificando atualizações...");
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                URL url = new URL("https://api.github.com/repos/flavinxs0/gow-psp-recomp-android/releases/latest");
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(8000);
+                connection.setReadTimeout(8000);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                connection.setRequestProperty("User-Agent", "GodOfWar-PSP-Recomp-Android");
+                StringBuilder body = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) body.append(line);
+                }
+                JSONObject release = new JSONObject(body.toString());
+                final String tag = release.optString("tag_name", "");
+                final String releaseName = release.optString("name", tag);
+                final String releaseUrl = release.optString("html_url",
+                        "https://github.com/flavinxs0/gow-psp-recomp-android/releases");
+                if (tag.isEmpty()) throw new java.io.IOException("A API não retornou uma versão publicada.");
+                final boolean sameVersion = normalizeVersion(tag).equals(normalizeVersion(VERSION));
+                runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
+                        .setMessage(sameVersion
+                                ? "Você está na versão " + VERSION + ". Ela corresponde à última release publicada (" + tag + ")."
+                                : "Release publicada encontrada: " + releaseName + " (" + tag + ").\nVersão deste app: " + VERSION
+                                        + ".\nConfira as notas e os arquivos antes de atualizar.")
+                        .setPositiveButton("Abrir release", (d, w) -> openUrl(releaseUrl))
+                        .setNegativeButton("Fechar", null)
+                        .show());
+            } catch (Exception e) {
+                runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
+                        .setMessage("Não foi possível consultar o GitHub agora. Confira sua conexão ou abra a página de releases.")
+                        .setPositiveButton("Abrir releases", (d, w) -> openUrl(
+                                "https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
+                        .setNegativeButton("Fechar", null).show());
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }, "gow-update-check").start();
+    }
+
+    private String normalizeVersion(String version) {
+        String value = version == null ? "" : version.trim().toLowerCase(Locale.US);
+        if (value.startsWith("android-")) value = value.substring("android-".length());
+        if (value.startsWith("v")) value = value.substring(1);
+        return value;
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (ActivityNotFoundException e) {
+            toast("Nenhum navegador encontrado.");
+        }
     }
 
     // ------------------------------------------------------------------ 2. Gráficos
@@ -591,20 +781,29 @@ public final class LauncherActivity extends Activity {
 
 
     private View hudOpacityControl() {
+        final int min = 20;
+        final int initial = Math.max(min, Math.min(100, prefs().getInt("performance_hud_opacity", 70)));
+        LinearLayout control = rowLayout();
+        TextView valueLabel = tv(initial + "%", 13, TEXT, true);
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
-        seek.setMax(100);
-        seek.setProgress(Math.max(20, Math.min(100, prefs().getInt("performance_hud_opacity", 70))));
+        seek.setMax(100 - min);
+        seek.setProgress(initial - min);
         seek.setContentDescription("Opacidade do HUD, de 20 a 100 por cento");
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
-                int opacity = Math.max(20, Math.min(100, value));
-                if (value < 20) bar.setProgress(20);
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int opacity = min + progress;
+                valueLabel.setText(opacity + "%");
                 if (fromUser) prefs().edit().putInt("performance_hud_opacity", opacity).apply();
             }
             @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
             @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
         });
-        return seek;
+        control.addView(seek, new LinearLayout.LayoutParams(dp(142), dp(36)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), dp(36));
+        labelParams.leftMargin = dp(6);
+        valueLabel.setGravity(Gravity.CENTER);
+        control.addView(valueLabel, labelParams);
+        return control;
     }
 
     // ------------------------------------------------------------------ 4. Controles
@@ -782,9 +981,8 @@ public final class LauncherActivity extends Activity {
                 }), false));
         right.addView(row("Controle detectado", padName == null ? "Nenhum controle f\u00edsico" : padName,
                 padState, false));
-        right.addView(row("Opacidade", null,
-                seg(new String[] { "30%", "50%", "70%", "100%" }, opIndex,
-                        i -> p.edit().putInt("ctl_opacity", ops[i]).apply()), false));
+        right.addView(row("Opacidade dos controles", "20–100%",
+                controlOpacityControl(p), false));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
         left.addView(row("Zona morta do anal\u00f3gico", "Ajustável: 0% a 50%",
                 deadZoneControl(p), false));
@@ -794,18 +992,53 @@ public final class LauncherActivity extends Activity {
     }
 
     private View deadZoneControl(SharedPreferences p) {
+        final int initial = Math.max(0, Math.min(50, p.getInt("ctl_deadzone", 15)));
+        LinearLayout control = rowLayout();
+        TextView valueLabel = tv(initial + "%", 13, TEXT, true);
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
         seek.setMax(50);
-        seek.setProgress(Math.max(0, Math.min(50, p.getInt("ctl_deadzone", 15))));
+        seek.setProgress(initial);
         seek.setContentDescription("Zona morta do analógico, de zero a cinquenta por cento");
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
+                valueLabel.setText(value + "%");
                 if (fromUser) p.edit().putInt("ctl_deadzone", value).apply();
             }
             @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
             @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
         });
-        return seek;
+        control.addView(seek, new LinearLayout.LayoutParams(dp(142), dp(36)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), dp(36));
+        labelParams.leftMargin = dp(6);
+        valueLabel.setGravity(Gravity.CENTER);
+        control.addView(valueLabel, labelParams);
+        return control;
+    }
+
+    private View controlOpacityControl(SharedPreferences p) {
+        final int min = 20;
+        final int initial = Math.max(min, Math.min(100, p.getInt("ctl_opacity", 50)));
+        LinearLayout control = rowLayout();
+        TextView valueLabel = tv(initial + "%", 13, TEXT, true);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(100 - min);
+        seek.setProgress(initial - min);
+        seek.setContentDescription("Opacidade dos controles, de 20 a 100 por cento");
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int opacity = min + progress;
+                valueLabel.setText(opacity + "%");
+                if (fromUser) p.edit().putInt("ctl_opacity", opacity).apply();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        control.addView(seek, new LinearLayout.LayoutParams(dp(142), dp(36)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), dp(36));
+        labelParams.leftMargin = dp(6);
+        valueLabel.setGravity(Gravity.CENTER);
+        control.addView(valueLabel, labelParams);
+        return control;
     }
 
     private void showButtonMapping(SharedPreferences p) {
