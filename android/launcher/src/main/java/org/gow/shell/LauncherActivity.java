@@ -103,6 +103,12 @@ public final class LauncherActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if ("main".equals(current) && status != null) refreshStatus();
+        String pendingPath = prefs().getString("pending_update_apk", "");
+        if (!pendingPath.isEmpty() && (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())) {
+            prefs().edit().remove("pending_update_apk").apply();
+            File pendingApk = new File(pendingPath);
+            if (pendingApk.isFile()) launchApkInstaller(pendingApk);
+        }
     }
 
     @Override public void onBackPressed() {
@@ -734,6 +740,7 @@ public final class LauncherActivity extends Activity {
                 File ready = target;
                 runOnUiThread(() -> {
                     if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                        prefs().edit().putString("pending_update_apk", ready.getAbsolutePath()).apply();
                         dialog().setTitle("Permitir instalação")
                             .setMessage("O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir.")
                             .setPositiveButton("Abrir permissões", (d, w) -> {
