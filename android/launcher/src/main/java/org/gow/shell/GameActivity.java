@@ -400,10 +400,11 @@ public final class GameActivity extends SDLActivity {
             this.layoutOffsetY = prefs.getFloat("ctl_offset_y", 0f);
             int deadZone = Math.max(0, Math.min(50, prefs.getInt("ctl_deadzone", 15)));
             this.deadZonePercent = deadZone;
-            codes[CROSS] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_cross", 0)))];
-            codes[CIRCLE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_circle", 1)))];
-            codes[SQUARE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_square", 2)))];
-            codes[TRIANGLE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_triangle", 3)))];
+            String profile = xbox ? "xbox" : "ps";
+            codes[CROSS] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_" + profile + "_cross", 0)))];
+            codes[CIRCLE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_" + profile + "_circle", 1)))];
+            codes[SQUARE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_" + profile + "_square", 2)))];
+            codes[TRIANGLE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_" + profile + "_triangle", 3)))];
             d = ctx.getResources().getDisplayMetrics().density;
             alpha = Math.max(20, Math.min(255, Math.round(255f * opacityPercent / 100f)));
             stroke.setStyle(Paint.Style.STROKE);
