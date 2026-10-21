@@ -1188,6 +1188,8 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Restaurar padr\u00f5es", "Volta todas as configura\u00e7\u00f5es ao original",
                 actions(new String[] { "Restaurar" }, new Runnable[] { this::confirmReset }, true), false));
         right.addView(row("Idioma", null, seg(new String[] { "Portugu\u00eas", "English" }, 0, i -> { }), true));
+        right.addView(row("Verificar atualizações", "Consultar a versão mais recente do APK no GitHub",
+                actions(new String[] { "Verificar" }, new Runnable[] { this::checkForUpdates }, false), false));
         showScreen("extras", "Extras", left, right);
     }
 
@@ -1390,8 +1392,7 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Arquitetura", null, tv(abi(), 15, MUTED, false), false));
         right.addView(row("C\u00f3digo-fonte", "Projeto no GitHub",
                 actions(new String[] { "GitHub" }, new Runnable[] { this::openRepo }, false), false));
-        right.addView(row("Atualizações", "Verificar e baixar o APK da Release",
-                actions(new String[] { "Verificar" }, new Runnable[] { this::checkForUpdates }, false), false));
+
         right.addView(row("Licen\u00e7as", "Bibliotecas de c\u00f3digo aberto",
                 actions(new String[] { "Ver" }, new Runnable[] { this::showLicenses }, false), false));
         showScreen("about", "Sobre", left, right);
