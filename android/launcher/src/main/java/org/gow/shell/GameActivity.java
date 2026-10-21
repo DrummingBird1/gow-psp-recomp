@@ -147,8 +147,8 @@ public final class GameActivity extends SDLActivity {
             if (showRam) { if (value.length() > 0) value.append("  ·  "); value.append("RAM ").append(ramValue); }
         } else {
             if (showFps) value.append("FPS  ").append(fpsValue);
-            if (showFrame) { if (value.length() > 0) value.append("\\n"); value.append("Tempo de quadro  ").append(frameValue); }
-            if (showRam) { if (value.length() > 0) value.append("\\n"); value.append("RAM utilizada  ").append(ramValue); }
+            if (showFrame) { if (value.length() > 0) value.append("\n"); value.append("Tempo de quadro  ").append(frameValue); }
+            if (showRam) { if (value.length() > 0) value.append("\n"); value.append("RAM utilizada  ").append(ramValue); }
         }
         performanceHud.setText(value.toString());
         performanceHud.setAlpha(Math.max(0.2f, Math.min(1f,
@@ -160,7 +160,7 @@ public final class GameActivity extends SDLActivity {
         android.text.SpannableString styled = new android.text.SpannableString(value.toString());
         int fpsStart = value.indexOf("FPS");
         if (fpsStart >= 0) {
-            int end = compact ? value.indexOf("  ·  ") : value.indexOf("\\n");
+            int end = compact ? value.indexOf("  ·  ") : value.indexOf("\n");
             if (end < 0) end = value.length();
             styled.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(117, 229, 154)),
                     fpsStart, Math.max(fpsStart, end), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
