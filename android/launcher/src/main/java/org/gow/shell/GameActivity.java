@@ -52,7 +52,7 @@ public final class GameActivity extends SDLActivity {
         prefs = getSharedPreferences("gow_settings", MODE_PRIVATE);
 
         controls = new TouchControls(this, prefs.getInt("ctl_opacity", 50),
-                "xbox".equals(prefs.getString("ctl_style", "ps")));
+                "xbox".equals(prefs.getString("ctl_style", "ps")), prefs);
         controls.sink = new TouchControls.Sink() {
             @Override public void down(int keyCode) { SDLActivity.onNativeKeyDown(keyCode); }
             @Override public void up(int keyCode) { SDLActivity.onNativeKeyUp(keyCode); }
@@ -252,12 +252,17 @@ public final class GameActivity extends SDLActivity {
             KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_V,
             KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_K, KeyEvent.KEYCODE_J, KeyEvent.KEYCODE_L
         };
+        private static final int[] FACE_CODES = {
+            KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S
+        };
+        private final int[] codes = CODES.clone();
 
         Sink sink;
         private final boolean[] held = new boolean[N];
         private final boolean[] want = new boolean[N];
         private final float d;
         private final int alpha;
+        private final int deadZonePercent;
         private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -271,9 +276,15 @@ public final class GameActivity extends SDLActivity {
 
         private final boolean xbox;
 
-        TouchControls(Context ctx, int opacityPercent, boolean xbox) {
+        TouchControls(Context ctx, int opacityPercent, boolean xbox, SharedPreferences prefs) {
             super(ctx);
             this.xbox = xbox;
+            int deadZone = Math.max(0, Math.min(50, prefs.getInt("ctl_deadzone", 15)));
+            this.deadZonePercent = deadZone;
+            codes[CROSS] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_cross", 0)))];
+            codes[CIRCLE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_circle", 1)))];
+            codes[SQUARE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_square", 2)))];
+            codes[TRIANGLE] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_triangle", 3)))];
             d = ctx.getResources().getDisplayMetrics().density;
             alpha = Math.max(20, Math.min(255, Math.round(255f * opacityPercent / 100f)));
             stroke.setStyle(Paint.Style.STROKE);
@@ -327,7 +338,7 @@ public final class GameActivity extends SDLActivity {
             } else if (near(x, y, stickCx, stickCy, stickR * 1.5f)) {
                 // analogico (teclas I K J L)
                 float dx = x - stickCx, dy = y - stickCy;
-                float t = stickR * 0.30f;
+                float t = stickR * (deadZonePercent / 100f);
                 if (dy < -t) want[SUP] = true;
                 if (dy > t) want[SDOWN] = true;
                 if (dx < -t) want[SLEFT] = true;
@@ -375,10 +386,10 @@ public final class GameActivity extends SDLActivity {
                 for (int i = 0; i < N; i++) {
                     if (want[i] && !held[i]) {
                         held[i] = true;
-                        sink.down(CODES[i]);
+                        sink.down(codes[i]);
                     } else if (!want[i] && held[i]) {
                         held[i] = false;
-                        sink.up(CODES[i]);
+                        sink.up(codes[i]);
                     }
                 }
             }
