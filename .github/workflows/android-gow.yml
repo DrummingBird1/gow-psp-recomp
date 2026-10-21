@@ -47,8 +47,20 @@ jobs:
         run: |
           test -n "$GOW_DISC_URL" || { echo "secret GOW_DISC_URL vazio"; exit 1; }
           echo "::add-mask::$GOW_DISC_URL"
-          python3 -m pip install --break-system-packages -q gdown
-          gdown "$GOW_DISC_URL" -O game.iso || { echo "falha ao baixar (link nao esta publico?)"; exit 1; }
+          python3 -m pip install --break-system-packages -q --upgrade gdown
+          # Google Drive pode bloquear temporariamente downloads grandes. Tente novamente
+          # antes de falhar o build; --fuzzy aceita links /file/d/.../view.
+          OK=0
+          for ATTEMPT in 1 2 3; do
+            rm -f game.iso
+            if gdown --fuzzy "$GOW_DISC_URL" -O game.iso; then
+              SIZE=$(stat -c%s game.iso 2>/dev/null || echo 0)
+              if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
+            fi
+            echo "Tentativa $ATTEMPT/3 falhou; aguardando antes de tentar novamente."
+            sleep 12
+          done
+          [ "$OK" -eq 1 ] || { echo "Falha ao baixar a ISO. Confira o compartilhamento do Google Drive (qualquer pessoa com o link) ou atualize GOW_DISC_URL."; exit 1; }
           SIZE=$(stat -c%s game.iso)
           echo "disco baixado: $SIZE bytes"
           test "$SIZE" -gt 50000000 || { echo "arquivo pequeno demais, nao parece uma ISO"; exit 1; }
