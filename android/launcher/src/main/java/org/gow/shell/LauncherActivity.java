@@ -1037,15 +1037,22 @@ public final class LauncherActivity extends Activity {
                 deadZoneControl(p), false));
         left.addView(row("Mapeamento dos bot\u00f5es", "Configure os quatro bot\u00f5es de a\u00e7\u00e3o",
                 button("Configurar", false, () -> showButtonMapping(p)), false));
-        right.addView(row("Editar posição no jogo", "Arraste o conjunto de controles durante a partida",
-                toggle(p.getBoolean("ctl_edit_layout", false), on -> {
-                    p.edit().putBoolean("ctl_edit_layout", on).apply();
-                    toast(on ? "Abra o jogo e arraste os controles para reposicionar." : "Edição de posição desativada.");
-                }), false));
+        right.addView(row("Editor de controles individuais", "No jogo, abra a aba lateral e escolha PlayStation ou Xbox para mover cada botão separadamente",
+                button("Como usar", false, () -> new AlertDialog.Builder(this)
+                        .setTitle("Editor de controles")
+                        .setMessage("Abra uma partida e puxe a aba lateral na borda direita. Toque em Editar controles na tela, escolha PlayStation ou Xbox e arraste cada botão. Toque em Concluir edição para voltar a jogar.")
+                        .setPositiveButton("Entendi", null).show()), false));
         right.addView(row("Restaurar posição", "Voltar ao layout original",
                 actions(new String[] { "Restaurar" }, new Runnable[] { () -> {
-                    p.edit().remove("ctl_offset_x").remove("ctl_offset_y").putBoolean("ctl_edit_layout", false).apply();
-                    toast("Posição original restaurada.");
+                    SharedPreferences.Editor editor = p.edit().remove("ctl_offset_x").remove("ctl_offset_y").putBoolean("ctl_edit_layout", false);
+                    for (String profile : new String[] { "ps", "xbox" }) {
+                        for (int control = 0; control < 16; control++) {
+                            editor.remove("ctl_pos_" + profile + "_" + control + "_x");
+                            editor.remove("ctl_pos_" + profile + "_" + control + "_y");
+                        }
+                    }
+                    editor.apply();
+                    toast("Posições originais restauradas.");
                     showControls();
                 } }, false), false));
         showScreen("controls", "Controles", left, right);
