@@ -25,6 +25,9 @@ import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
+import android.widget.Button;
+import android.widget.SeekBar;
 
 import org.libsdl.app.SDLActivity;
 
@@ -64,6 +67,7 @@ public final class GameActivity extends SDLActivity {
         if (inputManager != null) inputManager.registerInputDeviceListener(padListener, null);
         applyControlsVisibility();
         createPerformanceHud();
+        createGameDrawer();
     }
 
     @Override
@@ -93,6 +97,109 @@ public final class GameActivity extends SDLActivity {
         if (hasFocus) enterImmersiveMode();
     }
 
+
+    private View gameDrawerHandle;
+    private LinearLayout gameDrawer;
+
+    private void createGameDrawer() {
+        FrameLayout.LayoutParams handleLp = new FrameLayout.LayoutParams(dp(28), dp(92), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        gameDrawerHandle = new TextView(this);
+        ((TextView) gameDrawerHandle).setText("‹");
+        ((TextView) gameDrawerHandle).setTextColor(Color.WHITE);
+        ((TextView) gameDrawerHandle).setTextSize(25);
+        ((TextView) gameDrawerHandle).setGravity(Gravity.CENTER);
+        gameDrawerHandle.setBackground(drawerBackground());
+        gameDrawerHandle.setElevation(dp(40));
+        gameDrawerHandle.setOnClickListener(v -> toggleGameDrawer());
+        addContentView(gameDrawerHandle, handleLp);
+
+        gameDrawer = new LinearLayout(this);
+        gameDrawer.setOrientation(LinearLayout.VERTICAL);
+        gameDrawer.setPadding(dp(14), dp(18), dp(14), dp(14));
+        gameDrawer.setBackground(drawerBackground());
+        gameDrawer.setElevation(dp(41));
+        TextView title = new TextView(this);
+        title.setText("MENU DO JOGO");
+        title.setTextColor(Color.rgb(235, 70, 85));
+        title.setTextSize(15);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        gameDrawer.addView(title, new LinearLayout.LayoutParams(-1, dp(42)));
+        addDrawerButton("Sair do game", () -> { if (controls != null) controls.releaseAll(); finish(); });
+        addDrawerButton("Editar controles na tela", this::showInGameControlEditor);
+        addDrawerButton("Editar HUD de FPS", this::showInGameHudEditor);
+        FrameLayout.LayoutParams drawerLp = new FrameLayout.LayoutParams(dp(270), -1, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        drawerLp.setMargins(0, dp(12), dp(28), dp(12));
+        gameDrawer.setVisibility(View.GONE);
+        addContentView(gameDrawer, drawerLp);
+    }
+
+    private GradientDrawable drawerBackground() {
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.argb(245, 18, 18, 23));
+        bg.setCornerRadius(dp(12));
+        bg.setStroke(dp(1), Color.rgb(150, 35, 48));
+        return bg;
+    }
+
+    private void addDrawerButton(String label, Runnable action) {
+        Button b = new Button(this);
+        b.setText(label);
+        b.setTextColor(Color.WHITE);
+        b.setAllCaps(false);
+        b.setOnClickListener(v -> { toggleGameDrawer(); action.run(); });
+        gameDrawer.addView(b, new LinearLayout.LayoutParams(-1, dp(52)));
+    }
+
+    private void toggleGameDrawer() {
+        if (gameDrawer == null) return;
+        boolean open = gameDrawer.getVisibility() != View.VISIBLE;
+        gameDrawer.setVisibility(open ? View.VISIBLE : View.GONE);
+        ((TextView) gameDrawerHandle).setText(open ? "›" : "‹");
+        if (controls != null && open) controls.releaseAll();
+    }
+
+    private void showInGameControlEditor() {
+        final String[] profiles = { "PlayStation", "Xbox" };
+        int current = "xbox".equals(prefs.getString("ctl_style", "ps")) ? 1 : 0;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Editar controles na tela")
+                .setSingleChoiceItems(profiles, current, (dialog, which) -> {
+                    prefs.edit().putString("ctl_style", which == 1 ? "xbox" : "ps").apply();
+                    dialog.dismiss();
+                    new android.app.AlertDialog.Builder(this)
+                            .setTitle(profiles[which])
+                            .setMessage("Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar.")
+                            .setPositiveButton("Editar", (d, w) -> {
+                                if (controls != null) controls.setEditMode(true);
+                            })
+                            .setNegativeButton("Cancelar", null).show();
+                }).setNegativeButton("Cancelar", null).show();
+    }
+
+    private void showInGameHudEditor() {
+        LinearLayout box = new LinearLayout(this);
+        box.setPadding(dp(20), dp(8), dp(20), dp(8));
+        box.setOrientation(LinearLayout.VERTICAL);
+        android.widget.Switch enabled = new android.widget.Switch(this);
+        enabled.setText("Mostrar HUD de desempenho");
+        enabled.setTextColor(Color.WHITE);
+        enabled.setChecked(prefs.getBoolean("performance_hud_enabled", false));
+        box.addView(enabled);
+        TextView opacityLabel = new TextView(this);
+        opacityLabel.setText("Opacidade");
+        opacityLabel.setTextColor(Color.WHITE);
+        box.addView(opacityLabel);
+        SeekBar opacity = new SeekBar(this);
+        opacity.setMax(100);
+        opacity.setProgress(prefs.getInt("performance_hud_opacity", 70));
+        box.addView(opacity);
+        new android.app.AlertDialog.Builder(this).setTitle("Editar HUD de FPS").setView(box)
+                .setPositiveButton("Salvar", (d, w) -> {
+                    prefs.edit().putBoolean("performance_hud_enabled", enabled.isChecked())
+                            .putInt("performance_hud_opacity", opacity.getProgress()).apply();
+                    refreshPerformanceHud();
+                }).setNegativeButton("Cancelar", null).show();
+    }
 
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
 
