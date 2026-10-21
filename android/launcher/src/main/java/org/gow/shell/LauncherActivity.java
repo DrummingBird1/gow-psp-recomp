@@ -1107,14 +1107,15 @@ public final class LauncherActivity extends Activity {
 
     private void showButtonMapping(SharedPreferences p) {
         final String[] labels = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
-        final String[] keys = { "ctl_map_cross", "ctl_map_circle", "ctl_map_square", "ctl_map_triangle" };
+        final String profile = "xbox".equals(p.getString("ctl_style", "ps")) ? "xbox" : "ps";
+        final String[] keys = { "ctl_map_" + profile + "_cross", "ctl_map_" + profile + "_circle", "ctl_map_" + profile + "_square", "ctl_map_" + profile + "_triangle" };
         final int[] defaults = { 0, 1, 2, 3 };
         final String[] targets = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
 
         LinearLayout left = column();
         LinearLayout info = card();
         info.addView(tv("MAPEAMENTO PERSONALIZADO", 12, ROSE, true), withBottom(dp(8)));
-        info.addView(tv("Escolha qual ação cada botão representa. As seleções ficam salvas e passam a valer ao abrir o jogo novamente.",
+        info.addView(tv("Perfil " + ("xbox".equals(profile) ? "Xbox" : "PlayStation") + ". Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout.",
                 14, TEXT, false), matchWrap());
         left.addView(info, withBottom(dp(12)));
         left.addView(button("Restaurar padrão", false, () -> {
