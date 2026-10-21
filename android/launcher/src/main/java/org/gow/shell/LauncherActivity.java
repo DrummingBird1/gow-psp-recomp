@@ -1117,8 +1117,8 @@ public final class LauncherActivity extends Activity {
                         new Runnable[] { this::showLog, this::shareLog, this::clearLog }, false), false));
         right.addView(row("Argumentos avan\u00e7ados", "Ver e editar o args.txt",
                 actions(new String[] { "Editar" }, new Runnable[] { this::editArgs }, false), false));
-        right.addView(row("Disco", "Trocar o game.iso",
-                actions(new String[] { "Trocar" }, new Runnable[] { null }, false), true));
+        right.addView(row("Arquivos do jogo", "Importar ou substituir game.iso e image.bin",
+                actions(new String[] { "Gerenciar" }, new Runnable[] { this::showGameFiles }, false), false));
         right.addView(row("Restaurar padr\u00f5es", "Volta todas as configura\u00e7\u00f5es ao original",
                 actions(new String[] { "Restaurar" }, new Runnable[] { this::confirmReset }, true), false));
         right.addView(row("Idioma", null, seg(new String[] { "Portugu\u00eas", "English" }, 0, i -> { }), true));
