@@ -98,6 +98,99 @@ public final class LauncherActivity extends Activity {
         else super.onBackPressed();
     }
 
+    // ------------------------------------------------------------------ tema (so visual)
+
+    /** Coloca o fundo tematico atras de qualquer tela do launcher. */
+    @Override public void setContentView(View view) {
+        android.widget.FrameLayout f = new android.widget.FrameLayout(this);
+        f.addView(new ThemeBackground(this), new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        f.addView(view, new android.widget.FrameLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        super.setContentView(f);
+    }
+
+    /** Fundo original: brasa vermelha embaixo, fagulhas, corrente na borda direita e faixa grega no rodape. */
+    private final class ThemeBackground extends View {
+        private final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path path = new android.graphics.Path();
+        private final android.graphics.RectF rc = new android.graphics.RectF();
+        private android.graphics.RadialGradient glow;
+        private float[] spark = new float[0];
+
+        ThemeBackground(android.content.Context c) {
+            super(c);
+        }
+
+        @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
+            float d = getResources().getDisplayMetrics().density;
+            glow = new android.graphics.RadialGradient(w * 0.5f, h * 1.05f, Math.max(w, h) * 0.75f,
+                    new int[] { Color.argb(150, 120, 20, 32), Color.argb(60, 90, 14, 24), Color.TRANSPARENT },
+                    new float[] { 0f, 0.5f, 1f }, android.graphics.Shader.TileMode.CLAMP);
+            java.util.Random rnd = new java.util.Random(7);
+            int n = 40;
+            spark = new float[n * 4];
+            for (int i = 0; i < n; i++) {
+                spark[i * 4] = rnd.nextFloat() * w;
+                spark[i * 4 + 1] = h * (0.08f + 0.9f * (float) Math.sqrt(rnd.nextFloat()));
+                spark[i * 4 + 2] = d * (0.8f + rnd.nextFloat() * 1.8f);
+                spark[i * 4 + 3] = 50 + rnd.nextFloat() * 110;
+            }
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            float d = getResources().getDisplayMetrics().density;
+            float w = getWidth(), h = getHeight();
+            c.drawColor(BG);
+            if (glow != null) {
+                pt.setStyle(android.graphics.Paint.Style.FILL);
+                pt.setShader(glow);
+                c.drawRect(0, 0, w, h, pt);
+                pt.setShader(null);
+            }
+            pt.setStyle(android.graphics.Paint.Style.FILL);
+            for (int i = 0; i + 3 < spark.length; i += 4) {
+                pt.setColor(Color.argb((int) spark[i + 3], 200, 40, 55));
+                c.drawCircle(spark[i], spark[i + 1], spark[i + 2], pt);
+            }
+            // corrente na borda direita
+            pt.setStyle(android.graphics.Paint.Style.STROKE);
+            pt.setStrokeWidth(3 * d);
+            pt.setColor(Color.argb(70, 200, 32, 48));
+            float cx = w - 6 * d;
+            float y = -4 * d;
+            boolean front = true;
+            while (y < h) {
+                if (front) {
+                    rc.set(cx - 9 * d, y, cx + 9 * d, y + 30 * d);
+                    c.drawOval(rc, pt);
+                    y += 22 * d;
+                } else {
+                    rc.set(cx - 2 * d, y, cx + 2 * d, y + 22 * d);
+                    c.drawRoundRect(rc, 2 * d, 2 * d, pt);
+                    y += 14 * d;
+                }
+                front = !front;
+            }
+            // faixa grega (meandro) no rodape
+            pt.setStrokeWidth(1.5f * d);
+            pt.setColor(Color.argb(80, 200, 32, 48));
+            float bh = 11 * d, y0 = h - 15 * d, step = 22 * d;
+            for (float x = 4 * d; x < w; x += step) {
+                path.reset();
+                path.moveTo(x, y0 + bh);
+                path.lineTo(x, y0);
+                path.lineTo(x + 14 * d, y0);
+                path.lineTo(x + 14 * d, y0 + bh * 0.65f);
+                path.lineTo(x + 6 * d, y0 + bh * 0.65f);
+                path.lineTo(x + 6 * d, y0 + bh * 0.35f);
+                c.drawPath(path, pt);
+            }
+        }
+    }
+
     // ------------------------------------------------------------------ helpers de UI
 
     private int dp(int value) {
@@ -166,7 +259,7 @@ public final class LauncherActivity extends Activity {
     private ScrollView newScroll() {
         ScrollView s = new ScrollView(this);
         s.setFillViewport(true);
-        s.setBackgroundColor(BG);
+        s.setBackgroundColor(Color.TRANSPARENT);
         return s;
     }
 
@@ -182,7 +275,7 @@ public final class LauncherActivity extends Activity {
         TextView b = tv(label, 17, TEXT, true);
         b.setGravity(Gravity.CENTER_VERTICAL);
         b.setPadding(dp(20), dp(15), dp(20), dp(15));
-        b.setBackground(primary ? shape(RED, 0, 14) : shape(CARD, BRD, 14));
+        b.setBackground(primary ? shape(RED, 0, 40) : shape(CARD, BRD, 40));
         b.setOnClickListener(v -> action.run());
         return b;
     }
