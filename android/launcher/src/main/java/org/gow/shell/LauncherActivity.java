@@ -1085,6 +1085,8 @@ public final class LauncherActivity extends Activity {
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
         seek.setMax(100 - min);
         seek.setProgress(initial - min);
+        seek.setProgressTintList(ColorStateList.valueOf(ROSE));
+        seek.setThumbTintList(ColorStateList.valueOf(ROSE));
         seek.setContentDescription("Opacidade dos controles, de 20 a 100 por cento");
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
