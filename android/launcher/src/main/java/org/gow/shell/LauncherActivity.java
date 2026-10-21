@@ -66,7 +66,7 @@ public final class LauncherActivity extends Activity {
     private static final String PREFS = "gow_settings";
     private static final int PICK_GAME_ISO = 401;
     private static final int PICK_IMAGE_BIN = 402;
-    private static final String VERSION = "v0.1.0";
+    private static final String VERSION = "v1.0.0";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
     private static final String[] MODES = { "16:9", "4:3", "FULLSCREEN" };
 
@@ -290,11 +290,15 @@ public final class LauncherActivity extends Activity {
     }
 
     private LinearLayout header(String title) {
+        return header(title, this::showMain);
+    }
+
+    private LinearLayout header(String title, Runnable backAction) {
         LinearLayout h = rowLayout();
         TextView back = tv("\u2190", 20, TEXT, false);
         back.setGravity(Gravity.CENTER);
         back.setBackground(shape(BG, BRD, 10));
-        back.setOnClickListener(v -> showMain());
+        back.setOnClickListener(v -> backAction.run());
         h.addView(back, lp(dp(44), dp(44)));
         TextView t = tv(title, 22, TEXT, true);
         t.setPadding(dp(16), 0, 0, 0);
@@ -304,12 +308,16 @@ public final class LauncherActivity extends Activity {
 
     /** Tela de configuração: seta de voltar + título no canto, coluna esquerda e direita. */
     private void showScreen(String name, String title, View left, View right) {
+        showScreen(name, title, left, right, this::showMain);
+    }
+
+    private void showScreen(String name, String title, View left, View right, Runnable backAction) {
         current = name;
         status = null;
         ScrollView scroll = newScroll();
         LinearLayout col = column();
         col.setPadding(pad, pad, pad, pad);
-        col.addView(header(title), withBottom(dp(16)));
+        col.addView(header(title, backAction), withBottom(dp(16)));
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
         body.addView(left, weight(1f));
@@ -470,7 +478,7 @@ public final class LauncherActivity extends Activity {
         title.setText(name);
         left.addView(title, wrapWrap());
         left.addView(tv("Launcher n\u00e3o oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
-        TextView by = tv("By flavinxs0", 13, ROSE, true);
+        TextView by = tv("By: flavinxs0", 15, ROSE, true);
         by.setPadding(0, dp(2), 0, dp(14));
         left.addView(by, wrapWrap());
         LinearLayout statusCard = card();
@@ -1046,33 +1054,35 @@ public final class LauncherActivity extends Activity {
         final String[] keys = { "ctl_map_cross", "ctl_map_circle", "ctl_map_square", "ctl_map_triangle" };
         final int[] defaults = { 0, 1, 2, 3 };
         final String[] targets = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
-        LinearLayout content = column();
-        content.setPadding(dp(8), dp(4), dp(8), dp(4));
-        AlertDialog editor = dialog().setTitle("Mapeamento dos botões")
-                .setView(content)
-                .setPositiveButton("Fechar", null)
-                .setNeutralButton("Restaurar padrão", (d, w) -> {
-                    SharedPreferences.Editor e = p.edit();
-                    for (String key : keys) e.remove(key);
-                    e.apply();
-                    toast("Mapeamento padrão restaurado. Vale ao abrir o jogo novamente.");
-                }).create();
+
+        LinearLayout left = column();
+        LinearLayout info = card();
+        info.addView(tv("MAPEAMENTO PERSONALIZADO", 12, ROSE, true), withBottom(dp(8)));
+        info.addView(tv("Escolha qual ação cada botão representa. As seleções ficam salvas e passam a valer ao abrir o jogo novamente.",
+                14, TEXT, false), matchWrap());
+        left.addView(info, withBottom(dp(12)));
+        left.addView(button("Restaurar padrão", false, () -> {
+            SharedPreferences.Editor e = p.edit();
+            for (String key : keys) e.remove(key);
+            e.apply();
+            toast("Mapeamento padrão restaurado. Vale ao abrir o jogo novamente.");
+            showButtonMapping(p);
+        }), withBottom(dp(8)));
+
+        LinearLayout right = column();
         for (int i = 0; i < labels.length; i++) {
             final int index = i;
             int selected = Math.max(0, Math.min(3, p.getInt(keys[i], defaults[i])));
-            TextView item = button(labels[i] + "  →  " + targets[selected], false, () -> {
-                int currentValue = Math.max(0, Math.min(3, p.getInt(keys[index], defaults[index])));
-                dialog().setTitle("Botão " + labels[index])
-                        .setSingleChoiceItems(targets, currentValue, (d, which) -> {
-                            p.edit().putInt(keys[index], which).apply();
-                            d.dismiss();
-                            editor.dismiss();
-                            showButtonMapping(p);
-                        }).setNegativeButton("Cancelar", null).show();
-            });
-            content.addView(item, withBottom(dp(6)));
+            LinearLayout item = card();
+            item.addView(tv(labels[i], 16, TEXT, true), withBottom(dp(8)));
+            item.addView(tv("Ação atribuída", 11, MUTED, false), withBottom(dp(5)));
+            item.addView(seg(targets, selected, which -> {
+                p.edit().putInt(keys[index], which).apply();
+                showButtonMapping(p);
+            }), matchWrap());
+            right.addView(item, withBottom(dp(8)));
         }
-        editor.show();
+        showScreen("mapping", "Mapeamento dos botões", left, right, this::showControls);
     }
 
     private String autoNote(boolean on) {
@@ -1297,7 +1307,7 @@ public final class LauncherActivity extends Activity {
         title.setText(name);
         brand.addView(title, wrapWrap());
         brand.addView(tv("Launcher n\u00e3o oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
-        TextView by = tv("By flavinxs0", 13, ROSE, true);
+        TextView by = tv("By: flavinxs0", 14, ROSE, true);
         by.setPadding(0, dp(2), 0, 0);
         brand.addView(by, wrapWrap());
         left.addView(brand, withBottom(dp(12)));
