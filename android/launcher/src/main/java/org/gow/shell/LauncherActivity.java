@@ -303,17 +303,32 @@ public final class LauncherActivity extends Activity {
         return g;
     }
 
-    private Switch toggle(boolean on, final Flip flip) {
-        Switch s = new Switch(this);
-        s.setChecked(on);
-        if (Build.VERSION.SDK_INT >= 23) {
-            s.setThumbTintList(ColorStateList.valueOf(Color.WHITE));
-            s.setTrackTintList(new ColorStateList(
-                    new int[][] { { android.R.attr.state_checked }, {} },
-                    new int[] { RED, OFF }));
-        }
-        s.setOnCheckedChangeListener((b, checked) -> flip.on(checked));
-        return s;
+    private View toggle(boolean on, final Flip flip) {
+        final boolean[] state = { on };
+        final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        final View v = new View(this) {
+            @Override protected void onMeasure(int wSpec, int hSpec) {
+                setMeasuredDimension(dp(52), dp(30));
+            }
+
+            @Override protected void onDraw(android.graphics.Canvas c) {
+                float w = getWidth(), h = getHeight();
+                pt.setStyle(android.graphics.Paint.Style.FILL);
+                pt.setColor(state[0] ? RED : OFF);
+                c.drawRoundRect(new android.graphics.RectF(0, 0, w, h), h / 2f, h / 2f, pt);
+                pt.setColor(Color.WHITE);
+                float r = h / 2f - dp(3);
+                float cx = state[0] ? w - h / 2f : h / 2f;
+                c.drawCircle(cx, h / 2f, r, pt);
+            }
+        };
+        v.setClickable(true);
+        v.setOnClickListener(x -> {
+            state[0] = !state[0];
+            v.invalidate();
+            flip.on(state[0]);
+        });
+        return v;
     }
 
     private View bar(int pct) {
@@ -470,6 +485,134 @@ public final class LauncherActivity extends Activity {
 
     // ------------------------------------------------------------------ 4. Controles
 
+    /** Cart\u00e3o de pr\u00e9via do layout dos bot\u00f5es na tela (PlayStation ou Xbox). */
+    private final class PadPreview extends View {
+        private final boolean xbox;
+        private boolean picked;
+        private final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF rc = new android.graphics.RectF();
+        private final android.graphics.Path path = new android.graphics.Path();
+
+        PadPreview(boolean xbox, boolean picked) {
+            super(LauncherActivity.this);
+            this.xbox = xbox;
+            this.picked = picked;
+            pt.setTextAlign(android.graphics.Paint.Align.CENTER);
+        }
+
+        void setPicked(boolean p) {
+            picked = p;
+            invalidate();
+        }
+
+        private void fillRound(float l, float t, float r, float b, float rad, int color) {
+            pt.setStyle(android.graphics.Paint.Style.FILL);
+            pt.setColor(color);
+            rc.set(l, t, r, b);
+            cv.drawRoundRect(rc, rad, rad, pt);
+        }
+
+        private android.graphics.Canvas cv;
+
+        private void label(String s, float cx, float cy, float size, int color) {
+            pt.setStyle(android.graphics.Paint.Style.FILL);
+            pt.setColor(color);
+            pt.setTextSize(size);
+            cv.drawText(s, cx, cy - (pt.descent() + pt.ascent()) / 2f, pt);
+        }
+
+        private void ring(float cx, float cy, float r, int color) {
+            pt.setStyle(android.graphics.Paint.Style.STROKE);
+            pt.setStrokeWidth(dp(2));
+            pt.setColor(color);
+            cv.drawCircle(cx, cy, r, pt);
+        }
+
+        @Override protected void onDraw(android.graphics.Canvas c) {
+            cv = c;
+            float w = getWidth(), h = getHeight();
+            fillRound(0, 0, w, h, dp(12), CARD);
+            pt.setStyle(android.graphics.Paint.Style.STROKE);
+            pt.setStrokeWidth(dp(picked ? 2 : 1));
+            pt.setColor(picked ? RED : BRD);
+            rc.set(dp(1), dp(1), w - dp(1), h - dp(1));
+            c.drawRoundRect(rc, dp(12), dp(12), pt);
+
+            int grey = Color.rgb(70, 70, 78);
+            // ombros
+            fillRound(w * 0.07f, h * 0.08f, w * 0.27f, h * 0.22f, dp(6), grey);
+            fillRound(w * 0.73f, h * 0.08f, w * 0.93f, h * 0.22f, dp(6), grey);
+            label(xbox ? "LB" : "L", w * 0.17f, h * 0.15f, dp(10), TEXT);
+            label(xbox ? "RB" : "R", w * 0.83f, h * 0.15f, dp(10), TEXT);
+            // direcional
+            float cx = w * 0.22f, cy = h * 0.40f, arm = w * 0.075f, th = w * 0.03f;
+            fillRound(cx - arm, cy - th, cx + arm, cy + th, dp(3), grey);
+            fillRound(cx - th, cy - arm, cx + th, cy + arm, dp(3), grey);
+            // anal\u00f3gico
+            float sy = h * 0.74f, sr = w * 0.07f;
+            pt.setStyle(android.graphics.Paint.Style.FILL);
+            pt.setColor(grey);
+            c.drawCircle(cx, sy, sr, pt);
+            ring(cx, sy, sr, MUTED);
+            // bot\u00f5es de a\u00e7\u00e3o
+            float fx = w * 0.76f, fy = h * 0.52f, off = w * 0.085f, fr = w * 0.058f;
+            float[][] pos = { { fx, fy - off }, { fx - off, fy }, { fx + off, fy }, { fx, fy + off } };
+            if (xbox) {
+                String[] ls = { "Y", "X", "B", "A" };
+                int[] cs = { Color.rgb(240, 200, 60), Color.rgb(90, 150, 255), Color.rgb(255, 110, 110), Color.rgb(110, 210, 130) };
+                for (int i = 0; i < 4; i++) {
+                    ring(pos[i][0], pos[i][1], fr, cs[i]);
+                    label(ls[i], pos[i][0], pos[i][1], dp(11), cs[i]);
+                }
+            } else {
+                int[] cs = { Color.rgb(110, 210, 160), Color.rgb(240, 150, 220), Color.rgb(255, 110, 110), Color.rgb(120, 170, 255) };
+                for (int i = 0; i < 4; i++) ring(pos[i][0], pos[i][1], fr, cs[i]);
+                float s = fr * 0.5f;
+                pt.setStyle(android.graphics.Paint.Style.STROKE);
+                pt.setStrokeWidth(dp(2));
+                pt.setColor(cs[0]);
+                path.reset();
+                path.moveTo(pos[0][0], pos[0][1] - s * 1.1f);
+                path.lineTo(pos[0][0] + s, pos[0][1] + s * 0.8f);
+                path.lineTo(pos[0][0] - s, pos[0][1] + s * 0.8f);
+                path.close();
+                c.drawPath(path, pt);
+                pt.setColor(cs[1]);
+                c.drawRect(pos[1][0] - s, pos[1][1] - s, pos[1][0] + s, pos[1][1] + s, pt);
+                pt.setColor(cs[2]);
+                c.drawCircle(pos[2][0], pos[2][1], s, pt);
+                pt.setColor(cs[3]);
+                c.drawLine(pos[3][0] - s, pos[3][1] - s, pos[3][0] + s, pos[3][1] + s, pt);
+                c.drawLine(pos[3][0] - s, pos[3][1] + s, pos[3][0] + s, pos[3][1] - s, pt);
+            }
+            // start / select
+            fillRound(w * 0.36f, h * 0.70f, w * 0.48f, h * 0.78f, dp(4), grey);
+            fillRound(w * 0.52f, h * 0.70f, w * 0.64f, h * 0.78f, dp(4), grey);
+            // nome
+            label(xbox ? "Xbox" : "PlayStation", w / 2f, h * 0.92f, dp(12), picked ? TEXT : MUTED);
+        }
+    }
+
+    /** Nome do primeiro controle f\u00edsico conectado, ou null. */
+    private String detectPad() {
+        for (int id : android.view.InputDevice.getDeviceIds()) {
+            android.view.InputDevice dev = android.view.InputDevice.getDevice(id);
+            if (dev == null || dev.isVirtual()) continue;
+            int s = dev.getSources();
+            boolean isPad = (s & android.view.InputDevice.SOURCE_GAMEPAD) == android.view.InputDevice.SOURCE_GAMEPAD
+                    || (s & android.view.InputDevice.SOURCE_JOYSTICK) == android.view.InputDevice.SOURCE_JOYSTICK;
+            if (!isPad) {
+                try {
+                    boolean[] k = dev.hasKeys(android.view.KeyEvent.KEYCODE_BUTTON_A);
+                    isPad = k.length > 0 && k[0];
+                } catch (RuntimeException ignored) {
+                }
+            }
+            if (isPad) return dev.getName();
+        }
+        return null;
+    }
+
     private void showControls() {
         final SharedPreferences p = prefs();
         final int[] ops = { 30, 50, 70, 100 };
@@ -477,32 +620,57 @@ public final class LauncherActivity extends Activity {
         for (int i = 0; i < ops.length; i++) {
             if (ops[i] == p.getInt("ctl_opacity", 50)) opIndex = i;
         }
+        final boolean xbox0 = "xbox".equals(p.getString("ctl_style", "ps"));
+        final PadPreview[] prev = { new PadPreview(false, !xbox0), new PadPreview(true, xbox0) };
+
         LinearLayout left = column();
-        LinearLayout info = card();
-        info.addView(tv("Controles na tela", 18, TEXT, true), withBottom(dp(6)));
-        info.addView(tv("Dire\u00e7\u00e3o, anal\u00f3gico, \u2715 \u25cb \u25a1 \u25b3, L, R, Start e Select, "
-                + "com v\u00e1rios toques ao mesmo tempo. O anal\u00f3gico virtual \u00e9 digital "
-                + "(tudo ou nada) por enquanto. Vale na pr\u00f3xima vez que tocar em JOGAR.",
-                13, MUTED, false), matchWrap());
-        left.addView(info, matchWrap());
+        LinearLayout previews = rowLayout();
+        LinearLayout.LayoutParams pa = new LinearLayout.LayoutParams(0, dp(150), 1f);
+        LinearLayout.LayoutParams pb = new LinearLayout.LayoutParams(0, dp(150), 1f);
+        pb.leftMargin = dp(10);
+        previews.addView(prev[0], pa);
+        previews.addView(prev[1], pb);
+        left.addView(previews, withBottom(dp(10)));
+        final TextView note = tv(autoNote(p.getBoolean("ctl_auto", true)), 12, MUTED, false);
+        left.addView(note, matchWrap());
+
+        final LinearLayout styleSeg = seg(new String[] { "PlayStation", "Xbox" }, xbox0 ? 1 : 0, i -> {
+            p.edit().putString("ctl_style", i == 1 ? "xbox" : "ps").apply();
+            prev[0].setPicked(i == 0);
+            prev[1].setPicked(i == 1);
+        });
+        prev[0].setOnClickListener(v -> styleSeg.getChildAt(0).performClick());
+        prev[1].setOnClickListener(v -> styleSeg.getChildAt(1).performClick());
+
+        String padName = detectPad();
+        TextView padState = tv(padName == null ? "N\u00e3o conectado" : "\u25cf Conectado", 14,
+                padName == null ? MUTED : GREEN, false);
 
         LinearLayout right = column();
         right.addView(row("Controles na tela", "Dire\u00e7\u00e3o, anal\u00f3gico e bot\u00f5es",
                 toggle(p.getBoolean("ctl_screen", true),
                         on -> p.edit().putBoolean("ctl_screen", on).apply()), false));
+        right.addView(row("Estilo dos bot\u00f5es", "Vale na pr\u00f3xima vez que tocar em JOGAR", styleSeg, false));
         right.addView(row("Autom\u00e1tico", "Oculta os controles na tela ao conectar um controle",
-                toggle(p.getBoolean("ctl_auto", true),
-                        on -> p.edit().putBoolean("ctl_auto", on).apply()), false));
+                toggle(p.getBoolean("ctl_auto", true), on -> {
+                    p.edit().putBoolean("ctl_auto", on).apply();
+                    note.setText(autoNote(on));
+                }), false));
+        right.addView(row("Controle detectado", padName == null ? "Nenhum controle f\u00edsico" : padName,
+                padState, false));
         right.addView(row("Opacidade", null,
                 seg(new String[] { "30%", "50%", "70%", "100%" }, opIndex,
                         i -> p.edit().putInt("ctl_opacity", ops[i]).apply()), false));
-        right.addView(row("Tipo de controle", null,
-                seg(new String[] { "Tela", "PlayStation", "Xbox" }, 0, i -> { }), true));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
         right.addView(row("Zona morta do anal\u00f3gico", "15%", bar(15), true));
         right.addView(row("Mapeamento dos bot\u00f5es", null,
                 seg(new String[] { "Padr\u00e3o", "Personalizar" }, 0, i -> { }), true));
         showScreen("controls", "Controles", left, right);
+    }
+
+    private String autoNote(boolean on) {
+        return on ? "Autom\u00e1tico ligado: os controles na tela somem ao conectar o controle."
+                : "Autom\u00e1tico desligado: os controles na tela ficam sempre vis\u00edveis.";
     }
 
     // ------------------------------------------------------------------ 5. Extras
@@ -936,7 +1104,7 @@ public final class LauncherActivity extends Activity {
 
     private void resetDefaults() {
         prefs().edit().remove("res_scale").remove("fxaa").remove("fps_limit").remove("vsync")
-                .remove("performance_hud_enabled").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").putString("screen_mode", "16:9").apply();
+                .remove("performance_hud_enabled").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").putString("screen_mode", "16:9").apply();
         writeLine(join(filterTokens(readArgTokens(), true, true, true, true)));
     }
 }

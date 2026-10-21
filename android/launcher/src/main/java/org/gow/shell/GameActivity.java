@@ -40,7 +40,8 @@ public final class GameActivity extends SDLActivity {
         enterImmersiveMode();
         prefs = getSharedPreferences("gow_settings", MODE_PRIVATE);
 
-        controls = new TouchControls(this, prefs.getInt("ctl_opacity", 50));
+        controls = new TouchControls(this, prefs.getInt("ctl_opacity", 50),
+                "xbox".equals(prefs.getString("ctl_style", "ps")));
         controls.sink = new TouchControls.Sink() {
             @Override public void down(int keyCode) { SDLActivity.onNativeKeyDown(keyCode); }
             @Override public void up(int keyCode) { SDLActivity.onNativeKeyUp(keyCode); }
@@ -82,10 +83,16 @@ public final class GameActivity extends SDLActivity {
             InputDevice d = InputDevice.getDevice(id);
             if (d == null || d.isVirtual()) continue;
             int s = d.getSources();
-            if ((s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
-                    || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
-                return true;
+            boolean pad = (s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                    || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+            if (!pad) {
+                try {
+                    boolean[] k = d.hasKeys(KeyEvent.KEYCODE_BUTTON_A);
+                    pad = k.length > 0 && k[0];
+                } catch (RuntimeException ignored) {
+                }
             }
+            if (pad) return true;
         }
         return false;
     }
@@ -159,8 +166,11 @@ public final class GameActivity extends SDLActivity {
         private float knobX, knobY;
         private boolean stickHeld;
 
-        TouchControls(Context ctx, int opacityPercent) {
+        private final boolean xbox;
+
+        TouchControls(Context ctx, int opacityPercent, boolean xbox) {
             super(ctx);
+            this.xbox = xbox;
             d = ctx.getResources().getDisplayMetrics().density;
             alpha = Math.max(20, Math.min(255, Math.round(255f * opacityPercent / 100f)));
             stroke.setStyle(Paint.Style.STROKE);
@@ -303,10 +313,10 @@ public final class GameActivity extends SDLActivity {
             face(c, SQUARE, faceCx - faceOff, faceCy);
             face(c, CIRCLE, faceCx + faceOff, faceCy);
             // ombros e start/select
-            pill(c, rL, "L", held[BL], 12 * d, 16 * d);
-            pill(c, rR, "R", held[BR], 12 * d, 16 * d);
-            pill(c, rSelect, "SELECT", held[SELECT], 15 * d, 11 * d);
-            pill(c, rStart, "START", held[START], 15 * d, 11 * d);
+            pill(c, rL, xbox ? "LB" : "L", held[BL], 12 * d, 16 * d);
+            pill(c, rR, xbox ? "RB" : "R", held[BR], 12 * d, 16 * d);
+            pill(c, rSelect, xbox ? "VIEW" : "SELECT", held[SELECT], 15 * d, 11 * d);
+            pill(c, rStart, xbox ? "MENU" : "START", held[START], 15 * d, 11 * d);
         }
 
         private void arm(Canvas c, boolean on, float l, float t, float r, float b) {
@@ -324,7 +334,18 @@ public final class GameActivity extends SDLActivity {
             stroke.setColor(Color.argb(a(0.7f), 255, 255, 255));
             c.drawCircle(cx, cy, faceR, stroke);
             float s = faceR * 0.4f;
-            if (which == CROSS) {
+            if (xbox) {
+                int r = 255, gg = 255, b = 255;
+                String letter;
+                if (which == CROSS) { letter = "A"; r = 110; gg = 210; b = 130; }
+                else if (which == CIRCLE) { letter = "B"; r = 255; gg = 110; b = 110; }
+                else if (which == SQUARE) { letter = "X"; r = 90; gg = 150; b = 255; }
+                else { letter = "Y"; r = 240; gg = 200; b = 60; }
+                text.setColor(Color.argb(a(1f), r, gg, b));
+                text.setTextSize(faceR * 0.9f);
+                float ty = cy - (text.descent() + text.ascent()) / 2f;
+                c.drawText(letter, cx, ty, text);
+            } else if (which == CROSS) {
                 stroke.setColor(Color.argb(a(1f), 120, 170, 255));
                 c.drawLine(cx - s, cy - s, cx + s, cy + s, stroke);
                 c.drawLine(cx - s, cy + s, cx + s, cy - s, stroke);
