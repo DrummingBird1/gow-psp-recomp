@@ -387,10 +387,12 @@ public final class GameActivity extends SDLActivity {
         private final RectF rL = new RectF(), rR = new RectF(), rStart = new RectF(), rSelect = new RectF();
         private float knobX, knobY;
         private float layoutOffsetX, layoutOffsetY, lastDragX, lastDragY;
+        private final float[] posX = new float[N], posY = new float[N];
+        private int selectedControl = -1;
         private boolean editLayout;
         private boolean stickHeld;
 
-        private final boolean xbox;
+        private boolean xbox;
 
         TouchControls(Context ctx, int opacityPercent, boolean xbox, SharedPreferences prefs) {
             super(ctx);
@@ -398,6 +400,11 @@ public final class GameActivity extends SDLActivity {
             this.editLayout = prefs.getBoolean("ctl_edit_layout", false);
             this.layoutOffsetX = prefs.getFloat("ctl_offset_x", 0f);
             this.layoutOffsetY = prefs.getFloat("ctl_offset_y", 0f);
+            String layoutProfile = xbox ? "xbox" : "ps";
+            for (int i = 0; i < N; i++) {
+                posX[i] = prefs.getFloat("ctl_pos_" + layoutProfile + "_" + i + "_x", 0f);
+                posY[i] = prefs.getFloat("ctl_pos_" + layoutProfile + "_" + i + "_y", 0f);
+            }
             int deadZone = Math.max(0, Math.min(50, prefs.getInt("ctl_deadzone", 15)));
             this.deadZonePercent = deadZone;
             String profile = xbox ? "xbox" : "ps";
@@ -447,17 +454,23 @@ public final class GameActivity extends SDLActivity {
         }
 
         private void collect(float x, float y) {
-            // direcional (setas); tem prioridade onde as zonas se encostam
-            if (near(x, y, padCx, padCy, padArm * 1.15f)) {
-                float dx = x - padCx, dy = y - padCy;
-                float t = padArm * 0.28f;
-                if (dy < -t) want[UP] = true;
-                if (dy > t) want[DOWN] = true;
-                if (dx < -t) want[LEFT] = true;
-                if (dx > t) want[RIGHT] = true;
-            } else if (near(x, y, stickCx, stickCy, stickR * 1.5f)) {
-                // analogico (teclas I K J L)
-                float dx = x - stickCx, dy = y - stickCy;
+            // Each virtual control has its own position offset; touch hitboxes follow the visuals.
+            float px = x - posX[UP], py = y - posY[UP];
+            if (near(px, py, padCx, padCy - padArm * 0.55f, padArm * 0.48f)
+                    && Math.abs(px - padCx) < padArm * 0.55f) want[UP] = true;
+            px = x - posX[DOWN]; py = y - posY[DOWN];
+            if (near(px, py, padCx, padCy + padArm * 0.55f, padArm * 0.48f)
+                    && Math.abs(px - padCx) < padArm * 0.55f) want[DOWN] = true;
+            px = x - posX[LEFT]; py = y - posY[LEFT];
+            if (near(px, py, padCx - padArm * 0.55f, padCy, padArm * 0.48f)
+                    && Math.abs(py - padCy) < padArm * 0.55f) want[LEFT] = true;
+            px = x - posX[RIGHT]; py = y - posY[RIGHT];
+            if (near(px, py, padCx + padArm * 0.55f, padCy, padArm * 0.48f)
+                    && Math.abs(py - padCy) < padArm * 0.55f) want[RIGHT] = true;
+
+            px = x - posX[SUP]; py = y - posY[SUP];
+            if (near(px, py, stickCx, stickCy, stickR * 1.5f)) {
+                float dx = px - stickCx, dy = py - stickCy;
                 float t = stickR * (deadZonePercent / 100f);
                 if (dy < -t) want[SUP] = true;
                 if (dy > t) want[SDOWN] = true;
@@ -466,20 +479,59 @@ public final class GameActivity extends SDLActivity {
                 float len = (float) Math.sqrt(dx * dx + dy * dy);
                 float lim = stickR * 0.7f;
                 if (len > lim) { dx *= lim / len; dy *= lim / len; }
-                knobX = dx;
-                knobY = dy;
-                stickHeld = true;
+                knobX = dx; knobY = dy; stickHeld = true;
             }
-            // botoes de acao
             float fr = faceR * 1.1f;
-            if (near(x, y, faceCx, faceCy - faceOff, fr)) want[TRIANGLE] = true;
-            if (near(x, y, faceCx, faceCy + faceOff, fr)) want[CROSS] = true;
-            if (near(x, y, faceCx - faceOff, faceCy, fr)) want[SQUARE] = true;
-            if (near(x, y, faceCx + faceOff, faceCy, fr)) want[CIRCLE] = true;
-            if (hit(rL, x, y)) want[BL] = true;
-            if (hit(rR, x, y)) want[BR] = true;
-            if (hit(rStart, x, y)) want[START] = true;
-            if (hit(rSelect, x, y)) want[SELECT] = true;
+            if (near(x - posX[TRIANGLE], y - posY[TRIANGLE], faceCx, faceCy - faceOff, fr)) want[TRIANGLE] = true;
+            if (near(x - posX[CROSS], y - posY[CROSS], faceCx, faceCy + faceOff, fr)) want[CROSS] = true;
+            if (near(x - posX[SQUARE], y - posY[SQUARE], faceCx - faceOff, faceCy, fr)) want[SQUARE] = true;
+            if (near(x - posX[CIRCLE], y - posY[CIRCLE], faceCx + faceOff, faceCy, fr)) want[CIRCLE] = true;
+            if (hit(rL, x - posX[BL], y - posY[BL])) want[BL] = true;
+            if (hit(rR, x - posX[BR], y - posY[BR])) want[BR] = true;
+            if (hit(rStart, x - posX[START], y - posY[START])) want[START] = true;
+            if (hit(rSelect, x - posX[SELECT], y - posY[SELECT])) want[SELECT] = true;
+        }
+
+        private String controlName(int id) {
+            switch (id) {
+                case UP: return "CIMA"; case DOWN: return "BAIXO"; case LEFT: return "ESQUERDA"; case RIGHT: return "DIREITA";
+                case CROSS: return xbox ? "A" : "CRUZ"; case CIRCLE: return xbox ? "B" : "CÍRCULO";
+                case SQUARE: return xbox ? "X" : "QUADRADO"; case TRIANGLE: return xbox ? "Y" : "TRIÂNGULO";
+                case BL: return xbox ? "LB" : "L"; case BR: return xbox ? "RB" : "R";
+                case START: return xbox ? "MENU" : "START"; case SELECT: return xbox ? "VIEW" : "SELECT";
+                case SUP: return "ANALÓGICO"; case SDOWN: return "ANALÓGICO BAIXO";
+                case SLEFT: return "ANALÓGICO ESQUERDA"; default: return "ANALÓGICO DIREITA";
+            }
+        }
+
+        private float[] controlCenter(int id) {
+            switch (id) {
+                case UP: return new float[]{padCx, padCy-padArm*0.55f};
+                case DOWN: return new float[]{padCx, padCy+padArm*0.55f};
+                case LEFT: return new float[]{padCx-padArm*0.55f, padCy};
+                case RIGHT: return new float[]{padCx+padArm*0.55f, padCy};
+                case TRIANGLE: return new float[]{faceCx, faceCy-faceOff};
+                case CROSS: return new float[]{faceCx, faceCy+faceOff};
+                case SQUARE: return new float[]{faceCx-faceOff, faceCy};
+                case CIRCLE: return new float[]{faceCx+faceOff, faceCy};
+                case BL: return new float[]{rL.centerX(),rL.centerY()};
+                case BR: return new float[]{rR.centerX(),rR.centerY()};
+                case START: return new float[]{rStart.centerX(),rStart.centerY()};
+                case SELECT: return new float[]{rSelect.centerX(),rSelect.centerY()};
+                default: return new float[]{stickCx,stickCy};
+            }
+        }
+
+        private int pickControl(float x, float y) {
+            int[] ids = {UP,DOWN,LEFT,RIGHT,CROSS,CIRCLE,SQUARE,TRIANGLE,BL,BR,START,SELECT,SUP};
+            float best = Float.MAX_VALUE; int selected = SUP;
+            for (int id : ids) {
+                float[] center = controlCenter(id);
+                float dx = x - center[0] - posX[id], dy = y - center[1] - posY[id];
+                float dist = dx*dx + dy*dy;
+                if (dist < best) { best = dist; selected = id; }
+            }
+            return selected;
         }
 
         @Override
@@ -494,24 +546,22 @@ public final class GameActivity extends SDLActivity {
             int skip = action == MotionEvent.ACTION_POINTER_UP ? ev.getActionIndex() : -1;
             if (editLayout) {
                 if (action == MotionEvent.ACTION_DOWN) {
-                    lastDragX = ev.getX();
-                    lastDragY = ev.getY();
-                    releaseAll();
-                    return true;
+                    selectedControl = pickControl(ev.getX() - layoutOffsetX, ev.getY() - layoutOffsetY);
+                    lastDragX = ev.getX(); lastDragY = ev.getY();
+                    releaseAll(); invalidate(); return true;
                 }
-                if (action == MotionEvent.ACTION_MOVE) {
-                    layoutOffsetX += ev.getX() - lastDragX;
-                    layoutOffsetY += ev.getY() - lastDragY;
-                    lastDragX = ev.getX();
-                    lastDragY = ev.getY();
-                    android.content.SharedPreferences p = getContext().getSharedPreferences("gow_settings", Context.MODE_PRIVATE);
-                    p.edit().putFloat("ctl_offset_x", layoutOffsetX).putFloat("ctl_offset_y", layoutOffsetY).apply();
-                    invalidate();
-                    return true;
+                if (action == MotionEvent.ACTION_MOVE && selectedControl >= 0) {
+                    posX[selectedControl] += ev.getX() - lastDragX;
+                    posY[selectedControl] += ev.getY() - lastDragY;
+                    lastDragX = ev.getX(); lastDragY = ev.getY();
+                    String profile = xbox ? "xbox" : "ps";
+                    getContext().getSharedPreferences("gow_settings", Context.MODE_PRIVATE).edit()
+                            .putFloat("ctl_pos_" + profile + "_" + selectedControl + "_x", posX[selectedControl])
+                            .putFloat("ctl_pos_" + profile + "_" + selectedControl + "_y", posY[selectedControl]).apply();
+                    invalidate(); return true;
                 }
                 if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                    releaseAll();
-                    return true;
+                    selectedControl = -1; releaseAll(); invalidate(); return true;
                 }
                 return true;
             }
@@ -539,7 +589,22 @@ public final class GameActivity extends SDLActivity {
             invalidate();
         }
 
-        void setEditMode(boolean enabled) { this.editLayout = enabled; releaseAll(); invalidate(); }
+        void setEditMode(boolean enabled) {
+            this.editLayout = enabled;
+            getContext().getSharedPreferences("gow_settings", Context.MODE_PRIVATE).edit().putBoolean("ctl_edit_layout", enabled).apply();
+            selectedControl = -1; releaseAll(); invalidate();
+        }
+
+        void setControllerStyle(boolean useXbox) {
+            this.xbox = useXbox;
+            String profile = useXbox ? "xbox" : "ps";
+            SharedPreferences p = getContext().getSharedPreferences("gow_settings", Context.MODE_PRIVATE);
+            codes[CROSS] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_cross", 0)))];
+            codes[CIRCLE] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_circle", 1)))];
+            codes[SQUARE] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_square", 2)))];
+            codes[TRIANGLE] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_triangle", 3)))];
+            invalidate();
+        }
 
         void releaseAll() {
             Arrays.fill(want, false);
@@ -557,31 +622,28 @@ public final class GameActivity extends SDLActivity {
             c.save();
             c.translate(layoutOffsetX, layoutOffsetY);
             stroke.setStrokeWidth(2.5f * d);
-            // analogico
-            stroke.setColor(Color.argb(a(0.8f), 255, 255, 255));
-            c.drawCircle(stickCx, stickCy, stickR, stroke);
-            fill.setColor(Color.argb(a(stickHeld ? 0.55f : 0.25f), 255, 255, 255));
-            c.drawCircle(stickCx + knobX, stickCy + knobY, stickR * 0.45f, fill);
-            // direcional
-            float aw = 16 * d, in = 12 * d;
-            arm(c, held[UP], padCx - aw, padCy - padArm, padCx + aw, padCy - in);
-            arm(c, held[DOWN], padCx - aw, padCy + in, padCx + aw, padCy + padArm);
-            arm(c, held[LEFT], padCx - padArm, padCy - aw, padCx - in, padCy + aw);
-            arm(c, held[RIGHT], padCx + in, padCy - aw, padCx + padArm, padCy + aw);
-            // botoes de acao
-            face(c, TRIANGLE, faceCx, faceCy - faceOff);
-            face(c, CROSS, faceCx, faceCy + faceOff);
-            face(c, SQUARE, faceCx - faceOff, faceCy);
-            face(c, CIRCLE, faceCx + faceOff, faceCy);
-            // ombros e start/select
-            pill(c, rL, xbox ? "LB" : "L", held[BL], 12 * d, 16 * d);
-            pill(c, rR, xbox ? "RB" : "R", held[BR], 12 * d, 16 * d);
-            pill(c, rSelect, xbox ? "VIEW" : "SELECT", held[SELECT], 15 * d, 11 * d);
-            pill(c, rStart, xbox ? "MENU" : "START", held[START], 15 * d, 11 * d);
-            if (editLayout) {
-                text.setColor(Color.argb(230, 255, 255, 255));
-                text.setTextSize(12 * d);
-                c.drawText("ARRASTE PARA MOVER OS CONTROLES", getWidth() / 2f, 28 * d, text);
+            c.save(); c.translate(posX[SUP],posY[SUP]);
+            stroke.setColor(Color.argb(a(0.8f),255,255,255));
+            c.drawCircle(stickCx,stickCy,stickR,stroke);
+            fill.setColor(Color.argb(a(stickHeld?0.55f:0.25f),255,255,255));
+            c.drawCircle(stickCx+knobX,stickCy+knobY,stickR*0.45f,fill); c.restore();
+            float aw=16*d,in=12*d;
+            c.save(); c.translate(posX[UP],posY[UP]); arm(c,held[UP],padCx-aw,padCy-padArm,padCx+aw,padCy-in); c.restore();
+            c.save(); c.translate(posX[DOWN],posY[DOWN]); arm(c,held[DOWN],padCx-aw,padCy+in,padCx+aw,padCy+padArm); c.restore();
+            c.save(); c.translate(posX[LEFT],posY[LEFT]); arm(c,held[LEFT],padCx-padArm,padCy-aw,padCx-in,padCy+aw); c.restore();
+            c.save(); c.translate(posX[RIGHT],posY[RIGHT]); arm(c,held[RIGHT],padCx+in,padCy-aw,padCx+padArm,padCy+aw); c.restore();
+            c.save(); c.translate(posX[TRIANGLE],posY[TRIANGLE]); face(c,TRIANGLE,faceCx,faceCy-faceOff); c.restore();
+            c.save(); c.translate(posX[CROSS],posY[CROSS]); face(c,CROSS,faceCx,faceCy+faceOff); c.restore();
+            c.save(); c.translate(posX[SQUARE],posY[SQUARE]); face(c,SQUARE,faceCx-faceOff,faceCy); c.restore();
+            c.save(); c.translate(posX[CIRCLE],posY[CIRCLE]); face(c,CIRCLE,faceCx+faceOff,faceCy); c.restore();
+            c.save(); c.translate(posX[BL],posY[BL]); pill(c,rL,xbox?"LB":"L",held[BL],12*d,16*d); c.restore();
+            c.save(); c.translate(posX[BR],posY[BR]); pill(c,rR,xbox?"RB":"R",held[BR],12*d,16*d); c.restore();
+            c.save(); c.translate(posX[SELECT],posY[SELECT]); pill(c,rSelect,xbox?"VIEW":"SELECT",held[SELECT],15*d,11*d); c.restore();
+            c.save(); c.translate(posX[START],posY[START]); pill(c,rStart,xbox?"MENU":"START",held[START],15*d,11*d); c.restore();
+            if(editLayout) {
+                text.setColor(Color.argb(230,255,255,255)); text.setTextSize(12*d);
+                c.drawText("TOQUE E ARRASTE CADA BOTÃO",getWidth()/2f,28*d,text);
+                if(selectedControl>=0) { text.setColor(Color.rgb(235,70,85)); c.drawText("EDITANDO: "+controlName(selectedControl),getWidth()/2f,46*d,text); }
             }
             c.restore();
         }
