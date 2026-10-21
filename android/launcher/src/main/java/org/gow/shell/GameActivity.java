@@ -144,8 +144,8 @@ public final class GameActivity extends SDLActivity {
         Debug.getMemoryInfo(memory);
         double ramGb = memory.getTotalPss() / (1024.0 * 1024.0);
         String fpsValue = fps > 0 ? String.format(Locale.US, "%.0f", fps) : "--";
-        String frameValue = frameMs > 0 ? String.format(Locale.US, "%.1f ms", frameMs) : "-- ms";
-        String ramValue = String.format(Locale.US, "%.2f GB", ramGb);
+        String frameValue = frameMs > 0 ? String.format(Locale.forLanguageTag("pt-BR"), "%.1f ms", frameMs) : "-- ms";
+        String ramValue = String.format(Locale.forLanguageTag("pt-BR"), "%.1f GB", ramGb);
         boolean compact = prefs.getInt("performance_hud_style", 0) == 1;
         StringBuilder value = new StringBuilder();
         if (compact) {
