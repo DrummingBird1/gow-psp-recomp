@@ -338,7 +338,8 @@ public final class LauncherActivity extends Activity {
         }
         if (control != null) {
             if (soon) disable(control);
-            line.addView(control, wrapWrap());
+            line.addView(control, "bar".equals(control.getTag())
+                    ? new LinearLayout.LayoutParams(dp(170), dp(8)) : wrapWrap());
         }
         r.addView(line, matchWrap());
         View div = new View(this);
@@ -432,6 +433,7 @@ public final class LauncherActivity extends Activity {
         fill.setBackground(shape(RED, 0, 4));
         b.addView(fill, new LinearLayout.LayoutParams(0, dp(8), (float) pct));
         b.setLayoutParams(lp(dp(170), dp(8)));
+        b.setTag("bar");
         return b;
     }
 
@@ -755,8 +757,8 @@ public final class LauncherActivity extends Activity {
                 seg(new String[] { "30%", "50%", "70%", "100%" }, opIndex,
                         i -> p.edit().putInt("ctl_opacity", ops[i]).apply()), false));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
-        right.addView(row("Zona morta do anal\u00f3gico", "15%", bar(15), true));
-        right.addView(row("Mapeamento dos bot\u00f5es", null,
+        left.addView(row("Zona morta do anal\u00f3gico", "15%", bar(15), true));
+        left.addView(row("Mapeamento dos bot\u00f5es", null,
                 seg(new String[] { "Padr\u00e3o", "Personalizar" }, 0, i -> { }), true));
         showScreen("controls", "Controles", left, right);
     }
