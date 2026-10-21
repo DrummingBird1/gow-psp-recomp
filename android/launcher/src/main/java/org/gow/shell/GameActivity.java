@@ -1,15 +1,34 @@
 package org.gow.shell;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.RectF;
+import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
+import android.widget.FrameLayout;
 
 import org.libsdl.app.SDLActivity;
 
-/** SDL host activity launched by the Android launcher. */
+import java.util.Arrays;
+
+/** SDL host activity launched by the Android launcher, with on-screen touch controls. */
 public final class GameActivity extends SDLActivity {
+    private SharedPreferences prefs;
+    private InputManager inputManager;
+    private TouchControls controls;
+
     @Override
     protected String[] getLibraries() {
         return new String[] { "SDL3", "main" };
@@ -19,12 +38,65 @@ public final class GameActivity extends SDLActivity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         enterImmersiveMode();
+        prefs = getSharedPreferences("gow_settings", MODE_PRIVATE);
+
+        controls = new TouchControls(this, prefs.getInt("ctl_opacity", 50));
+        controls.sink = new TouchControls.Sink() {
+            @Override public void down(int keyCode) { SDLActivity.onNativeKeyDown(keyCode); }
+            @Override public void up(int keyCode) { SDLActivity.onNativeKeyUp(keyCode); }
+        };
+        addContentView(controls, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+
+        inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
+        if (inputManager != null) inputManager.registerInputDeviceListener(padListener, null);
+        applyControlsVisibility();
+    }
+
+    @Override
+    protected void onPause() {
+        if (controls != null) controls.releaseAll();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (inputManager != null) inputManager.unregisterInputDeviceListener(padListener);
+        super.onDestroy();
     }
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) enterImmersiveMode();
+    }
+
+    private final InputManager.InputDeviceListener padListener = new InputManager.InputDeviceListener() {
+        @Override public void onInputDeviceAdded(int id) { applyControlsVisibility(); }
+        @Override public void onInputDeviceRemoved(int id) { applyControlsVisibility(); }
+        @Override public void onInputDeviceChanged(int id) { applyControlsVisibility(); }
+    };
+
+    private boolean gamepadConnected() {
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice d = InputDevice.getDevice(id);
+            if (d == null || d.isVirtual()) continue;
+            int s = d.getSources();
+            if ((s & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+                    || (s & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void applyControlsVisibility() {
+        if (controls == null || prefs == null) return;
+        boolean on = prefs.getBoolean("ctl_screen", true);
+        boolean auto = prefs.getBoolean("ctl_auto", true);
+        boolean show = on && !(auto && gamepadConnected());
+        if (!show) controls.releaseAll();
+        controls.setVisibility(show ? View.VISIBLE : View.GONE);
     }
 
     private void enterImmersiveMode() {
@@ -44,6 +116,244 @@ public final class GameActivity extends SDLActivity {
                     | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                     | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                     | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        }
+    }
+
+    /**
+     * Botoes virtuais. Cada botao vira a tecla que o runtime ja le (rt_host.c, g_bind):
+     * setas = direcional, Z/X/A/S = cruz/bolinha/quadrado/triangulo, Q/W = L/R,
+     * Espaco = Start, V = Select, I/K/J/L = analogico (digital, tudo ou nada).
+     */
+    static final class TouchControls extends View {
+        interface Sink {
+            void down(int keyCode);
+            void up(int keyCode);
+        }
+
+        static final int UP = 0, DOWN = 1, LEFT = 2, RIGHT = 3;
+        static final int CROSS = 4, CIRCLE = 5, SQUARE = 6, TRIANGLE = 7;
+        static final int BL = 8, BR = 9, START = 10, SELECT = 11;
+        static final int SUP = 12, SDOWN = 13, SLEFT = 14, SRIGHT = 15;
+        static final int N = 16;
+        static final int[] CODES = {
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S,
+            KeyEvent.KEYCODE_Q, KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_SPACE, KeyEvent.KEYCODE_V,
+            KeyEvent.KEYCODE_I, KeyEvent.KEYCODE_K, KeyEvent.KEYCODE_J, KeyEvent.KEYCODE_L
+        };
+
+        Sink sink;
+        private final boolean[] held = new boolean[N];
+        private final boolean[] want = new boolean[N];
+        private final float d;
+        private final int alpha;
+        private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF rect = new RectF();
+        private final Path path = new Path();
+
+        private float stickR, stickCx, stickCy, padArm, padCx, padCy, faceOff, faceR, faceCx, faceCy;
+        private final RectF rL = new RectF(), rR = new RectF(), rStart = new RectF(), rSelect = new RectF();
+        private float knobX, knobY;
+        private boolean stickHeld;
+
+        TouchControls(Context ctx, int opacityPercent) {
+            super(ctx);
+            d = ctx.getResources().getDisplayMetrics().density;
+            alpha = Math.max(20, Math.min(255, Math.round(255f * opacityPercent / 100f)));
+            stroke.setStyle(Paint.Style.STROKE);
+            stroke.setStrokeCap(Paint.Cap.ROUND);
+            fill.setStyle(Paint.Style.FILL);
+            text.setTextAlign(Paint.Align.CENTER);
+            text.setFakeBoldText(true);
+            setClickable(true);
+        }
+
+        @Override
+        protected void onSizeChanged(int w, int h, int ow, int oh) {
+            stickR = 62 * d;
+            stickCx = 28 * d + stickR;
+            stickCy = h - 24 * d - stickR;
+            padArm = 50 * d;
+            padCx = stickCx;
+            padCy = stickCy - stickR - 20 * d - padArm;
+            faceOff = 46 * d;
+            faceR = 31 * d;
+            faceCx = w - 28 * d - faceOff - faceR;
+            faceCy = h - 24 * d - faceOff - faceR;
+            float sw = 74 * d, sh = 40 * d;
+            rL.set(14 * d, 10 * d, 14 * d + sw, 10 * d + sh);
+            rR.set(w - 14 * d - sw, 10 * d, w - 14 * d, 10 * d + sh);
+            float pw = 70 * d, ph = 30 * d;
+            float py = h - 22 * d - ph;
+            rSelect.set(w / 2f - 8 * d - pw, py, w / 2f - 8 * d, py + ph);
+            rStart.set(w / 2f + 8 * d, py, w / 2f + 8 * d + pw, py + ph);
+        }
+
+        private static boolean near(float x, float y, float cx, float cy, float r) {
+            float dx = x - cx, dy = y - cy;
+            return dx * dx + dy * dy <= r * r;
+        }
+
+        private boolean hit(RectF r, float x, float y) {
+            float s = 6 * d;
+            return x >= r.left - s && x <= r.right + s && y >= r.top - s && y <= r.bottom + s;
+        }
+
+        private void collect(float x, float y) {
+            // direcional (setas); tem prioridade onde as zonas se encostam
+            if (near(x, y, padCx, padCy, padArm * 1.15f)) {
+                float dx = x - padCx, dy = y - padCy;
+                float t = padArm * 0.28f;
+                if (dy < -t) want[UP] = true;
+                if (dy > t) want[DOWN] = true;
+                if (dx < -t) want[LEFT] = true;
+                if (dx > t) want[RIGHT] = true;
+            } else if (near(x, y, stickCx, stickCy, stickR * 1.5f)) {
+                // analogico (teclas I K J L)
+                float dx = x - stickCx, dy = y - stickCy;
+                float t = stickR * 0.30f;
+                if (dy < -t) want[SUP] = true;
+                if (dy > t) want[SDOWN] = true;
+                if (dx < -t) want[SLEFT] = true;
+                if (dx > t) want[SRIGHT] = true;
+                float len = (float) Math.sqrt(dx * dx + dy * dy);
+                float lim = stickR * 0.7f;
+                if (len > lim) { dx *= lim / len; dy *= lim / len; }
+                knobX = dx;
+                knobY = dy;
+                stickHeld = true;
+            }
+            // botoes de acao
+            float fr = faceR * 1.1f;
+            if (near(x, y, faceCx, faceCy - faceOff, fr)) want[TRIANGLE] = true;
+            if (near(x, y, faceCx, faceCy + faceOff, fr)) want[CROSS] = true;
+            if (near(x, y, faceCx - faceOff, faceCy, fr)) want[SQUARE] = true;
+            if (near(x, y, faceCx + faceOff, faceCy, fr)) want[CIRCLE] = true;
+            if (hit(rL, x, y)) want[BL] = true;
+            if (hit(rR, x, y)) want[BR] = true;
+            if (hit(rStart, x, y)) want[START] = true;
+            if (hit(rSelect, x, y)) want[SELECT] = true;
+        }
+
+        @Override
+        public boolean onTouchEvent(MotionEvent ev) {
+            int action = ev.getActionMasked();
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                releaseAll();
+                return true;
+            }
+            Arrays.fill(want, false);
+            stickHeld = false;
+            int skip = action == MotionEvent.ACTION_POINTER_UP ? ev.getActionIndex() : -1;
+            for (int i = 0; i < ev.getPointerCount(); i++) {
+                if (i == skip) continue;
+                collect(ev.getX(i), ev.getY(i));
+            }
+            if (!stickHeld) { knobX = 0; knobY = 0; }
+            apply();
+            return true;
+        }
+
+        private void apply() {
+            if (sink != null) {
+                for (int i = 0; i < N; i++) {
+                    if (want[i] && !held[i]) {
+                        held[i] = true;
+                        sink.down(CODES[i]);
+                    } else if (!want[i] && held[i]) {
+                        held[i] = false;
+                        sink.up(CODES[i]);
+                    }
+                }
+            }
+            invalidate();
+        }
+
+        void releaseAll() {
+            Arrays.fill(want, false);
+            knobX = 0;
+            knobY = 0;
+            apply();
+        }
+
+        private int a(float k) {
+            return Math.round(alpha * k);
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            stroke.setStrokeWidth(2.5f * d);
+            // analogico
+            stroke.setColor(Color.argb(a(0.8f), 255, 255, 255));
+            c.drawCircle(stickCx, stickCy, stickR, stroke);
+            fill.setColor(Color.argb(a(stickHeld ? 0.55f : 0.25f), 255, 255, 255));
+            c.drawCircle(stickCx + knobX, stickCy + knobY, stickR * 0.45f, fill);
+            // direcional
+            float aw = 16 * d, in = 12 * d;
+            arm(c, held[UP], padCx - aw, padCy - padArm, padCx + aw, padCy - in);
+            arm(c, held[DOWN], padCx - aw, padCy + in, padCx + aw, padCy + padArm);
+            arm(c, held[LEFT], padCx - padArm, padCy - aw, padCx - in, padCy + aw);
+            arm(c, held[RIGHT], padCx + in, padCy - aw, padCx + padArm, padCy + aw);
+            // botoes de acao
+            face(c, TRIANGLE, faceCx, faceCy - faceOff);
+            face(c, CROSS, faceCx, faceCy + faceOff);
+            face(c, SQUARE, faceCx - faceOff, faceCy);
+            face(c, CIRCLE, faceCx + faceOff, faceCy);
+            // ombros e start/select
+            pill(c, rL, "L", held[BL], 12 * d, 16 * d);
+            pill(c, rR, "R", held[BR], 12 * d, 16 * d);
+            pill(c, rSelect, "SELECT", held[SELECT], 15 * d, 11 * d);
+            pill(c, rStart, "START", held[START], 15 * d, 11 * d);
+        }
+
+        private void arm(Canvas c, boolean on, float l, float t, float r, float b) {
+            rect.set(l, t, r, b);
+            fill.setColor(Color.argb(a(on ? 0.6f : 0.22f), 255, 255, 255));
+            c.drawRoundRect(rect, 6 * d, 6 * d, fill);
+            stroke.setColor(Color.argb(a(0.7f), 255, 255, 255));
+            c.drawRoundRect(rect, 6 * d, 6 * d, stroke);
+        }
+
+        private void face(Canvas c, int which, float cx, float cy) {
+            boolean on = held[which];
+            fill.setColor(Color.argb(a(on ? 0.6f : 0.22f), 255, 255, 255));
+            c.drawCircle(cx, cy, faceR, fill);
+            stroke.setColor(Color.argb(a(0.7f), 255, 255, 255));
+            c.drawCircle(cx, cy, faceR, stroke);
+            float s = faceR * 0.4f;
+            if (which == CROSS) {
+                stroke.setColor(Color.argb(a(1f), 120, 170, 255));
+                c.drawLine(cx - s, cy - s, cx + s, cy + s, stroke);
+                c.drawLine(cx - s, cy + s, cx + s, cy - s, stroke);
+            } else if (which == CIRCLE) {
+                stroke.setColor(Color.argb(a(1f), 255, 110, 110));
+                c.drawCircle(cx, cy, s, stroke);
+            } else if (which == SQUARE) {
+                stroke.setColor(Color.argb(a(1f), 240, 150, 220));
+                c.drawRect(cx - s, cy - s, cx + s, cy + s, stroke);
+            } else {
+                stroke.setColor(Color.argb(a(1f), 110, 210, 160));
+                path.reset();
+                path.moveTo(cx, cy - s * 1.1f);
+                path.lineTo(cx + s * 1.05f, cy + s * 0.8f);
+                path.lineTo(cx - s * 1.05f, cy + s * 0.8f);
+                path.close();
+                c.drawPath(path, stroke);
+            }
+        }
+
+        private void pill(Canvas c, RectF r, String label, boolean on, float radius, float textSize) {
+            fill.setColor(Color.argb(a(on ? 0.6f : 0.22f), 255, 255, 255));
+            c.drawRoundRect(r, radius, radius, fill);
+            stroke.setColor(Color.argb(a(0.7f), 255, 255, 255));
+            c.drawRoundRect(r, radius, radius, stroke);
+            text.setColor(Color.argb(a(1f), 255, 255, 255));
+            text.setTextSize(textSize);
+            float y = r.centerY() - (text.descent() + text.ascent()) / 2f;
+            c.drawText(label, r.centerX(), y, text);
         }
     }
 }

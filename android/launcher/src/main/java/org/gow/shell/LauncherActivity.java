@@ -471,19 +471,33 @@ public final class LauncherActivity extends Activity {
     // ------------------------------------------------------------------ 4. Controles
 
     private void showControls() {
+        final SharedPreferences p = prefs();
+        final int[] ops = { 30, 50, 70, 100 };
+        int opIndex = 1;
+        for (int i = 0; i < ops.length; i++) {
+            if (ops[i] == p.getInt("ctl_opacity", 50)) opIndex = i;
+        }
         LinearLayout left = column();
         LinearLayout info = card();
-        info.addView(tv("Em breve...", 18, TEXT, true), withBottom(dp(6)));
-        info.addView(tv("Escolha de controle PlayStation ou Xbox, modo autom\u00e1tico (os controles na tela "
-                + "somem ao conectar um controle Bluetooth), vibra\u00e7\u00e3o e zona morta do anal\u00f3gico.",
+        info.addView(tv("Controles na tela", 18, TEXT, true), withBottom(dp(6)));
+        info.addView(tv("Dire\u00e7\u00e3o, anal\u00f3gico, \u2715 \u25cb \u25a1 \u25b3, L, R, Start e Select, "
+                + "com v\u00e1rios toques ao mesmo tempo. O anal\u00f3gico virtual \u00e9 digital "
+                + "(tudo ou nada) por enquanto. Vale na pr\u00f3xima vez que tocar em JOGAR.",
                 13, MUTED, false), matchWrap());
         left.addView(info, matchWrap());
 
         LinearLayout right = column();
+        right.addView(row("Controles na tela", "Dire\u00e7\u00e3o, anal\u00f3gico e bot\u00f5es",
+                toggle(p.getBoolean("ctl_screen", true),
+                        on -> p.edit().putBoolean("ctl_screen", on).apply()), false));
+        right.addView(row("Autom\u00e1tico", "Oculta os controles na tela ao conectar um controle",
+                toggle(p.getBoolean("ctl_auto", true),
+                        on -> p.edit().putBoolean("ctl_auto", on).apply()), false));
+        right.addView(row("Opacidade", null,
+                seg(new String[] { "30%", "50%", "70%", "100%" }, opIndex,
+                        i -> p.edit().putInt("ctl_opacity", ops[i]).apply()), false));
         right.addView(row("Tipo de controle", null,
-                seg(new String[] { "Tela", "PlayStation", "Xbox" }, 1, i -> { }), true));
-        right.addView(row("Autom\u00e1tico", "Oculta os controles na tela ao conectar um controle Bluetooth",
-                toggle(true, on -> { }), true));
+                seg(new String[] { "Tela", "PlayStation", "Xbox" }, 0, i -> { }), true));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
         right.addView(row("Zona morta do anal\u00f3gico", "15%", bar(15), true));
         right.addView(row("Mapeamento dos bot\u00f5es", null,
@@ -922,7 +936,7 @@ public final class LauncherActivity extends Activity {
 
     private void resetDefaults() {
         prefs().edit().remove("res_scale").remove("fxaa").remove("fps_limit").remove("vsync")
-                .remove("performance_hud_enabled").putString("screen_mode", "16:9").apply();
+                .remove("performance_hud_enabled").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").putString("screen_mode", "16:9").apply();
         writeLine(join(filterTokens(readArgTokens(), true, true, true, true)));
     }
 }
