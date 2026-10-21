@@ -1,4 +1,3 @@
-name: android-fiber-check
 name: "Verificar fibras ARM64 / Check ARM64 fibers"
 on:
   workflow_dispatch:
@@ -6,6 +5,7 @@ on:
     branches:
       - android
       - "work/android-fiber-investigation"
+      - "feature/performance-hud"
     paths:
       - 'runtime/rt_android.c'
       - 'runtime/rt_fiber.c'
