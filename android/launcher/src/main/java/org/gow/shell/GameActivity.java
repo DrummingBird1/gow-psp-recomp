@@ -538,6 +538,8 @@ public final class GameActivity extends SDLActivity {
             invalidate();
         }
 
+        void setEditMode(boolean enabled) { this.editLayout = enabled; releaseAll(); invalidate(); }
+
         void releaseAll() {
             Arrays.fill(want, false);
             knobX = 0;
