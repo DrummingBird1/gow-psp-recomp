@@ -338,8 +338,12 @@ public final class LauncherActivity extends Activity {
         }
         if (control != null) {
             if (soon) disable(control);
-            line.addView(control, "bar".equals(control.getTag())
-                    ? new LinearLayout.LayoutParams(dp(170), dp(8)) : wrapWrap());
+            if (control instanceof android.widget.SeekBar) {
+                line.addView(control, new LinearLayout.LayoutParams(dp(190), dp(36)));
+            } else {
+                line.addView(control, "bar".equals(control.getTag())
+                        ? new LinearLayout.LayoutParams(dp(170), dp(8)) : wrapWrap());
+            }
         }
         r.addView(line, matchWrap());
         View div = new View(this);
@@ -589,11 +593,13 @@ public final class LauncherActivity extends Activity {
     private View hudOpacityControl() {
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
         seek.setMax(100);
-        seek.setProgress(prefs().getInt("performance_hud_opacity", 70));
-        seek.setContentDescription("Opacidade do HUD");
+        seek.setProgress(Math.max(20, Math.min(100, prefs().getInt("performance_hud_opacity", 70))));
+        seek.setContentDescription("Opacidade do HUD, de 20 a 100 por cento");
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
-                if (fromUser) prefs().edit().putInt("performance_hud_opacity", Math.max(20, value)).apply();
+                int opacity = Math.max(20, Math.min(100, value));
+                if (value < 20) bar.setProgress(20);
+                if (fromUser) prefs().edit().putInt("performance_hud_opacity", opacity).apply();
             }
             @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
             @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
