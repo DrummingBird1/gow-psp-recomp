@@ -702,8 +702,11 @@ public final class LauncherActivity extends Activity {
                     builder.setNegativeButton("Fechar", null).show();
                 });
             } catch (Exception e) {
+                final String reason = e.getClass().getSimpleName()
+                        + (e.getMessage() == null || e.getMessage().trim().isEmpty() ? "" : ": " + e.getMessage());
                 runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
-                        .setMessage("Não foi possível consultar o GitHub agora. Confira sua conexão ou abra a página de releases.")
+                        .setMessage("Não foi possível consultar o GitHub.\n\nDetalhe: " + reason
+                                + "\n\nConfira sua conexão ou abra a página de releases.")
                         .setPositiveButton("Abrir releases", (d, w) -> openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
                         .setNegativeButton("Fechar", null).show());
             } finally {
