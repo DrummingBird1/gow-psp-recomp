@@ -49,12 +49,11 @@ jobs:
           test -n "$GOW_DISC_URL" || { echo "secret GOW_DISC_URL vazio"; exit 1; }
           echo "::add-mask::$GOW_DISC_URL"
           python3 -m pip install --break-system-packages -q --upgrade gdown
-          # Google Drive pode bloquear temporariamente downloads grandes. Tente novamente
-          # antes de falhar o build; --fuzzy aceita links /file/d/.../view.
+          # Google Drive pode bloquear downloads grandes ou deixar a conexão presa; limite cada tentativa.
           OK=0
           for ATTEMPT in 1 2 3; do
             rm -f game.iso
-            if gdown "$GOW_DISC_URL" -O game.iso; then
+            if timeout 90s gdown "$GOW_DISC_URL" -O game.iso; then
               SIZE=$(stat -c%s game.iso 2>/dev/null || echo 0)
               if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
             fi
