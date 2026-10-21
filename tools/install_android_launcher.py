@@ -120,7 +120,6 @@ def main() -> int:
 
     ET.indent(tree, space="    ")
     # gow_icon_v1: icone proprio (substitui o icone padrao do SDL)
-    import shutil
     icon_src = Path(__file__).resolve().parent.parent / "android/launcher/icon"
     res = project / "app/src/main/res"
     for dens in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
