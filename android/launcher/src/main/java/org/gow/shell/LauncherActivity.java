@@ -1,6 +1,8 @@
 package org.gow.shell;
 
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.os.Environment;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
 import android.database.Cursor;
@@ -655,36 +657,73 @@ public final class LauncherActivity extends Activity {
                 connection.setRequestProperty("Accept", "application/vnd.github+json");
                 connection.setRequestProperty("User-Agent", "GodOfWar-PSP-Recomp-Android");
                 StringBuilder body = new StringBuilder();
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) body.append(line);
                 }
                 JSONObject release = new JSONObject(body.toString());
                 final String tag = release.optString("tag_name", "");
                 final String releaseName = release.optString("name", tag);
-                final String releaseUrl = release.optString("html_url",
-                        "https://github.com/flavinxs0/gow-psp-recomp-android/releases");
+                final String releaseUrl = release.optString("html_url", "https://github.com/flavinxs0/gow-psp-recomp-android/releases");
                 if (tag.isEmpty()) throw new java.io.IOException("A API não retornou uma versão publicada.");
                 final boolean sameVersion = normalizeVersion(tag).equals(normalizeVersion(VERSION));
-                runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
-                        .setMessage(sameVersion
-                                ? "Você está na versão " + VERSION + ". Ela corresponde à última release publicada (" + tag + ")."
-                                : "Release publicada encontrada: " + releaseName + " (" + tag + ").\nVersão deste app: " + VERSION
-                                        + ".\nConfira as notas e os arquivos antes de atualizar.")
-                        .setPositiveButton("Abrir release", (d, w) -> openUrl(releaseUrl))
-                        .setNegativeButton("Fechar", null)
-                        .show());
+                String foundUrl = null;
+                String foundName = "GodOfWar-PSP-Recomp-Android.apk";
+                org.json.JSONArray assets = release.optJSONArray("assets");
+                if (assets != null) {
+                    for (int i = 0; i < assets.length(); i++) {
+                        JSONObject asset = assets.optJSONObject(i);
+                        if (asset != null && asset.optString("name", "").toLowerCase(Locale.US).endsWith(".apk")) {
+                            foundUrl = asset.optString("browser_download_url", null);
+                            foundName = asset.optString("name", foundName);
+                            break;
+                        }
+                    }
+                }
+                final String apkUrl = foundUrl;
+                final String apkName = foundName;
+                runOnUiThread(() -> {
+                    AlertDialog.Builder builder = dialog().setTitle("Verificador de atualizações")
+                            .setMessage(sameVersion
+                                    ? "Versão instalada: " + VERSION + "\nÚltima release: " + tag + "\n\nVocê está na versão mais recente publicada."
+                                    : "Nova release: " + releaseName + " (" + tag + ")\nVersão instalada: " + VERSION + "\n\nBaixe o APK para atualizar pelo instalador do Android.");
+                    if (apkUrl != null && !apkUrl.isEmpty()) {
+                        builder.setPositiveButton("Baixar APK", (d, w) -> downloadUpdate(apkUrl, apkName));
+                        builder.setNeutralButton("Ver release", (d, w) -> openUrl(releaseUrl));
+                    } else {
+                        builder.setPositiveButton("Abrir release", (d, w) -> openUrl(releaseUrl));
+                    }
+                    builder.setNegativeButton("Fechar", null).show();
+                });
             } catch (Exception e) {
                 runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
                         .setMessage("Não foi possível consultar o GitHub agora. Confira sua conexão ou abra a página de releases.")
-                        .setPositiveButton("Abrir releases", (d, w) -> openUrl(
-                                "https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
+                        .setPositiveButton("Abrir releases", (d, w) -> openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
                         .setNegativeButton("Fechar", null).show());
             } finally {
                 if (connection != null) connection.disconnect();
             }
         }, "gow-update-check").start();
+    }
+
+    private void downloadUpdate(String apkUrl, String apkName) {
+        try {
+            DownloadManager manager = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+            if (manager == null) throw new IllegalStateException("DownloadManager indisponível.");
+            String safeName = apkName == null || !apkName.toLowerCase(Locale.US).endsWith(".apk")
+                    ? "GodOfWar-PSP-Recomp-Android.apk" : apkName.replaceAll("[^A-Za-z0-9._-]", "_");
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(apkUrl));
+            request.setTitle("God of War PSP Recomp");
+            request.setDescription("Baixando APK da Release do GitHub");
+            request.setMimeType("application/vnd.android.package-archive");
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, safeName);
+            manager.enqueue(request);
+            toast("Download iniciado. Toque na notificação quando terminar para abrir o instalador do Android.");
+        } catch (Exception e) {
+            toast("Não foi possível iniciar o download. Abrindo a Release.");
+            openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases");
+        }
     }
 
     private String normalizeVersion(String version) {
@@ -796,6 +835,8 @@ public final class LauncherActivity extends Activity {
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
         seek.setMax(100 - min);
         seek.setProgress(initial - min);
+        seek.setProgressTintList(ColorStateList.valueOf(ROSE));
+        seek.setThumbTintList(ColorStateList.valueOf(ROSE));
         seek.setContentDescription("Opacidade do HUD, de 20 a 100 por cento");
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
@@ -1006,6 +1047,8 @@ public final class LauncherActivity extends Activity {
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
         seek.setMax(50);
         seek.setProgress(initial);
+        seek.setProgressTintList(ColorStateList.valueOf(ROSE));
+        seek.setThumbTintList(ColorStateList.valueOf(ROSE));
         seek.setContentDescription("Zona morta do analógico, de zero a cinquenta por cento");
         seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
