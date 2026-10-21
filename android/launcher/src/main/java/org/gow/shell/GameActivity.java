@@ -621,6 +621,10 @@ public final class GameActivity extends SDLActivity {
             codes[CIRCLE] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_circle", 1)))];
             codes[SQUARE] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_square", 2)))];
             codes[TRIANGLE] = FACE_CODES[Math.max(0, Math.min(3, p.getInt("ctl_map_" + profile + "_triangle", 3)))];
+            for (int i = 0; i < N; i++) {
+                posX[i] = p.getFloat("ctl_pos_" + profile + "_" + i + "_x", 0f);
+                posY[i] = p.getFloat("ctl_pos_" + profile + "_" + i + "_y", 0f);
+            }
             invalidate();
         }
 
