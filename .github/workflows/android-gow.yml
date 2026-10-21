@@ -3,8 +3,17 @@ name: "Compilar APK Android / Build Android APK"
 # O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
 on:
   push:
-    branches: [android]
-    paths: [".build-trigger"]
+    branches: [android, "feature/performance-hud"]
+    paths:
+      - ".build-trigger"
+      - "android/launcher/**"
+      - "runtime/rt_host.c"
+      - "runtime/rt_frames.c"
+      - "runtime/rt_android.c"
+      - "runtime/rt_fiber.c"
+      - "CMakeLists.txt"
+      - "tools/install_android_launcher.py"
+      - ".github/workflows/android-gow.yml"
   workflow_dispatch:
 
 permissions:
