@@ -3,7 +3,7 @@ name: "Compilar APK Android / Build Android APK"
 # O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
 on:
   push:
-    branches: [android, "feature/performance-hud", "mega-update"]
+    branches: [android, "feature/performance-hud", "mega-update", "mega-update-v2"]
     paths:
       - ".build-trigger"
       - "android/launcher/**"
