@@ -1,7 +1,11 @@
 name: android-gow
 # Gera o APK do God of War CoO a partir do SEU disco (secret GOW_DISC_URL).
 # O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+  push:
+    branches: [android]
+    paths: [".build-trigger"]
 
 permissions:
   contents: read
