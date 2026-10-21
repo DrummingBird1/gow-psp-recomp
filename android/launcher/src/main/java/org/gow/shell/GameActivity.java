@@ -67,6 +67,13 @@ public final class GameActivity extends SDLActivity {
     }
 
     @Override
+    protected void onResume() {
+        super.onResume();
+        hudHandler.removeCallbacks(hudUpdater);
+        if (performanceHud != null) hudHandler.post(hudUpdater);
+    }
+
+    @Override
     protected void onPause() {
         if (controls != null) controls.releaseAll();
         hudHandler.removeCallbacks(hudUpdater);
