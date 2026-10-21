@@ -186,7 +186,7 @@ int SDL_main(int argc, char **argv) {
     install_handlers();
     atexit(on_exit_log);
     char *args[] = { "gow", "--image", image, "--boot", "--disc", disc,
-                     "--ms0", ms0, "--window", "--fullscreen", "--renderer", "gpu", "--gpu-driver", "vulkan" };
+                     "--ms0", ms0, "--window", "--fullscreen", "--renderer", "gpu" };
     int r = gow_main((int)(sizeof args / sizeof *args), args);
     fprintf(stderr, "rt_android: gow_main retornou %d\n", r);
     return r;
