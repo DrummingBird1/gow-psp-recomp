@@ -192,6 +192,7 @@ def main() -> int:
         '    <background android:drawable="@mipmap/ic_launcher_background"/>\n'
         '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
         '</adaptive-icon>\n', encoding="utf-8")
+    ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
     tree.write(manifest, encoding="utf-8", xml_declaration=True)
     print("Launcher integrated.")
     print(f"Project: {project}")
