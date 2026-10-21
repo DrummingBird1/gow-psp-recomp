@@ -81,10 +81,10 @@ def main() -> int:
     xml_dir = project / "app/src/main/res/xml"
     xml_dir.mkdir(parents=True, exist_ok=True)
     (xml_dir / "gow_file_paths.xml").write_text(
-        '<?xml version="1.0" encoding="utf-8"?>\\n'
-        '<paths xmlns:android="http://schemas.android.com/apk/res/android">\\n'
-        '    <cache-path name="updates" path="updates/" />\\n'
-        '</paths>\\n', encoding="utf-8")
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <cache-path name="updates" path="updates/" />\n'
+        '</paths>\n', encoding="utf-8")
 
     # A SDL gera o projeto Gradle em tempo de build; adicionar FileProvider nele.
     gradle = project / "app/build.gradle"
@@ -93,10 +93,10 @@ def main() -> int:
     if gradle_file.is_file():
         gradle_text = gradle_file.read_text(encoding="utf-8")
         if "androidx.core:core" not in gradle_text:
-            match = re.search(r"dependencies\\s*\\{", gradle_text)
+            match = re.search(r"dependencies\s*\{", gradle_text)
             if not match:
                 raise RuntimeError("Não foi encontrado o bloco dependencies do Gradle")
-            dep = '\\n    implementation "androidx.core:core:1.13.1"'
+            dep = '\n    implementation "androidx.core:core:1.13.1"'
             gradle_text = gradle_text[:match.end()] + dep + gradle_text[match.end():]
             gradle_file.write_text(gradle_text, encoding="utf-8")
 
