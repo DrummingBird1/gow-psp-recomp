@@ -581,8 +581,24 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Posição", null, seg(new String[] { "Esq.", "Dir." },
                 prefs().getInt("performance_hud_position", 0),
                 i -> prefs().edit().putInt("performance_hud_position", i).apply()), true));
-        right.addView(row("Opacidade", "70%", bar(70), true));
+        right.addView(row("Opacidade", "20–100%", hudOpacityControl(), true));
         showScreen("hud", "Desempenho / HUD", left, right);
+    }
+
+
+    private View hudOpacityControl() {
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(100);
+        seek.setProgress(prefs().getInt("performance_hud_opacity", 70));
+        seek.setContentDescription("Opacidade do HUD");
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
+                if (fromUser) prefs().edit().putInt("performance_hud_opacity", Math.max(20, value)).apply();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        return seek;
     }
 
     // ------------------------------------------------------------------ 4. Controles
