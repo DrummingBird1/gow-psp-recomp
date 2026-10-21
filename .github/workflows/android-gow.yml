@@ -18,6 +18,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   GAME_ID: UCUS98653
@@ -60,18 +61,24 @@ jobs:
             echo "Tentativa $ATTEMPT/3 falhou; aguardando antes de tentar novamente."
             sleep 12
           done
-          [ "$OK" -eq 1 ] || { echo "Falha ao baixar a ISO. Confira o compartilhamento do Google Drive (qualquer pessoa com o link) ou atualize GOW_DISC_URL."; exit 1; }
-          SIZE=$(stat -c%s game.iso)
-          echo "disco baixado: $SIZE bytes"
-          test "$SIZE" -gt 50000000 || { echo "arquivo pequeno demais, nao parece uma ISO"; exit 1; }
+          if [ "$OK" -eq 1 ]; then
+            SIZE=$(stat -c%s game.iso)
+            echo "disco baixado: $SIZE bytes"
+            test "$SIZE" -gt 50000000 || { echo "arquivo pequeno demais, nao parece uma ISO"; exit 1; }
+          else
+            echo "::warning::ISO indisponível no Google Drive; reutilizando somente as bibliotecas nativas da última build aprovada para empacotar o launcher atualizado."
+            echo "USE_FALLBACK=true" >> "$GITHUB_ENV"
+          fi
 
       - name: Ferramentas do host (gow_disc)
+        if: env.USE_FALLBACK != 'true'
         run: |
           cmake -S . -B build/cmake_tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DGOW_TOOLS_ONLY=ON
           cmake --build build/cmake_tools --target gow_disc --parallel
           find build/cmake_tools -name gow_disc -type f
 
       - name: Decifrar o EBOOT do disco
+        if: env.USE_FALLBACK != 'true'
         run: |
           DISC_TOOL="$(find build/cmake_tools -name gow_disc -type f | head -1)"
           mkdir -p build/eboot
@@ -79,6 +86,7 @@ jobs:
           ls -l build/eboot
 
       - name: Recompilar para C (recomp.py)
+        if: env.USE_FALLBACK != 'true'
         run: |
           [ -f recomp/requirements.txt ] && python3 -m pip install --break-system-packages -q -r recomp/requirements.txt || true
           python3 -I recomp/recomp.py \
@@ -90,6 +98,7 @@ jobs:
           ls -l "build/gen/${GAME_ID}_full" | head
 
       - name: libSDL3.so (arm64-v8a)
+        if: env.USE_FALLBACK != 'true'
         run: |
           NDK="$ANDROID_NDK_LATEST_HOME"
           cmake -S SDL -B build-sdl -G Ninja \
@@ -101,6 +110,7 @@ jobs:
           test -s build-sdl/libSDL3.so
 
       - name: libmain.so do jogo (arm64-v8a)
+        if: env.USE_FALLBACK != 'true'
         run: |
           NDK="$ANDROID_NDK_LATEST_HOME"
           AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
@@ -120,12 +130,36 @@ jobs:
           find build/cmake_android -name 'libmain.so' -type f
 
       - name: Montar as 3 bibliotecas
+        if: env.USE_FALLBACK != 'true'
         run: |
           NDK="$ANDROID_NDK_LATEST_HOME"
           mkdir -p pack/lib/arm64-v8a
           cp "$(find build/cmake_android -name libmain.so -type f | head -1)" pack/lib/arm64-v8a/
           cp build-sdl/libSDL3.so pack/lib/arm64-v8a/
           cp "$(find "$NDK/toolchains/llvm/prebuilt" -path '*aarch64-linux-android/libc++_shared.so' | head -1)" pack/lib/arm64-v8a/
+          (cd pack && zip -qr "$RUNNER_TEMP/source-game.apk" lib)
+          unzip -l "$RUNNER_TEMP/source-game.apk"
+
+      - name: Reutilizar bibliotecas nativas da última build aprovada
+        if: env.USE_FALLBACK == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: GodOfWar-CoO-apk-38
+          run-id: 39636492974
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/fallback-artifact
+
+      - name: Extrair bibliotecas nativas do APK anterior
+        if: env.USE_FALLBACK == 'true'
+        run: |
+          BASE_APK="$(find "$RUNNER_TEMP/fallback-artifact" -type f -name '*.apk' | head -1)"
+          test -n "$BASE_APK" || { echo "APK base do artifact 38 não encontrado"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/fallback-apk" pack/lib/arm64-v8a
+          unzip -q "$BASE_APK" 'lib/arm64-v8a/*' -d "$RUNNER_TEMP/fallback-apk"
+          for LIB in libmain.so libSDL3.so libc++_shared.so; do
+            test -s "$RUNNER_TEMP/fallback-apk/lib/arm64-v8a/$LIB" || { echo "Biblioteca ausente: $LIB"; exit 1; }
+            cp "$RUNNER_TEMP/fallback-apk/lib/arm64-v8a/$LIB" pack/lib/arm64-v8a/
+          done
           (cd pack && zip -qr "$RUNNER_TEMP/source-game.apk" lib)
           unzip -l "$RUNNER_TEMP/source-game.apk"
 
