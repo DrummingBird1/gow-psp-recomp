@@ -882,7 +882,7 @@ public final class LauncherActivity extends Activity {
             float[][] pos = { { fx, fy - off }, { fx - off, fy }, { fx + off, fy }, { fx, fy + off } };
             if (xbox) {
                 String[] ls = { "Y", "X", "B", "A" };
-                int[] cs = { Color.rgb(240, 200, 60), Color.rgb(90, 150, 255), Color.rgb(255, 110, 110), Color.rgb(110, 210, 130) };
+                int[] cs = { RED, Color.rgb(90, 150, 255), Color.rgb(255, 110, 110), Color.rgb(110, 210, 130) };
                 for (int i = 0; i < 4; i++) {
                     ring(pos[i][0], pos[i][1], fr, cs[i]);
                     label(ls[i], pos[i][0], pos[i][1], dp(11), cs[i]);
