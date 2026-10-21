@@ -1222,7 +1222,7 @@ public final class LauncherActivity extends Activity {
 
     private void resetDefaults() {
         prefs().edit().remove("res_scale").remove("fxaa").remove("fps_limit").remove("vsync")
-                .remove("performance_hud_enabled").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").putString("screen_mode", "16:9").apply();
+                .remove("performance_hud_enabled").remove("performance_hud_fps").remove("performance_hud_frame_time").remove("performance_hud_ram").remove("performance_hud_style").remove("performance_hud_position").remove("performance_hud_opacity").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").putString("screen_mode", "16:9").apply();
         writeLine(join(filterTokens(readArgTokens(), true, true, true, true)));
     }
 }
