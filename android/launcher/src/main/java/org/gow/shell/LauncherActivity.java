@@ -41,8 +41,8 @@ import java.util.Locale;
 /**
  * God of War PSP Recomp Android launcher (layout horizontal, 6 telas).
  *
- * Só as opções que o runtime já entende gravam argumentos no args.txt:
- * --aspect, --res-scale, --fxaa e --fps. O resto aparece como "Em breve...".
+ * As opções de controles na tela são salvas em gow_settings e aplicadas pela GameActivity.
+ * As opções gráficas suportadas pelo runtime gravam argumentos no args.txt.
  */
 public final class LauncherActivity extends Activity {
     private static final int BG = Color.rgb(17, 17, 19);
@@ -786,10 +786,60 @@ public final class LauncherActivity extends Activity {
                 seg(new String[] { "30%", "50%", "70%", "100%" }, opIndex,
                         i -> p.edit().putInt("ctl_opacity", ops[i]).apply()), false));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
-        left.addView(row("Zona morta do anal\u00f3gico", "15%", bar(15), true));
-        left.addView(row("Mapeamento dos bot\u00f5es", null,
-                seg(new String[] { "Padr\u00e3o", "Personalizar" }, 0, i -> { }), true));
+        left.addView(row("Zona morta do anal\u00f3gico", "Ajustável: 0% a 50%",
+                deadZoneControl(p), false));
+        left.addView(row("Mapeamento dos bot\u00f5es", "Configure os quatro bot\u00f5es de a\u00e7\u00e3o",
+                button("Configurar", false, () -> showButtonMapping(p)), false));
         showScreen("controls", "Controles", left, right);
+    }
+
+    private View deadZoneControl(SharedPreferences p) {
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(50);
+        seek.setProgress(Math.max(0, Math.min(50, p.getInt("ctl_deadzone", 15))));
+        seek.setContentDescription("Zona morta do analógico, de zero a cinquenta por cento");
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
+                if (fromUser) p.edit().putInt("ctl_deadzone", value).apply();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        return seek;
+    }
+
+    private void showButtonMapping(SharedPreferences p) {
+        final String[] labels = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
+        final String[] keys = { "ctl_map_cross", "ctl_map_circle", "ctl_map_square", "ctl_map_triangle" };
+        final int[] defaults = { 0, 1, 2, 3 };
+        final String[] targets = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
+        LinearLayout content = column();
+        content.setPadding(dp(8), dp(4), dp(8), dp(4));
+        AlertDialog editor = dialog().setTitle("Mapeamento dos botões")
+                .setView(content)
+                .setPositiveButton("Fechar", null)
+                .setNeutralButton("Restaurar padrão", (d, w) -> {
+                    SharedPreferences.Editor e = p.edit();
+                    for (String key : keys) e.remove(key);
+                    e.apply();
+                    toast("Mapeamento padrão restaurado. Vale ao abrir o jogo novamente.");
+                }).create();
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            int selected = Math.max(0, Math.min(3, p.getInt(keys[i], defaults[i])));
+            TextView item = button(labels[i] + "  →  " + targets[selected], false, () -> {
+                int currentValue = Math.max(0, Math.min(3, p.getInt(keys[index], defaults[index])));
+                dialog().setTitle("Botão " + labels[index])
+                        .setSingleChoiceItems(targets, currentValue, (d, which) -> {
+                            p.edit().putInt(keys[index], which).apply();
+                            d.dismiss();
+                            editor.dismiss();
+                            showButtonMapping(p);
+                        }).setNegativeButton("Cancelar", null).show();
+            });
+            content.addView(item, withBottom(dp(6)));
+        }
+        editor.show();
     }
 
     private String autoNote(boolean on) {
@@ -1228,7 +1278,7 @@ public final class LauncherActivity extends Activity {
 
     private void resetDefaults() {
         prefs().edit().remove("res_scale").remove("fxaa").remove("fps_limit").remove("vsync")
-                .remove("performance_hud_enabled").remove("performance_hud_fps").remove("performance_hud_frame_time").remove("performance_hud_ram").remove("performance_hud_style").remove("performance_hud_position").remove("performance_hud_opacity").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").putString("screen_mode", "16:9").apply();
+                .remove("performance_hud_enabled").remove("performance_hud_fps").remove("performance_hud_frame_time").remove("performance_hud_ram").remove("performance_hud_style").remove("performance_hud_position").remove("performance_hud_opacity").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").remove("ctl_deadzone").remove("ctl_map_cross").remove("ctl_map_circle").remove("ctl_map_square").remove("ctl_map_triangle").putString("screen_mode", "16:9").apply();
         writeLine(join(filterTokens(readArgTokens(), true, true, true, true)));
     }
 }
