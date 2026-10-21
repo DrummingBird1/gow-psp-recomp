@@ -323,6 +323,7 @@ static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
 static volatile double g_hud_fps;
 static volatile double g_hud_frame_ms;
+static uint64_t g_hud_t0, g_hud_frame0;
 
 #ifdef __ANDROID__
 JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFps(JNIEnv *env, jclass cls) {
@@ -654,6 +655,18 @@ void rt_host_shutdown(void) {
 /* PSP framebuffer -> texture. 8888 is uploaded directly (red in the low byte = XBGR8888). */
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) {
     g_last_frame = frame;
+    uint64_t hud_now = rt_frames_host_us();
+    if (g_hud_t0 == 0) {
+        g_hud_t0 = hud_now;
+        g_hud_frame0 = frame;
+    } else if (hud_now - g_hud_t0 >= 1000000) {
+        uint64_t elapsed = hud_now - g_hud_t0;
+        uint64_t shown = frame - g_hud_frame0;
+        g_hud_fps = shown ? (double)shown * 1000000.0 / (double)elapsed : 0.0;
+        g_hud_frame_ms = shown ? (double)elapsed / 1000.0 / (double)shown : 0.0;
+        g_hud_t0 = hud_now;
+        g_hud_frame0 = frame;
+    }
     if (rt_gpu_active()) {
         uint64_t t0 = rt_frames_host_us();
         rt_gpu_present(addr, stride, format);
@@ -693,8 +706,6 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
         uint64_t elapsed_us = t - g_title_t;
         uint64_t frames = frame - g_title_frame;
         double fps = frames ? (double)frames * 1e6 / (double)elapsed_us : 0.0;
-        g_hud_fps = fps;
-        g_hud_frame_ms = frames ? (double)elapsed_us / 1000.0 / (double)frames : 0.0;
         snprintf(title, sizeof(title), "God of War (PSP native port)  |  %.1f fps  |  frame %llu", fps, (unsigned long long)frame);
         gow_set_title(g_win, title);
         g_title_t = t;
