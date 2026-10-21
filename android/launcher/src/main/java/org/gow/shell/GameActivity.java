@@ -100,6 +100,7 @@ public final class GameActivity extends SDLActivity {
 
     private View gameDrawerHandle;
     private LinearLayout gameDrawer;
+    private Button finishEditButton;
 
     private void createGameDrawer() {
         FrameLayout.LayoutParams handleLp = new FrameLayout.LayoutParams(dp(28), dp(92), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
@@ -131,6 +132,21 @@ public final class GameActivity extends SDLActivity {
         drawerLp.setMargins(0, dp(12), dp(28), dp(12));
         gameDrawer.setVisibility(View.GONE);
         addContentView(gameDrawer, drawerLp);
+
+        finishEditButton = new Button(this);
+        finishEditButton.setText("Concluir edição");
+        finishEditButton.setAllCaps(false);
+        finishEditButton.setTextColor(Color.WHITE);
+        finishEditButton.setBackground(drawerBackground());
+        finishEditButton.setElevation(dp(45));
+        finishEditButton.setVisibility(View.GONE);
+        finishEditButton.setOnClickListener(v -> {
+            if (controls != null) controls.setEditMode(false);
+            finishEditButton.setVisibility(View.GONE);
+        });
+        FrameLayout.LayoutParams doneLp = new FrameLayout.LayoutParams(-2, dp(48), Gravity.TOP | Gravity.CENTER_HORIZONTAL);
+        doneLp.topMargin = dp(8);
+        addContentView(finishEditButton, doneLp);
     }
 
     private GradientDrawable drawerBackground() {
@@ -165,12 +181,14 @@ public final class GameActivity extends SDLActivity {
                 .setTitle("Editar controles na tela")
                 .setSingleChoiceItems(profiles, current, (dialog, which) -> {
                     prefs.edit().putString("ctl_style", which == 1 ? "xbox" : "ps").apply();
+                    if (controls != null) controls.setControllerStyle(which == 1);
                     dialog.dismiss();
                     new android.app.AlertDialog.Builder(this)
                             .setTitle(profiles[which])
                             .setMessage("Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar.")
                             .setPositiveButton("Editar", (d, w) -> {
                                 if (controls != null) controls.setEditMode(true);
+                                if (finishEditButton != null) finishEditButton.setVisibility(View.VISIBLE);
                             })
                             .setNegativeButton("Cancelar", null).show();
                 }).setNegativeButton("Cancelar", null).show();
