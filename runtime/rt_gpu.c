@@ -331,7 +331,27 @@ static void pack_index(void);
 
 int rt_gpu_init(void *window, const char *driver) {
     if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "[gpu] SDL_Init: %s\n", SDL_GetError()); return 0; }
-    g_dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL, getenv("RT_GPU_DEBUG") != NULL, driver);
+    {
+        SDL_PropertiesID gp = SDL_CreateProperties();
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_DXIL_BOOLEAN, true);
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, getenv("RT_GPU_DEBUG") != NULL);
+        if (driver) SDL_SetStringProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, driver);
+#ifdef SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN, false);
+#endif
+#ifdef SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN, false);
+#endif
+#ifdef SDL_PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN, false);
+#endif
+#ifdef SDL_PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN
+        SDL_SetBooleanProperty(gp, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN, false);
+#endif
+        g_dev = SDL_CreateGPUDeviceWithProperties(gp);
+        SDL_DestroyProperties(gp);
+    }
     if (!g_dev) { fprintf(stderr, "[gpu] SDL_CreateGPUDevice: %s\n", SDL_GetError()); return 0; }
     SDL_GPUShaderFormat fmts = SDL_GetGPUShaderFormats(g_dev);
     SDL_GPUShaderFormat use = (fmts & SDL_GPU_SHADERFORMAT_SPIRV) ? SDL_GPU_SHADERFORMAT_SPIRV : SDL_GPU_SHADERFORMAT_DXIL;
