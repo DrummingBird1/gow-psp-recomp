@@ -570,18 +570,18 @@ public final class LauncherActivity extends Activity {
                 toggle(prefs().getBoolean("performance_hud_enabled", false),
                         on -> prefs().edit().putBoolean("performance_hud_enabled", on).apply()), false));
         right.addView(row("FPS", null, toggle(prefs().getBoolean("performance_hud_fps", true),
-                on -> prefs().edit().putBoolean("performance_hud_fps", on).apply()), true));
+                on -> prefs().edit().putBoolean("performance_hud_fps", on).apply()), false));
         right.addView(row("Tempo de quadro", null, toggle(prefs().getBoolean("performance_hud_frame_time", true),
-                on -> prefs().edit().putBoolean("performance_hud_frame_time", on).apply()), true));
+                on -> prefs().edit().putBoolean("performance_hud_frame_time", on).apply()), false));
         right.addView(row("Memória (RAM)", null, toggle(prefs().getBoolean("performance_hud_ram", true),
-                on -> prefs().edit().putBoolean("performance_hud_ram", on).apply()), true));
+                on -> prefs().edit().putBoolean("performance_hud_ram", on).apply()), false));
         right.addView(row("Estilo", null, seg(new String[] { "Em linhas", "Uma linha" },
                 prefs().getInt("performance_hud_style", 0),
-                i -> prefs().edit().putInt("performance_hud_style", i).apply()), true));
+                i -> prefs().edit().putInt("performance_hud_style", i).apply()), false));
         right.addView(row("Posição", null, seg(new String[] { "Esq.", "Dir." },
                 prefs().getInt("performance_hud_position", 0),
-                i -> prefs().edit().putInt("performance_hud_position", i).apply()), true));
-        right.addView(row("Opacidade", "20–100%", hudOpacityControl(), true));
+                i -> prefs().edit().putInt("performance_hud_position", i).apply()), false));
+        right.addView(row("Opacidade", "20–100%", hudOpacityControl(), false));
         showScreen("hud", "Desempenho / HUD", left, right);
     }
 
