@@ -563,17 +563,24 @@ public final class LauncherActivity extends Activity {
 
     private void showHud() {
         LinearLayout left = column();
-        left.addView(tv("Ative o painel durante o jogo. O FPS real depende de instrumenta\u00e7\u00e3o nativa "
-                + "na biblioteca do jogo.", 13, MUTED, false), matchWrap());
+        left.addView(tv("Painel compacto durante o jogo. FPS e tempo de quadro usam medições nativas; RAM mostra a memória PSS do processo Android.", 13, MUTED, false), matchWrap());
 
         LinearLayout right = column();
         right.addView(row("Mostrar HUD em jogo", null,
                 toggle(prefs().getBoolean("performance_hud_enabled", false),
                         on -> prefs().edit().putBoolean("performance_hud_enabled", on).apply()), false));
-        right.addView(row("FPS", null, toggle(true, on -> { }), true));
-        right.addView(row("Tempo de quadro", null, toggle(true, on -> { }), true));
-        right.addView(row("Mem\u00f3ria (RAM)", null, toggle(false, on -> { }), true));
-        right.addView(row("Posi\u00e7\u00e3o", null, seg(new String[] { "Esq.", "Dir." }, 0, i -> { }), true));
+        right.addView(row("FPS", null, toggle(prefs().getBoolean("performance_hud_fps", true),
+                on -> prefs().edit().putBoolean("performance_hud_fps", on).apply()), true));
+        right.addView(row("Tempo de quadro", null, toggle(prefs().getBoolean("performance_hud_frame_time", true),
+                on -> prefs().edit().putBoolean("performance_hud_frame_time", on).apply()), true));
+        right.addView(row("Memória (RAM)", null, toggle(prefs().getBoolean("performance_hud_ram", true),
+                on -> prefs().edit().putBoolean("performance_hud_ram", on).apply()), true));
+        right.addView(row("Estilo", null, seg(new String[] { "Em linhas", "Uma linha" },
+                prefs().getInt("performance_hud_style", 0),
+                i -> prefs().edit().putInt("performance_hud_style", i).apply()), true));
+        right.addView(row("Posição", null, seg(new String[] { "Esq.", "Dir." },
+                prefs().getInt("performance_hud_position", 0),
+                i -> prefs().edit().putInt("performance_hud_position", i).apply()), true));
         right.addView(row("Opacidade", "70%", bar(70), true));
         showScreen("hud", "Desempenho / HUD", left, right);
     }
