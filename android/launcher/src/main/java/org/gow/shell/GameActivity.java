@@ -7,6 +7,13 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
+import android.graphics.drawable.GradientDrawable;
+import android.os.Debug;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.Gravity;
+import android.widget.TextView;
+import java.util.Locale;
 import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -28,6 +35,10 @@ public final class GameActivity extends SDLActivity {
     private SharedPreferences prefs;
     private InputManager inputManager;
     private TouchControls controls;
+    private TextView performanceHud;
+    private final Handler hudHandler = new Handler(Looper.getMainLooper());
+    private static native double nativeGetFps();
+    private static native double nativeGetFrameMs();
 
     @Override
     protected String[] getLibraries() {
@@ -52,16 +63,19 @@ public final class GameActivity extends SDLActivity {
         inputManager = (InputManager) getSystemService(Context.INPUT_SERVICE);
         if (inputManager != null) inputManager.registerInputDeviceListener(padListener, null);
         applyControlsVisibility();
+        createPerformanceHud();
     }
 
     @Override
     protected void onPause() {
         if (controls != null) controls.releaseAll();
+        hudHandler.removeCallbacks(hudUpdater);
         super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        hudHandler.removeCallbacks(hudUpdater);
         if (inputManager != null) inputManager.unregisterInputDeviceListener(padListener);
         super.onDestroy();
     }
@@ -70,6 +84,88 @@ public final class GameActivity extends SDLActivity {
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) enterImmersiveMode();
+    }
+
+
+    private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
+    private void createPerformanceHud() {
+        if (prefs == null) return;
+        performanceHud = new TextView(this);
+        performanceHud.setTextColor(Color.WHITE);
+        performanceHud.setTextSize(12);
+        performanceHud.setTypeface(android.graphics.Typeface.MONOSPACE);
+        performanceHud.setIncludeFontPadding(false);
+        performanceHud.setPadding(dp(10), dp(7), dp(10), dp(7));
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(Color.argb(190, 10, 10, 12));
+        bg.setCornerRadius(dp(8));
+        bg.setStroke(dp(1), Color.argb(70, 255, 255, 255));
+        performanceHud.setBackground(bg);
+        performanceHud.setElevation(dp(24));
+        performanceHud.setClickable(false);
+        performanceHud.setFocusable(false);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP | Gravity.LEFT);
+        lp.setMargins(dp(12), dp(12), dp(12), dp(12));
+        addContentView(performanceHud, lp);
+        refreshPerformanceHud();
+        hudHandler.post(hudUpdater);
+    }
+
+    private final Runnable hudUpdater = new Runnable() {
+        @Override public void run() {
+            refreshPerformanceHud();
+            hudHandler.postDelayed(this, 500);
+        }
+    };
+
+    private void refreshPerformanceHud() {
+        if (performanceHud == null || prefs == null) return;
+        boolean enabled = prefs.getBoolean("performance_hud_enabled", false);
+        boolean showFps = prefs.getBoolean("performance_hud_fps", true);
+        boolean showFrame = prefs.getBoolean("performance_hud_frame_time", true);
+        boolean showRam = prefs.getBoolean("performance_hud_ram", true);
+        performanceHud.setVisibility(enabled && (showFps || showFrame || showRam) ? View.VISIBLE : View.GONE);
+        if (!enabled) return;
+
+        double fps = 0.0, frameMs = 0.0;
+        try { fps = nativeGetFps(); } catch (UnsatisfiedLinkError ignored) { }
+        try { frameMs = nativeGetFrameMs(); } catch (UnsatisfiedLinkError ignored) { }
+        Debug.MemoryInfo memory = new Debug.MemoryInfo();
+        Debug.getMemoryInfo(memory);
+        double ramGb = memory.getTotalPss() / (1024.0 * 1024.0);
+        String fpsValue = fps > 0 ? String.format(Locale.US, "%.0f", fps) : "--";
+        String frameValue = frameMs > 0 ? String.format(Locale.US, "%.1f ms", frameMs) : "-- ms";
+        String ramValue = String.format(Locale.US, "%.2f GB", ramGb);
+        boolean compact = prefs.getInt("performance_hud_style", 0) == 1;
+        StringBuilder value = new StringBuilder();
+        if (compact) {
+            if (showFps) value.append("FPS ").append(fpsValue);
+            if (showFrame) { if (value.length() > 0) value.append("  ·  "); value.append("Quadro ").append(frameValue); }
+            if (showRam) { if (value.length() > 0) value.append("  ·  "); value.append("RAM ").append(ramValue); }
+        } else {
+            if (showFps) value.append("FPS  ").append(fpsValue);
+            if (showFrame) { if (value.length() > 0) value.append("\\n"); value.append("Tempo de quadro  ").append(frameValue); }
+            if (showRam) { if (value.length() > 0) value.append("\\n"); value.append("RAM utilizada  ").append(ramValue); }
+        }
+        performanceHud.setText(value.toString());
+        performanceHud.setAlpha(Math.max(0.2f, Math.min(1f,
+                prefs.getInt("performance_hud_opacity", 70) / 100f)));
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) performanceHud.getLayoutParams();
+        boolean right = prefs.getInt("performance_hud_position", 0) == 1;
+        lp.gravity = Gravity.TOP | (right ? Gravity.RIGHT : Gravity.LEFT);
+        performanceHud.setLayoutParams(lp);
+        android.text.SpannableString styled = new android.text.SpannableString(value.toString());
+        int fpsStart = value.indexOf("FPS");
+        if (fpsStart >= 0) {
+            int end = compact ? value.indexOf("  ·  ") : value.indexOf("\\n");
+            if (end < 0) end = value.length();
+            styled.setSpan(new android.text.style.ForegroundColorSpan(Color.rgb(117, 229, 154)),
+                    fpsStart, Math.max(fpsStart, end), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        performanceHud.setText(styled);
     }
 
     private final InputManager.InputDeviceListener padListener = new InputManager.InputDeviceListener() {
