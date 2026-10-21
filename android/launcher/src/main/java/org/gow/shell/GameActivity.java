@@ -198,25 +198,51 @@ public final class GameActivity extends SDLActivity {
         LinearLayout box = new LinearLayout(this);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
         box.setOrientation(LinearLayout.VERTICAL);
-        android.widget.Switch enabled = new android.widget.Switch(this);
-        enabled.setText("Mostrar HUD de desempenho");
-        enabled.setTextColor(Color.WHITE);
-        enabled.setChecked(prefs.getBoolean("performance_hud_enabled", false));
-        box.addView(enabled);
+        android.widget.Switch enabled = hudSwitch("Mostrar HUD de desempenho", "performance_hud_enabled", true);
+        android.widget.Switch fps = hudSwitch("FPS", "performance_hud_fps", true);
+        android.widget.Switch frame = hudSwitch("Tempo de quadro", "performance_hud_frame_time", true);
+        android.widget.Switch ram = hudSwitch("RAM utilizada", "performance_hud_ram", true);
+        android.widget.Switch compact = new android.widget.Switch(this);
+        compact.setText("Exibição compacta em uma linha");
+        compact.setTextColor(Color.WHITE);
+        compact.setChecked(prefs.getInt("performance_hud_style", 0) == 1);
+        android.widget.Switch right = new android.widget.Switch(this);
+        right.setText("Posicionar à direita");
+        right.setTextColor(Color.WHITE);
+        right.setChecked(prefs.getInt("performance_hud_position", 0) == 1);
+        box.addView(enabled); box.addView(fps); box.addView(frame); box.addView(ram);
+        box.addView(compact); box.addView(right);
         TextView opacityLabel = new TextView(this);
-        opacityLabel.setText("Opacidade");
+        opacityLabel.setText("Opacidade do HUD");
         opacityLabel.setTextColor(Color.WHITE);
         box.addView(opacityLabel);
         SeekBar opacity = new SeekBar(this);
         opacity.setMax(100);
         opacity.setProgress(prefs.getInt("performance_hud_opacity", 70));
+        if (Build.VERSION.SDK_INT >= 21) {
+            opacity.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235,70,85)));
+            opacity.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235,70,85)));
+        }
         box.addView(opacity);
         new android.app.AlertDialog.Builder(this).setTitle("Editar HUD de FPS").setView(box)
                 .setPositiveButton("Salvar", (d, w) -> {
                     prefs.edit().putBoolean("performance_hud_enabled", enabled.isChecked())
+                            .putBoolean("performance_hud_fps", fps.isChecked())
+                            .putBoolean("performance_hud_frame_time", frame.isChecked())
+                            .putBoolean("performance_hud_ram", ram.isChecked())
+                            .putInt("performance_hud_style", compact.isChecked() ? 1 : 0)
+                            .putInt("performance_hud_position", right.isChecked() ? 1 : 0)
                             .putInt("performance_hud_opacity", opacity.getProgress()).apply();
                     refreshPerformanceHud();
                 }).setNegativeButton("Cancelar", null).show();
+    }
+
+    private android.widget.Switch hudSwitch(String label, String key, boolean defaultValue) {
+        android.widget.Switch toggle = new android.widget.Switch(this);
+        toggle.setText(label);
+        toggle.setTextColor(Color.WHITE);
+        toggle.setChecked(prefs.getBoolean(key, defaultValue));
+        return toggle;
     }
 
     private int dp(float value) { return Math.round(value * getResources().getDisplayMetrics().density); }
