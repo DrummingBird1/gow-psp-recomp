@@ -1283,18 +1283,27 @@ public final class LauncherActivity extends Activity {
     }
 
     private void confirmReset() {
-        dialog().setTitle("RESTAURAR PADR\u00d5ES")
-                .setMessage("Voltar proporção, escala, FXAA, limite de FPS e HUD ao original? "
-                        + "Outros argumentos do args.txt s\u00e3o mantidos.")
-                .setNegativeButton("CANCELAR", null)
-                .setPositiveButton("RESTAURAR", (d, w) -> {
-                    resetDefaults();
-                    toast("Padr\u00f5es restaurados.");
-                    showExtras();
-                })
-                .show();
-    }
+        LinearLayout left = column();
+        LinearLayout warning = card();
+        warning.addView(tv("RESTAURAR PADRÕES", 13, ROSE, true), withBottom(dp(8)));
+        warning.addView(tv("Isso redefine proporção, escala, FXAA, limite de FPS e HUD. Outros argumentos do args.txt serão mantidos.",
+                14, TEXT, false), matchWrap());
+        left.addView(warning, withBottom(dp(12)));
+        left.addView(button("Voltar sem alterar", false, this::showExtras), withBottom(dp(8)));
 
+        LinearLayout right = column();
+        LinearLayout confirm = card();
+        confirm.addView(tv("Confirmar restauração", 17, TEXT, true), withBottom(dp(8)));
+        confirm.addView(tv("As configurações gráficas voltarão aos valores originais do launcher.",
+                13, MUTED, false), withBottom(dp(14)));
+        confirm.addView(button("RESTAURAR AGORA", true, () -> {
+            resetDefaults();
+            toast("Padrões restaurados.");
+            showExtras();
+        }), matchWrap());
+        right.addView(confirm, matchWrap());
+        showScreen("reset-confirm", "Restaurar padrões", left, right, this::showExtras);
+    }
     // ------------------------------------------------------------------ 6. Sobre
 
     private void showAbout() {
