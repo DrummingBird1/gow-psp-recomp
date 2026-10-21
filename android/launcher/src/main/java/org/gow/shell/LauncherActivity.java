@@ -1037,6 +1037,17 @@ public final class LauncherActivity extends Activity {
                 deadZoneControl(p), false));
         left.addView(row("Mapeamento dos bot\u00f5es", "Configure os quatro bot\u00f5es de a\u00e7\u00e3o",
                 button("Configurar", false, () -> showButtonMapping(p)), false));
+        right.addView(row("Editar posição no jogo", "Arraste o conjunto de controles durante a partida",
+                toggle(p.getBoolean("ctl_edit_layout", false), on -> {
+                    p.edit().putBoolean("ctl_edit_layout", on).apply();
+                    toast(on ? "Abra o jogo e arraste os controles para reposicionar." : "Edição de posição desativada.");
+                }), false));
+        right.addView(row("Restaurar posição", "Voltar ao layout original",
+                actions(new String[] { "Restaurar" }, new Runnable[] { () -> {
+                    p.edit().remove("ctl_offset_x").remove("ctl_offset_y").putBoolean("ctl_edit_layout", false).apply();
+                    toast("Posição original restaurada.");
+                    showControls();
+                } }, false), false));
         showScreen("controls", "Controles", left, right);
     }
 
@@ -1377,6 +1388,8 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Arquitetura", null, tv(abi(), 15, MUTED, false), false));
         right.addView(row("C\u00f3digo-fonte", "Projeto no GitHub",
                 actions(new String[] { "GitHub" }, new Runnable[] { this::openRepo }, false), false));
+        right.addView(row("Atualizações", "Verificar e baixar o APK da Release",
+                actions(new String[] { "Verificar" }, new Runnable[] { this::checkForUpdates }, false), false));
         right.addView(row("Licen\u00e7as", "Bibliotecas de c\u00f3digo aberto",
                 actions(new String[] { "Ver" }, new Runnable[] { this::showLicenses }, false), false));
         showScreen("about", "Sobre", left, right);
