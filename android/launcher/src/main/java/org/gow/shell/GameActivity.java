@@ -279,6 +279,8 @@ public final class GameActivity extends SDLActivity {
         private float stickR, stickCx, stickCy, padArm, padCx, padCy, faceOff, faceR, faceCx, faceCy;
         private final RectF rL = new RectF(), rR = new RectF(), rStart = new RectF(), rSelect = new RectF();
         private float knobX, knobY;
+        private float layoutOffsetX, layoutOffsetY, lastDragX, lastDragY;
+        private boolean editLayout;
         private boolean stickHeld;
 
         private final boolean xbox;
@@ -286,6 +288,9 @@ public final class GameActivity extends SDLActivity {
         TouchControls(Context ctx, int opacityPercent, boolean xbox, SharedPreferences prefs) {
             super(ctx);
             this.xbox = xbox;
+            this.editLayout = prefs.getBoolean("ctl_edit_layout", false);
+            this.layoutOffsetX = prefs.getFloat("ctl_offset_x", 0f);
+            this.layoutOffsetY = prefs.getFloat("ctl_offset_y", 0f);
             int deadZone = Math.max(0, Math.min(50, prefs.getInt("ctl_deadzone", 15)));
             this.deadZonePercent = deadZone;
             codes[CROSS] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_cross", 0)))];
@@ -379,9 +384,32 @@ public final class GameActivity extends SDLActivity {
             Arrays.fill(want, false);
             stickHeld = false;
             int skip = action == MotionEvent.ACTION_POINTER_UP ? ev.getActionIndex() : -1;
+            if (editLayout) {
+                if (action == MotionEvent.ACTION_DOWN) {
+                    lastDragX = ev.getX();
+                    lastDragY = ev.getY();
+                    releaseAll();
+                    return true;
+                }
+                if (action == MotionEvent.ACTION_MOVE) {
+                    layoutOffsetX += ev.getX() - lastDragX;
+                    layoutOffsetY += ev.getY() - lastDragY;
+                    lastDragX = ev.getX();
+                    lastDragY = ev.getY();
+                    android.content.SharedPreferences p = getContext().getSharedPreferences("gow_settings", Context.MODE_PRIVATE);
+                    p.edit().putFloat("ctl_offset_x", layoutOffsetX).putFloat("ctl_offset_y", layoutOffsetY).apply();
+                    invalidate();
+                    return true;
+                }
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                    releaseAll();
+                    return true;
+                }
+                return true;
+            }
             for (int i = 0; i < ev.getPointerCount(); i++) {
                 if (i == skip) continue;
-                collect(ev.getX(i), ev.getY(i));
+                collect(ev.getX(i) - layoutOffsetX, ev.getY(i) - layoutOffsetY);
             }
             if (!stickHeld) { knobX = 0; knobY = 0; }
             apply();
@@ -416,6 +444,8 @@ public final class GameActivity extends SDLActivity {
 
         @Override
         protected void onDraw(Canvas c) {
+            c.save();
+            c.translate(layoutOffsetX, layoutOffsetY);
             stroke.setStrokeWidth(2.5f * d);
             // analogico
             stroke.setColor(Color.argb(a(0.8f), 255, 255, 255));
@@ -438,6 +468,12 @@ public final class GameActivity extends SDLActivity {
             pill(c, rR, xbox ? "RB" : "R", held[BR], 12 * d, 16 * d);
             pill(c, rSelect, xbox ? "VIEW" : "SELECT", held[SELECT], 15 * d, 11 * d);
             pill(c, rStart, xbox ? "MENU" : "START", held[START], 15 * d, 11 * d);
+            if (editLayout) {
+                text.setColor(Color.argb(230, 255, 255, 255));
+                text.setTextSize(12 * d);
+                c.drawText("ARRASTE PARA MOVER OS CONTROLES", getWidth() / 2f, 28 * d, text);
+            }
+            c.restore();
         }
 
         private void arm(Canvas c, boolean on, float l, float t, float r, float b) {
