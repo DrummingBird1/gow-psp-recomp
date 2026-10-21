@@ -164,6 +164,21 @@ static void SDLCALL sdl_log_to_file(void *u, int cat, SDL_LogPriority pri, const
     if (g_def_log) g_def_log(u, cat, pri, msg);
 }
 
+static char g_args_buf[2048];
+static char *g_argv[96];
+static int g_argc;
+static void add_arg(char *s) { if (g_argc < 95) g_argv[g_argc++] = s; }
+static void load_extra_args(const char *base) {
+    char p[600];
+    snprintf(p, sizeof p, "%s/args.txt", base);
+    FILE *f = fopen(p, "r");
+    if (!f) return;
+    size_t n = fread(g_args_buf, 1, sizeof g_args_buf - 1, f);
+    fclose(f);
+    g_args_buf[n] = 0;
+    for (char *t = strtok(g_args_buf, " \t\r\n"); t; t = strtok(NULL, " \t\r\n")) add_arg(t);
+}
+
 __attribute__((visibility("default")))
 int SDL_main(int argc, char **argv) {
     (void)argc; (void)argv;
@@ -185,9 +200,15 @@ int SDL_main(int argc, char **argv) {
     init_stack_bounds();
     install_handlers();
     atexit(on_exit_log);
-    char *args[] = { "gow", "--image", image, "--boot", "--disc", disc,
-                     "--ms0", ms0, "--window", "--fullscreen", "--renderer", "gpu" };
-    int r = gow_main((int)(sizeof args / sizeof *args), args);
+    add_arg("gow"); add_arg("--image"); add_arg(image); add_arg("--boot");
+    add_arg("--disc"); add_arg(disc); add_arg("--ms0"); add_arg(ms0);
+    add_arg("--window"); add_arg("--fullscreen"); add_arg("--renderer"); add_arg("gpu");
+    load_extra_args(base);
+    fprintf(stderr, "rt_android: %d argumentos:", g_argc);
+    for (int i = 1; i < g_argc; i++) fprintf(stderr, " %s", g_argv[i]);
+    fprintf(stderr, "\n");
+    g_argv[g_argc] = NULL;
+    int r = gow_main(g_argc, g_argv);
     fprintf(stderr, "rt_android: gow_main retornou %d\n", r);
     return r;
 }
