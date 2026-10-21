@@ -96,9 +96,19 @@ def main() -> int:
             match = re.search(r"dependencies\s*\{", gradle_text)
             if not match:
                 raise RuntimeError("Não foi encontrado o bloco dependencies do Gradle")
-            dep = '\n    implementation "androidx.core:core:1.13.1"'
+            if gradle_file.suffix == ".kts":
+                dep = '\n    implementation("androidx.core:core:1.13.1")'
+            else:
+                dep = '\n    implementation "androidx.core:core:1.13.1"'
             gradle_text = gradle_text[:match.end()] + dep + gradle_text[match.end():]
             gradle_file.write_text(gradle_text, encoding="utf-8")
+
+    # O FileProvider usa AndroidX; habilitar explicitamente no projeto SDL gerado.
+    gradle_properties = project / "gradle.properties"
+    properties_text = gradle_properties.read_text(encoding="utf-8") if gradle_properties.is_file() else ""
+    if not re.search(r"(?m)^android\.useAndroidX\s*=\s*true\s*$", properties_text):
+        properties_text += "\nandroid.useAndroidX=true\n"
+        gradle_properties.write_text(properties_text.lstrip("\n"), encoding="utf-8")
 
     activities = list(app.findall("activity"))
     launcher = next((a for a in activities if class_name(a) == "LauncherActivity"), None)
