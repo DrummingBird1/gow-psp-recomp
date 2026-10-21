@@ -1,11 +1,7 @@
 name: android-gow
 # Gera o APK do God of War CoO a partir do SEU disco (secret GOW_DISC_URL).
 # O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
-on:
-  workflow_dispatch:
-  push:
-    branches: [android]
-    paths: [".build-trigger"]
+on: workflow_dispatch
 
 permissions:
   contents: read
@@ -39,7 +35,7 @@ jobs:
           test -n "$GOW_DISC_URL" || { echo "secret GOW_DISC_URL vazio"; exit 1; }
           echo "::add-mask::$GOW_DISC_URL"
           python3 -m pip install --break-system-packages -q gdown
-          gdown "$GOW_DISC_URL" -O game.iso || { echo "falha ao baixar (link nao esta publico?)"; exit 1; }
+          gdown --fuzzy "$GOW_DISC_URL" -O game.iso > /dev/null 2>&1 || { echo "falha ao baixar (link nao esta publico?)"; exit 1; }
           SIZE=$(stat -c%s game.iso)
           echo "disco baixado: $SIZE bytes"
           test "$SIZE" -gt 50000000 || { echo "arquivo pequeno demais, nao parece uma ISO"; exit 1; }
