@@ -6,6 +6,7 @@ Only the explicitly supplied generated project is modified. Safe to run repeated
 """
 from pathlib import Path
 import shutil
+import re
 import sys
 import xml.etree.ElementTree as ET
 
@@ -54,6 +55,65 @@ def main() -> int:
     app = root.find("application")
     if app is None:
         raise RuntimeError("AndroidManifest.xml has no <application>")
+
+    # O verificador consulta a API do GitHub e baixa APKs pela internet.
+    internet_permission = "android.permission.INTERNET"
+    if not any(p.get(ANDROID + "name") == internet_permission for p in root.findall("uses-permission")):
+        root.insert(0, ET.Element("uses-permission", {ANDROID + "name": internet_permission}))
+
+    # Permite abrir o instalador do Android após baixar um APK.
+    install_permission = "android.permission.REQUEST_INSTALL_PACKAGES"
+    if not any(p.get(ANDROID + "name") == install_permission for p in root.findall("uses-permission")):
+        root.insert(0, ET.Element("uses-permission", {ANDROID + "name": install_permission}))
+
+    providers = app.findall("provider")
+    provider = next((p for p in providers if p.get(ANDROID + "authorities") == "${applicationId}.fileprovider"), None)
+    if provider is None:
+        provider = ET.SubElement(app, "provider")
+    provider.set(ANDROID + "name", "androidx.core.content.FileProvider")
+    provider.set(ANDROID + "authorities", "${applicationId}.fileprovider")
+    provider.set(ANDROID + "exported", "false")
+    provider.set(ANDROID + "grantUriPermissions", "true")
+    for old_meta in list(provider.findall("meta-data")):
+        if old_meta.get(ANDROID + "name") == "android.support.FILE_PROVIDER_PATHS":
+            provider.remove(old_meta)
+    ET.SubElement(provider, "meta-data", {
+        ANDROID + "name": "android.support.FILE_PROVIDER_PATHS",
+        ANDROID + "resource": "@xml/gow_file_paths",
+    })
+
+    # FileProvider só expõe o APK temporário que o próprio launcher baixou.
+    xml_dir = project / "app/src/main/res/xml"
+    xml_dir.mkdir(parents=True, exist_ok=True)
+    (xml_dir / "gow_file_paths.xml").write_text(
+        '<?xml version="1.0" encoding="utf-8"?>\n'
+        '<paths xmlns:android="http://schemas.android.com/apk/res/android">\n'
+        '    <cache-path name="updates" path="updates/" />\n'
+        '</paths>\n', encoding="utf-8")
+
+    # A SDL gera o projeto Gradle em tempo de build; adicionar FileProvider nele.
+    gradle = project / "app/build.gradle"
+    gradle_kts = project / "app/build.gradle.kts"
+    gradle_file = gradle if gradle.is_file() else gradle_kts
+    if gradle_file.is_file():
+        gradle_text = gradle_file.read_text(encoding="utf-8")
+        if "androidx.core:core" not in gradle_text:
+            match = re.search(r"dependencies\s*\{", gradle_text)
+            if not match:
+                raise RuntimeError("Não foi encontrado o bloco dependencies do Gradle")
+            if gradle_file.suffix == ".kts":
+                dep = '\n    implementation("androidx.core:core:1.13.1")'
+            else:
+                dep = '\n    implementation "androidx.core:core:1.13.1"'
+            gradle_text = gradle_text[:match.end()] + dep + gradle_text[match.end():]
+            gradle_file.write_text(gradle_text, encoding="utf-8")
+
+    # O FileProvider usa AndroidX; habilitar explicitamente no projeto SDL gerado.
+    gradle_properties = project / "gradle.properties"
+    properties_text = gradle_properties.read_text(encoding="utf-8") if gradle_properties.is_file() else ""
+    if not re.search(r"(?m)^android\.useAndroidX\s*=\s*true\s*$", properties_text):
+        properties_text += "\nandroid.useAndroidX=true\n"
+        gradle_properties.write_text(properties_text.lstrip("\n"), encoding="utf-8")
 
     activities = list(app.findall("activity"))
     launcher = next((a for a in activities if class_name(a) == "LauncherActivity"), None)
@@ -137,6 +197,7 @@ def main() -> int:
         '    <background android:drawable="@mipmap/ic_launcher_background"/>\n'
         '    <foreground android:drawable="@mipmap/ic_launcher_foreground"/>\n'
         '</adaptive-icon>\n', encoding="utf-8")
+    ET.register_namespace("android", "http://schemas.android.com/apk/res/android")
     tree.write(manifest, encoding="utf-8", xml_declaration=True)
     print("Launcher integrated.")
     print(f"Project: {project}")

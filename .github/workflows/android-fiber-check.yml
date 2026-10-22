@@ -5,6 +5,7 @@ on:
     branches:
       - android
       - "work/android-fiber-investigation"
+      - "feature/performance-hud"
     paths:
       - 'runtime/rt_android.c'
       - 'runtime/rt_fiber.c'

@@ -1,8 +1,11 @@
 package org.gow.shell;
 
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.os.Environment;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.database.Cursor;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -10,6 +13,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.provider.OpenableColumns;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.InputType;
@@ -25,11 +29,16 @@ import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
+import androidx.core.content.FileProvider;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.FileReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
@@ -37,12 +46,13 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import org.json.JSONObject;
 
 /**
  * God of War PSP Recomp Android launcher (layout horizontal, 6 telas).
  *
- * Só as opções que o runtime já entende gravam argumentos no args.txt:
- * --aspect, --res-scale, --fxaa e --fps. O resto aparece como "Em breve...".
+ * As opções de controles na tela são salvas em gow_settings e aplicadas pela GameActivity.
+ * As opções gráficas suportadas pelo runtime gravam argumentos no args.txt.
  */
 public final class LauncherActivity extends Activity {
     private static final int BG = Color.rgb(17, 17, 19);
@@ -57,7 +67,9 @@ public final class LauncherActivity extends Activity {
     private static final int GREEN = Color.rgb(155, 203, 145);
 
     private static final String PREFS = "gow_settings";
-    private static final String VERSION = "v0.1.0";
+    private static final int PICK_GAME_ISO = 401;
+    private static final int PICK_IMAGE_BIN = 402;
+    private static final String VERSION = "v1.0.1";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
     private static final String[] MODES = { "16:9", "4:3", "FULLSCREEN" };
 
@@ -91,6 +103,12 @@ public final class LauncherActivity extends Activity {
     @Override protected void onResume() {
         super.onResume();
         if ("main".equals(current) && status != null) refreshStatus();
+        String pendingPath = prefs().getString("pending_update_apk", "");
+        if (!pendingPath.isEmpty() && (Build.VERSION.SDK_INT < 26 || getPackageManager().canRequestPackageInstalls())) {
+            prefs().edit().remove("pending_update_apk").apply();
+            File pendingApk = new File(pendingPath);
+            if (pendingApk.isFile()) launchApkInstaller(pendingApk);
+        }
     }
 
     @Override public void onBackPressed() {
@@ -267,6 +285,68 @@ public final class LauncherActivity extends Activity {
         return new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
     }
 
+    private void showControlEditorHelp() {
+        LinearLayout root = column();
+        root.setPadding(dp(22), dp(20), dp(22), dp(18));
+        root.setBackground(shape(CARD, BRD, 26));
+
+        TextView eyebrow = tv("C O M O  U S A R", 12, MUTED, true);
+        eyebrow.setPadding(0, 0, 0, dp(8));
+        root.addView(eyebrow, matchWrap());
+
+        LinearLayout titleRow = rowLayout();
+        TextView title = tv("Editor de ", 25, TEXT, true);
+        TextView accent = tv("controles", 25, ROSE, true);
+        titleRow.addView(title);
+        titleRow.addView(accent);
+        root.addView(titleRow, withBottom(dp(16)));
+
+        String[] steps = {
+            "Abra uma partida",
+            "Puxe a aba lateral na borda direita",
+            "Toque em Editar controles na tela",
+            "Escolha PlayStation ou Xbox e arraste cada botão",
+            "Toque em Concluir edição para voltar a jogar"
+        };
+        for (int i = 0; i < steps.length; i++) {
+            LinearLayout item = rowLayout();
+            item.setPadding(dp(12), dp(11), dp(14), dp(11));
+            item.setBackground(shape(Color.rgb(39, 39, 44), BRD, 32));
+            TextView number = tv(String.valueOf(i + 1), 16, TEXT, true);
+            number.setGravity(Gravity.CENTER);
+            number.setBackground(shape(RED, 0, 40));
+            LinearLayout.LayoutParams np = lp(dp(34), dp(34));
+            np.rightMargin = dp(12);
+            item.addView(number, np);
+            TextView text = tv(steps[i], 15, TEXT, false);
+            text.setGravity(Gravity.CENTER_VERTICAL);
+            item.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            LinearLayout.LayoutParams ip = matchWrap();
+            ip.bottomMargin = dp(8);
+            root.addView(item, ip);
+        }
+
+        TextView tip = tv("Dica: desconecte o controle físico ou desligue o Automático, senão os botões na tela ficam ocultos.", 14, GREEN, false);
+        tip.setPadding(dp(14), dp(14), dp(14), dp(14));
+        tip.setBackground(shape(Color.rgb(25, 25, 29), BRD, 22));
+        LinearLayout.LayoutParams tipLp = withBottom(dp(14));
+        tipLp.topMargin = dp(4);
+        root.addView(tip, tipLp);
+
+        TextView understood = button("Entendi", true, () -> { });
+        understood.setGravity(Gravity.CENTER);
+        root.addView(understood, matchWrap());
+
+        ScrollView scroll = newScroll();
+        scroll.setFillViewport(true);
+        scroll.addView(root);
+        AlertDialog dlg = dialog().create();
+        understood.setOnClickListener(v -> dlg.dismiss());
+        dlg.setView(scroll, dp(8), dp(8), dp(8), dp(8));
+        dlg.show();
+        dlg.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+    }
+
     private void toast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
@@ -281,11 +361,15 @@ public final class LauncherActivity extends Activity {
     }
 
     private LinearLayout header(String title) {
+        return header(title, this::showMain);
+    }
+
+    private LinearLayout header(String title, Runnable backAction) {
         LinearLayout h = rowLayout();
         TextView back = tv("\u2190", 20, TEXT, false);
         back.setGravity(Gravity.CENTER);
         back.setBackground(shape(BG, BRD, 10));
-        back.setOnClickListener(v -> showMain());
+        back.setOnClickListener(v -> backAction.run());
         h.addView(back, lp(dp(44), dp(44)));
         TextView t = tv(title, 22, TEXT, true);
         t.setPadding(dp(16), 0, 0, 0);
@@ -295,12 +379,16 @@ public final class LauncherActivity extends Activity {
 
     /** Tela de configuração: seta de voltar + título no canto, coluna esquerda e direita. */
     private void showScreen(String name, String title, View left, View right) {
+        showScreen(name, title, left, right, this::showMain);
+    }
+
+    private void showScreen(String name, String title, View left, View right, Runnable backAction) {
         current = name;
         status = null;
         ScrollView scroll = newScroll();
         LinearLayout col = column();
         col.setPadding(pad, pad, pad, pad);
-        col.addView(header(title), withBottom(dp(16)));
+        col.addView(header(title, backAction), withBottom(dp(16)));
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.HORIZONTAL);
         body.addView(left, weight(1f));
@@ -338,8 +426,12 @@ public final class LauncherActivity extends Activity {
         }
         if (control != null) {
             if (soon) disable(control);
-            line.addView(control, "bar".equals(control.getTag())
-                    ? new LinearLayout.LayoutParams(dp(170), dp(8)) : wrapWrap());
+            if (control instanceof android.widget.SeekBar) {
+                line.addView(control, new LinearLayout.LayoutParams(dp(190), dp(36)));
+            } else {
+                line.addView(control, "bar".equals(control.getTag())
+                        ? new LinearLayout.LayoutParams(dp(170), dp(8)) : wrapWrap());
+            }
         }
         r.addView(line, matchWrap());
         View div = new View(this);
@@ -456,8 +548,8 @@ public final class LauncherActivity extends Activity {
         TextView title = tv("", 30, TEXT, true);
         title.setText(name);
         left.addView(title, wrapWrap());
-        left.addView(tv("Launcher n\u00e3o oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
-        TextView by = tv("By flavinxs0", 13, ROSE, true);
+        left.addView(tv("Launcher oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
+        TextView by = tv("By: flavinxs0", 15, ROSE, true);
         by.setPadding(0, dp(2), 0, dp(14));
         left.addView(by, wrapWrap());
         LinearLayout statusCard = card();
@@ -470,6 +562,7 @@ public final class LauncherActivity extends Activity {
         LinearLayout right = column();
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.addView(button("Jogar", true, this::launchGame), withBottom(dp(8)));
+        right.addView(button("Instalar arquivos do jogo", false, this::showGameFiles), withBottom(dp(8)));
         right.addView(button("Gr\u00e1ficos", false, this::showGraphics), withBottom(dp(8)));
         right.addView(button("Desempenho / HUD", false, this::showHud), withBottom(dp(8)));
         right.addView(button("Controles", false, this::showControls), withBottom(dp(8)));
@@ -497,7 +590,262 @@ public final class LauncherActivity extends Activity {
 
     private void launchGame() {
         writeArgs();
+        File iso = new File(gameDir(), "game.iso");
+        File image = new File(gameDir(), "image.bin");
+        if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
+            dialog().setTitle("Arquivos do jogo")
+                    .setMessage("game.iso: " + (iso.isFile() && iso.length() > 0 ? "pronto" : "pendente")
+                            + "\nimage.bin: " + (image.isFile() && image.length() > 0 ? "pronto" : "pendente")
+                            + "\n\nO jogo pode não iniciar sem os arquivos necessários.")
+                    .setNegativeButton("Voltar", null)
+                    .setNeutralButton("Instalar arquivos", (d, w) -> showGameFiles())
+                    .setPositiveButton("Tentar jogar", (d, w) -> startActivity(new Intent(this, GameActivity.class)))
+                    .show();
+            return;
+        }
         startActivity(new Intent(this, GameActivity.class));
+    }
+
+    private void showGameFiles() {
+        File iso = new File(gameDir(), "game.iso");
+        File image = new File(gameDir(), "image.bin");
+        String isoState = iso.isFile() && iso.length() > 0
+                ? String.format(Locale.US, "Pronto (%.1f GB)", iso.length() / 1073741824.0) : "Pendente";
+        String imageState = image.isFile() && image.length() > 0
+                ? String.format(Locale.US, "Pronto (%.1f MB)", image.length() / 1048576.0) : "Pendente";
+        dialog().setTitle("Instalar arquivos do jogo")
+                .setMessage("game.iso — " + isoState + "\nimage.bin — " + imageState
+                        + "\n\nSelecione seus próprios arquivos. O app fará uma cópia na pasta privada dele.")
+                .setPositiveButton("Selecionar game.iso", (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
+                .setNeutralButton("Selecionar image.bin", (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
+                .setNegativeButton("Fechar", null)
+                .show();
+    }
+
+    private void pickGameFile(int requestCode, String expectedName) {
+        Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        pick.setType("*/*");
+        pick.putExtra(Intent.EXTRA_TITLE, "Selecione " + expectedName);
+        try {
+            startActivityForResult(pick, requestCode);
+        } catch (ActivityNotFoundException e) {
+            toast("Não foi possível abrir o seletor de arquivos.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        final String expectedName;
+        if (requestCode == PICK_GAME_ISO) expectedName = "game.iso";
+        else if (requestCode == PICK_IMAGE_BIN) expectedName = "image.bin";
+        else return;
+        importGameFile(data.getData(), expectedName);
+    }
+
+    private String displayName(Uri uri) {
+        try (Cursor cursor = getContentResolver().query(uri,
+                new String[] { OpenableColumns.DISPLAY_NAME }, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (index >= 0) return cursor.getString(index);
+            }
+        } catch (Exception ignored) { }
+        String last = uri.getLastPathSegment();
+        return last == null ? "" : last;
+    }
+
+    private void importGameFile(Uri uri, String expectedName) {
+        String pickedName = displayName(uri);
+        String requiredExtension = expectedName.endsWith(".iso") ? ".iso" : ".bin";
+        if (pickedName == null || !pickedName.toLowerCase(Locale.US).endsWith(requiredExtension)) {
+            toast("Selecione um arquivo " + requiredExtension + " para " + expectedName + ".");
+            return;
+        }
+        toast("Copiando " + pickedName + " para o armazenamento do app...");
+        new Thread(() -> {
+            File dir = gameDir();
+            File temp = new File(dir, expectedName + ".importing");
+            File target = new File(dir, expectedName);
+            File backup = new File(dir, expectedName + ".previous");
+            String error = null;
+            try {
+                if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("Não foi possível criar a pasta do app.");
+                if (temp.exists() && !temp.delete()) throw new java.io.IOException("Não foi possível limpar a cópia temporária.");
+                long total = 0;
+                try (InputStream in = getContentResolver().openInputStream(uri);
+                     FileOutputStream out = new FileOutputStream(temp)) {
+                    if (in == null) throw new java.io.IOException("O seletor não forneceu acesso ao arquivo.");
+                    byte[] buffer = new byte[1024 * 1024];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) {
+                        out.write(buffer, 0, count);
+                        total += count;
+                    }
+                    out.getFD().sync();
+                }
+                if (total <= 0 || !temp.isFile() || temp.length() != total)
+                    throw new java.io.IOException("O arquivo copiado está vazio ou incompleto.");
+                if (backup.exists() && !backup.delete()) throw new java.io.IOException("Não foi possível preparar o backup.");
+                if (target.exists() && !target.renameTo(backup))
+                    throw new java.io.IOException("Não foi possível preservar o arquivo anterior.");
+                if (!temp.renameTo(target)) {
+                    if (backup.exists()) backup.renameTo(target);
+                    throw new java.io.IOException("Não foi possível concluir a importação.");
+                }
+                if (backup.exists()) backup.delete();
+            } catch (Exception e) {
+                error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                if (temp.exists()) temp.delete();
+                if (!target.exists() && backup.exists()) backup.renameTo(target);
+            }
+            final String failure = error;
+            runOnUiThread(() -> {
+                if (failure == null) {
+                    toast(expectedName + " instalado (" + new File(dir, expectedName).length() / 1048576L + " MB).");
+                    if ("main".equals(current) && status != null) refreshStatus();
+                } else {
+                    toast("Falha ao importar " + expectedName + ": " + failure);
+                }
+            });
+        }, "gow-file-import").start();
+    }
+
+    private void checkForUpdates() {
+        toast("Verificando atualizações...");
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                URL url = new URL("https://api.github.com/repos/flavinxs0/gow-psp-recomp-android/releases/latest");
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setConnectTimeout(8000);
+                connection.setReadTimeout(8000);
+                connection.setRequestProperty("Accept", "application/vnd.github+json");
+                connection.setRequestProperty("User-Agent", "GodOfWar-PSP-Recomp-Android");
+                StringBuilder body = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) body.append(line);
+                }
+                JSONObject release = new JSONObject(body.toString());
+                final String tag = release.optString("tag_name", "");
+                final String releaseName = release.optString("name", tag);
+                final String releaseUrl = release.optString("html_url", "https://github.com/flavinxs0/gow-psp-recomp-android/releases");
+                if (tag.isEmpty()) throw new java.io.IOException("A API não retornou uma versão publicada.");
+                final boolean sameVersion = normalizeVersion(tag).equals(normalizeVersion(VERSION));
+                String foundUrl = null;
+                String foundName = "GodOfWar-PSP-Recomp-Android.apk";
+                org.json.JSONArray assets = release.optJSONArray("assets");
+                if (assets != null) {
+                    for (int i = 0; i < assets.length(); i++) {
+                        JSONObject asset = assets.optJSONObject(i);
+                        if (asset != null && asset.optString("name", "").toLowerCase(Locale.US).endsWith(".apk")) {
+                            foundUrl = asset.optString("browser_download_url", null);
+                            foundName = asset.optString("name", foundName);
+                            break;
+                        }
+                    }
+                }
+                final String apkUrl = foundUrl;
+                final String apkName = foundName;
+                runOnUiThread(() -> {
+                    AlertDialog.Builder builder = dialog().setTitle("Verificador de atualizações")
+                            .setMessage(sameVersion
+                                    ? "Versão instalada: " + VERSION + "\nÚltima release: " + tag + "\n\nVocê está na versão mais recente publicada."
+                                    : "Nova release: " + releaseName + " (" + tag + ")\nVersão instalada: " + VERSION + "\n\nBaixe o APK para atualizar pelo instalador do Android.");
+                    if (!sameVersion && apkUrl != null && !apkUrl.isEmpty()) {
+                        builder.setPositiveButton("Baixar atualização", (d, w) -> downloadUpdate(apkUrl, apkName));
+                        builder.setNeutralButton("Ver release", (d, w) -> openUrl(releaseUrl));
+                    } else {
+                        builder.setPositiveButton("Abrir release", (d, w) -> openUrl(releaseUrl));
+                    }
+                    builder.setNegativeButton("Fechar", null).show();
+                });
+            } catch (Exception e) {
+                final String reason = e.getClass().getSimpleName()
+                        + (e.getMessage() == null || e.getMessage().trim().isEmpty() ? "" : ": " + e.getMessage());
+                runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
+                        .setMessage("Não foi possível consultar o GitHub.\n\nDetalhe: " + reason
+                                + "\n\nConfira sua conexão ou abra a página de releases.")
+                        .setPositiveButton("Abrir releases", (d, w) -> openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
+                        .setNegativeButton("Fechar", null).show());
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }, "gow-update-check").start();
+    }
+
+    private void downloadUpdate(String apkUrl, String apkName) {
+        toast("Baixando atualização...");
+        new Thread(() -> {
+            File target = null;
+            HttpURLConnection connection = null;
+            try {
+                File dir = new File(getCacheDir(), "updates");
+                if (!dir.exists() && !dir.mkdirs()) throw new java.io.IOException("Não foi possível criar a pasta temporária.");
+                String safeName = apkName == null || !apkName.toLowerCase(Locale.US).endsWith(".apk") ? "GodOfWar-PSP-Recomp-Android.apk" : apkName.replaceAll("[^A-Za-z0-9._-]", "_");
+                target = new File(dir, safeName);
+                connection = (HttpURLConnection) new URL(apkUrl).openConnection();
+                connection.setConnectTimeout(15000);
+                connection.setReadTimeout(30000);
+                connection.setRequestProperty("User-Agent", "GodOfWar-PSP-Recomp-Android");
+                connection.connect();
+                if (connection.getResponseCode() < 200 || connection.getResponseCode() >= 300) throw new java.io.IOException("HTTP " + connection.getResponseCode());
+                try (InputStream in = connection.getInputStream(); FileOutputStream out = new FileOutputStream(target)) {
+                    byte[] buffer = new byte[32768]; int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                    out.getFD().sync();
+                }
+                if (target.length() < 1024) throw new java.io.IOException("O APK baixado está incompleto.");
+                try (FileInputStream in = new FileInputStream(target)) {
+                    if (in.read() != 'P' || in.read() != 'K') throw new java.io.IOException("O arquivo baixado não é um APK válido.");
+                }
+                File ready = target;
+                runOnUiThread(() -> {
+                    if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
+                        prefs().edit().putString("pending_update_apk", ready.getAbsolutePath()).apply();
+                        dialog().setTitle("Permitir instalação")
+                            .setMessage("O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir.")
+                            .setPositiveButton("Abrir permissões", (d, w) -> {
+                                try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
+                                catch (Exception e) { toast("Ative a permissão de instalação nas configurações do Android."); }
+                            }).setNegativeButton("Fechar", null).show();
+                        return;
+                    }
+                    launchApkInstaller(ready);
+                });
+            } catch (Exception e) {
+                if (target != null) target.delete();
+                final String message = e.getMessage() == null ? "erro desconhecido" : e.getMessage();
+                runOnUiThread(() -> dialog().setTitle("Falha na atualização").setMessage("Não foi possível baixar o APK: " + message).setPositiveButton("OK", null).show());
+            } finally { if (connection != null) connection.disconnect(); }
+        }, "gow-update-download").start();
+    }
+
+    private void launchApkInstaller(File apk) {
+        try {
+            Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+            Intent install = new Intent(Intent.ACTION_VIEW);
+            install.setDataAndType(uri, "application/vnd.android.package-archive");
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(install);
+        } catch (Exception e) { toast("Não foi possível abrir o instalador do Android."); }
+    }
+    private String normalizeVersion(String version) {
+        String value = version == null ? "" : version.trim().toLowerCase(Locale.US);
+        if (value.startsWith("android-")) value = value.substring("android-".length());
+        if (value.startsWith("v")) value = value.substring(1);
+        return value;
+    }
+
+    private void openUrl(String url) {
+        try {
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
+        } catch (ActivityNotFoundException e) {
+            toast("Nenhum navegador encontrado.");
+        }
     }
 
     // ------------------------------------------------------------------ 2. Gráficos
@@ -563,19 +911,55 @@ public final class LauncherActivity extends Activity {
 
     private void showHud() {
         LinearLayout left = column();
-        left.addView(tv("Ative o painel durante o jogo. O FPS real depende de instrumenta\u00e7\u00e3o nativa "
-                + "na biblioteca do jogo.", 13, MUTED, false), matchWrap());
+        left.addView(tv("Painel compacto durante o jogo. FPS e tempo de quadro usam medições nativas; RAM mostra a memória PSS do processo Android.", 13, MUTED, false), matchWrap());
 
         LinearLayout right = column();
         right.addView(row("Mostrar HUD em jogo", null,
                 toggle(prefs().getBoolean("performance_hud_enabled", false),
                         on -> prefs().edit().putBoolean("performance_hud_enabled", on).apply()), false));
-        right.addView(row("FPS", null, toggle(true, on -> { }), true));
-        right.addView(row("Tempo de quadro", null, toggle(true, on -> { }), true));
-        right.addView(row("Mem\u00f3ria (RAM)", null, toggle(false, on -> { }), true));
-        right.addView(row("Posi\u00e7\u00e3o", null, seg(new String[] { "Esq.", "Dir." }, 0, i -> { }), true));
-        right.addView(row("Opacidade", "70%", bar(70), true));
+        right.addView(row("FPS", null, toggle(prefs().getBoolean("performance_hud_fps", true),
+                on -> prefs().edit().putBoolean("performance_hud_fps", on).apply()), false));
+        right.addView(row("Tempo de quadro", null, toggle(prefs().getBoolean("performance_hud_frame_time", true),
+                on -> prefs().edit().putBoolean("performance_hud_frame_time", on).apply()), false));
+        right.addView(row("Memória (RAM)", null, toggle(prefs().getBoolean("performance_hud_ram", true),
+                on -> prefs().edit().putBoolean("performance_hud_ram", on).apply()), false));
+        right.addView(row("Estilo", null, seg(new String[] { "Em linhas", "Uma linha" },
+                prefs().getInt("performance_hud_style", 0),
+                i -> prefs().edit().putInt("performance_hud_style", i).apply()), false));
+        right.addView(row("Posição", null, seg(new String[] { "Esq.", "Dir." },
+                prefs().getInt("performance_hud_position", 0),
+                i -> prefs().edit().putInt("performance_hud_position", i).apply()), false));
+        right.addView(row("Opacidade", "20–100%", hudOpacityControl(), false));
         showScreen("hud", "Desempenho / HUD", left, right);
+    }
+
+
+    private View hudOpacityControl() {
+        final int min = 20;
+        final int initial = Math.max(min, Math.min(100, prefs().getInt("performance_hud_opacity", 70)));
+        LinearLayout control = rowLayout();
+        TextView valueLabel = tv(initial + "%", 13, TEXT, true);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(100 - min);
+        seek.setProgress(initial - min);
+        seek.setProgressTintList(ColorStateList.valueOf(ROSE));
+        seek.setThumbTintList(ColorStateList.valueOf(ROSE));
+        seek.setContentDescription("Opacidade do HUD, de 20 a 100 por cento");
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int opacity = min + progress;
+                valueLabel.setText(opacity + "%");
+                if (fromUser) prefs().edit().putInt("performance_hud_opacity", opacity).apply();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        control.addView(seek, new LinearLayout.LayoutParams(dp(142), dp(36)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), dp(36));
+        labelParams.leftMargin = dp(6);
+        valueLabel.setGravity(Gravity.CENTER);
+        control.addView(valueLabel, labelParams);
+        return control;
     }
 
     // ------------------------------------------------------------------ 4. Controles
@@ -654,7 +1038,7 @@ public final class LauncherActivity extends Activity {
             float[][] pos = { { fx, fy - off }, { fx - off, fy }, { fx + off, fy }, { fx, fy + off } };
             if (xbox) {
                 String[] ls = { "Y", "X", "B", "A" };
-                int[] cs = { Color.rgb(240, 200, 60), Color.rgb(90, 150, 255), Color.rgb(255, 110, 110), Color.rgb(110, 210, 130) };
+                int[] cs = { RED, Color.rgb(90, 150, 255), Color.rgb(255, 110, 110), Color.rgb(110, 210, 130) };
                 for (int i = 0; i < 4; i++) {
                     ring(pos[i][0], pos[i][1], fr, cs[i]);
                     label(ls[i], pos[i][0], pos[i][1], dp(11), cs[i]);
@@ -753,14 +1137,118 @@ public final class LauncherActivity extends Activity {
                 }), false));
         right.addView(row("Controle detectado", padName == null ? "Nenhum controle f\u00edsico" : padName,
                 padState, false));
-        right.addView(row("Opacidade", null,
-                seg(new String[] { "30%", "50%", "70%", "100%" }, opIndex,
-                        i -> p.edit().putInt("ctl_opacity", ops[i]).apply()), false));
+        right.addView(row("Opacidade dos controles", "20–100%",
+                controlOpacityControl(p), false));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
-        left.addView(row("Zona morta do anal\u00f3gico", "15%", bar(15), true));
-        left.addView(row("Mapeamento dos bot\u00f5es", null,
-                seg(new String[] { "Padr\u00e3o", "Personalizar" }, 0, i -> { }), true));
+        left.addView(row("Zona morta do anal\u00f3gico", "Ajustável: 0% a 50%",
+                deadZoneControl(p), false));
+        right.addView(row("Editor de controles individuais", "Personalize a posição dos botões durante a partida",
+                button("Como usar", false, () -> showControlEditorHelp()), false));
+        right.addView(row("Restaurar posição", "Voltar ao layout original",
+                actions(new String[] { "Restaurar" }, new Runnable[] { () -> {
+                    SharedPreferences.Editor editor = p.edit().remove("ctl_offset_x").remove("ctl_offset_y").putBoolean("ctl_edit_layout", false);
+                    for (String profile : new String[] { "ps", "xbox" }) {
+                        for (int control = 0; control < 16; control++) {
+                            editor.remove("ctl_pos_" + profile + "_" + control + "_x");
+                            editor.remove("ctl_pos_" + profile + "_" + control + "_y");
+                        }
+                    }
+                    editor.apply();
+                    toast("Posições originais restauradas.");
+                    showControls();
+                } }, false), false));
         showScreen("controls", "Controles", left, right);
+    }
+
+    private View deadZoneControl(SharedPreferences p) {
+        final int initial = Math.max(0, Math.min(50, p.getInt("ctl_deadzone", 15)));
+        LinearLayout control = rowLayout();
+        TextView valueLabel = tv(initial + "%", 13, TEXT, true);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(50);
+        seek.setProgress(initial);
+        seek.setProgressTintList(ColorStateList.valueOf(ROSE));
+        seek.setThumbTintList(ColorStateList.valueOf(ROSE));
+        seek.setContentDescription("Zona morta do analógico, de zero a cinquenta por cento");
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean fromUser) {
+                valueLabel.setText(value + "%");
+                if (fromUser) p.edit().putInt("ctl_deadzone", value).apply();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        control.addView(seek, new LinearLayout.LayoutParams(dp(142), dp(36)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), dp(36));
+        labelParams.leftMargin = dp(6);
+        valueLabel.setGravity(Gravity.CENTER);
+        control.addView(valueLabel, labelParams);
+        return control;
+    }
+
+    private View controlOpacityControl(SharedPreferences p) {
+        final int min = 20;
+        final int initial = Math.max(min, Math.min(100, p.getInt("ctl_opacity", 50)));
+        LinearLayout control = rowLayout();
+        TextView valueLabel = tv(initial + "%", 13, TEXT, true);
+        android.widget.SeekBar seek = new android.widget.SeekBar(this);
+        seek.setMax(100 - min);
+        seek.setProgress(initial - min);
+        seek.setProgressTintList(ColorStateList.valueOf(ROSE));
+        seek.setThumbTintList(ColorStateList.valueOf(ROSE));
+        seek.setContentDescription("Opacidade dos controles, de 20 a 100 por cento");
+        seek.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int progress, boolean fromUser) {
+                int opacity = min + progress;
+                valueLabel.setText(opacity + "%");
+                if (fromUser) p.edit().putInt("ctl_opacity", opacity).apply();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) { }
+        });
+        control.addView(seek, new LinearLayout.LayoutParams(dp(142), dp(36)));
+        LinearLayout.LayoutParams labelParams = new LinearLayout.LayoutParams(dp(42), dp(36));
+        labelParams.leftMargin = dp(6);
+        valueLabel.setGravity(Gravity.CENTER);
+        control.addView(valueLabel, labelParams);
+        return control;
+    }
+
+    private void showButtonMapping(SharedPreferences p) {
+        final String[] labels = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
+        final String profile = "xbox".equals(p.getString("ctl_style", "ps")) ? "xbox" : "ps";
+        final String[] keys = { "ctl_map_" + profile + "_cross", "ctl_map_" + profile + "_circle", "ctl_map_" + profile + "_square", "ctl_map_" + profile + "_triangle" };
+        final int[] defaults = { 0, 1, 2, 3 };
+        final String[] targets = { "Cruz", "Círculo", "Quadrado", "Triângulo" };
+
+        LinearLayout left = column();
+        LinearLayout info = card();
+        info.addView(tv("MAPEAMENTO PERSONALIZADO", 12, ROSE, true), withBottom(dp(8)));
+        info.addView(tv("Perfil " + ("xbox".equals(profile) ? "Xbox" : "PlayStation") + ". Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout.",
+                14, TEXT, false), matchWrap());
+        left.addView(info, withBottom(dp(12)));
+        left.addView(button("Restaurar padrão", false, () -> {
+            SharedPreferences.Editor e = p.edit();
+            for (String key : keys) e.remove(key);
+            e.apply();
+            toast("Mapeamento padrão restaurado. Vale ao abrir o jogo novamente.");
+            showButtonMapping(p);
+        }), withBottom(dp(8)));
+
+        LinearLayout right = column();
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i;
+            int selected = Math.max(0, Math.min(3, p.getInt(keys[i], defaults[i])));
+            LinearLayout item = card();
+            item.addView(tv(labels[i], 16, TEXT, true), withBottom(dp(8)));
+            item.addView(tv("Ação atribuída", 11, MUTED, false), withBottom(dp(5)));
+            item.addView(seg(targets, selected, which -> {
+                p.edit().putInt(keys[index], which).apply();
+                showButtonMapping(p);
+            }), matchWrap());
+            right.addView(item, withBottom(dp(8)));
+        }
+        showScreen("mapping", "Mapeamento dos botões", left, right, this::showControls);
     }
 
     private String autoNote(boolean on) {
@@ -805,11 +1293,13 @@ public final class LauncherActivity extends Activity {
                         new Runnable[] { this::showLog, this::shareLog, this::clearLog }, false), false));
         right.addView(row("Argumentos avan\u00e7ados", "Ver e editar o args.txt",
                 actions(new String[] { "Editar" }, new Runnable[] { this::editArgs }, false), false));
-        right.addView(row("Disco", "Trocar o game.iso",
-                actions(new String[] { "Trocar" }, new Runnable[] { null }, false), true));
+        right.addView(row("Arquivos do jogo", "Importar ou substituir game.iso e image.bin",
+                actions(new String[] { "Gerenciar" }, new Runnable[] { this::showGameFiles }, false), false));
         right.addView(row("Restaurar padr\u00f5es", "Volta todas as configura\u00e7\u00f5es ao original",
                 actions(new String[] { "Restaurar" }, new Runnable[] { this::confirmReset }, true), false));
         right.addView(row("Idioma", null, seg(new String[] { "Portugu\u00eas", "English" }, 0, i -> { }), true));
+        right.addView(row("Verificar atualizações", "Consultar a versão mais recente do APK no GitHub",
+                actions(new String[] { "Verificar" }, new Runnable[] { this::checkForUpdates }, false), false));
         showScreen("extras", "Extras", left, right);
     }
 
@@ -961,18 +1451,27 @@ public final class LauncherActivity extends Activity {
     }
 
     private void confirmReset() {
-        dialog().setTitle("RESTAURAR PADR\u00d5ES")
-                .setMessage("Voltar proporção, escala, FXAA, limite de FPS e HUD ao original? "
-                        + "Outros argumentos do args.txt s\u00e3o mantidos.")
-                .setNegativeButton("CANCELAR", null)
-                .setPositiveButton("RESTAURAR", (d, w) -> {
-                    resetDefaults();
-                    toast("Padr\u00f5es restaurados.");
-                    showExtras();
-                })
-                .show();
-    }
+        LinearLayout left = column();
+        LinearLayout warning = card();
+        warning.addView(tv("RESTAURAR PADRÕES", 13, ROSE, true), withBottom(dp(8)));
+        warning.addView(tv("Isso redefine proporção, escala, FXAA, limite de FPS e HUD. Outros argumentos do args.txt serão mantidos.",
+                14, TEXT, false), matchWrap());
+        left.addView(warning, withBottom(dp(12)));
+        left.addView(button("Voltar sem alterar", false, this::showExtras), withBottom(dp(8)));
 
+        LinearLayout right = column();
+        LinearLayout confirm = card();
+        confirm.addView(tv("Confirmar restauração", 17, TEXT, true), withBottom(dp(8)));
+        confirm.addView(tv("As configurações gráficas voltarão aos valores originais do launcher.",
+                13, MUTED, false), withBottom(dp(14)));
+        confirm.addView(button("RESTAURAR AGORA", true, () -> {
+            resetDefaults();
+            toast("Padrões restaurados.");
+            showExtras();
+        }), matchWrap());
+        right.addView(confirm, matchWrap());
+        showScreen("reset-confirm", "Restaurar padrões", left, right, this::showExtras);
+    }
     // ------------------------------------------------------------------ 6. Sobre
 
     private void showAbout() {
@@ -985,7 +1484,7 @@ public final class LauncherActivity extends Activity {
         title.setText(name);
         brand.addView(title, wrapWrap());
         brand.addView(tv("Launcher n\u00e3o oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
-        TextView by = tv("By flavinxs0", 13, ROSE, true);
+        TextView by = tv("By: flavinxs0", 14, ROSE, true);
         by.setPadding(0, dp(2), 0, 0);
         brand.addView(by, wrapWrap());
         left.addView(brand, withBottom(dp(12)));
@@ -1003,6 +1502,7 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Arquitetura", null, tv(abi(), 15, MUTED, false), false));
         right.addView(row("C\u00f3digo-fonte", "Projeto no GitHub",
                 actions(new String[] { "GitHub" }, new Runnable[] { this::openRepo }, false), false));
+
         right.addView(row("Licen\u00e7as", "Bibliotecas de c\u00f3digo aberto",
                 actions(new String[] { "Ver" }, new Runnable[] { this::showLicenses }, false), false));
         showScreen("about", "Sobre", left, right);
@@ -1199,7 +1699,7 @@ public final class LauncherActivity extends Activity {
 
     private void resetDefaults() {
         prefs().edit().remove("res_scale").remove("fxaa").remove("fps_limit").remove("vsync")
-                .remove("performance_hud_enabled").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").putString("screen_mode", "16:9").apply();
+                .remove("performance_hud_enabled").remove("performance_hud_fps").remove("performance_hud_frame_time").remove("performance_hud_ram").remove("performance_hud_style").remove("performance_hud_position").remove("performance_hud_opacity").remove("ctl_screen").remove("ctl_auto").remove("ctl_opacity").remove("ctl_style").remove("ctl_deadzone").remove("ctl_map_cross").remove("ctl_map_circle").remove("ctl_map_square").remove("ctl_map_triangle").putString("screen_mode", "16:9").apply();
         writeLine(join(filterTokens(readArgTokens(), true, true, true, true)));
     }
 }
