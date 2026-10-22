@@ -1,14 +1,29 @@
-## What and why
+## 🇧🇷 Português
 
-<!-- What does this change, and why? Link the issue if there is one. -->
+### O que mudou e por quê?
+<!-- Descreva as alterações e vincule uma issue, se houver. -->
 
-## Tested
+### Testes realizados
+<!-- Informe o que testou, em qual aparelho/ambiente e o resultado. -->
 
-<!-- What you ran and what you saw: software-renderer frames (tools/check_frames.py), --wav hash, level tour, FPS. -->
+### Lista de verificação
+- [ ] Não incluí ISO, arquivos do jogo, dumps de memória ou conteúdo protegido por direitos autorais.
+- [ ] Testei as alterações sempre que possível.
+- [ ] Atualizei a documentação se necessário.
+- [ ] Registrei no CHANGELOG.md as mudanças visíveis ao usuário.
 
-## Checklist
+---
 
-- [ ] No game content: no disc images, EBOOT/PRX dumps, generated C, memory images, saves, screenshots or recordings of the game.
-- [ ] The software renderer stays pixel-identical, or the change says why not.
-- [ ] New third-party code keeps its license; new downloads are pinned with a SHA-256.
-- [ ] `CHANGELOG.md` has a line under "Unreleased" for user-visible changes.
+## 🇺🇸 English
+
+### What changed and why?
+<!-- Describe the changes and link an issue if applicable. -->
+
+### Tests performed
+<!-- State what you tested, on which device/environment, and the result. -->
+
+### Checklist
+- [ ] I did not include ISO files, game files, memory dumps, or copyrighted content.
+- [ ] I tested the changes whenever possible.
+- [ ] I updated documentation when needed.
+- [ ] I added user-visible changes to CHANGELOG.md.

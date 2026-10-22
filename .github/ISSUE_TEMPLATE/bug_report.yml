@@ -1,47 +1,51 @@
-name: Bug report
-description: Something is wrong in a game or in the launcher
+name: "Relatar um erro / Report a bug"
+description: "Informe um problema no Android / Report an Android issue"
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        **Never attach game files**: no disc images, EBOOTs, generated C, memory dumps, or screenshots / videos of the
-        game. They will be deleted. Describe what you see in words and attach the log and input files instead.
-  - type: dropdown
-    id: game
+        **🇧🇷 Português:** Descreva o problema e não anexe ISO, arquivos do jogo, dumps de memória ou conteúdo protegido por direitos autorais. Inclua apenas logs técnicos seguros.
+
+        **🇺🇸 English:** Describe the issue. Do not attach ISO files, game files, memory dumps, or copyrighted content. Include only safe technical logs.
+  - type: input
+    id: device
     attributes:
-      label: Game
-      options: [Chains of Olympus, Ghost of Sparta, Launcher only]
+      label: "Aparelho / Device"
+      description: "Modelo do aparelho e GPU, se souber / Device model and GPU, if known"
+      placeholder: "Moto G35 5G"
     validations:
       required: true
   - type: input
-    id: version
+    id: android_version
     attributes:
-      label: Version
-      description: Launcher release (e.g. v1.1.5, shown in the ZIP's README.txt) or commit
+      label: "Versão do Android / Android version"
+      placeholder: "Android 15"
+    validations:
+      required: true
+  - type: input
+    id: app_version
+    attributes:
+      label: "Versão do aplicativo / App version"
+      description: "Versão ou tag instalada / Installed version or tag"
     validations:
       required: true
   - type: textarea
     id: what
     attributes:
-      label: What happens
-      description: Level / area, what you did, what you expected, what happened instead.
+      label: "O que aconteceu? / What happened?"
+      description: "O que você fez, o que esperava e o que aconteceu / Steps, expected result, and actual result"
+      placeholder: "Descreva o problema / Describe the issue"
     validations:
       required: true
   - type: textarea
-    id: input
+    id: reproduce
     attributes:
-      label: Log and recorded input
-      description: |
-        Right after the bug, press **Report a bug** in the launcher and drag the zip it makes in here (it holds the
-        log, your button presses, settings and PC info; no game files). Or attach
-        `GoW_PSP_data\build\launcher_coo.log` and `launcher_coo_input.txt`
-        (`launcher_gos.*` for Ghost of Sparta). The next Play overwrites them. They only hold the game's log and
-        your button presses. Say whether you started a new game or loaded a save. From the command line, use
-        `--record-input input.txt` instead.
+      label: "Como reproduzir / Steps to reproduce"
+      placeholder: "1. ...\n2. ...\n3. ..."
   - type: textarea
-    id: settings
+    id: logs
     attributes:
-      label: PC and settings
-      description: GPU, Windows version, display scaling, the graphics preset or options you changed; keyboard or which gamepad.
+      label: "Logs técnicos / Technical logs"
+      description: "Remova dados pessoais. Nunca envie arquivos do jogo / Remove personal data. Never upload game files."
       render: text

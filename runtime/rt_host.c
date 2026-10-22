@@ -28,6 +28,9 @@
 #include "rt_audio.h"
 #include "rt_debug.h"
 #include "rt_frames.h"
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 #include "rt_gpu.h"
 #include "rt_host.h"
 #include "rt_kernel.h"
@@ -292,6 +295,24 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
 #ifdef GOW_HAVE_SDL
 #define SDL_MAIN_HANDLED  /* the runtime keeps its own main() */
 #include <SDL3/SDL.h>
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
+bool gow_host_poll(SDL_Event *e);
+bool gow_host_wait(SDL_Event *e, Sint32 timeout_ms);
+#define SDL_PollEvent(e) gow_host_poll(e)
+#define SDL_WaitEventTimeout(e, timeout_ms) gow_host_wait(e, timeout_ms)
+#define SDL_HideCursor() true
+#define SDL_ShowCursor() true
+#define SDL_SetWindowFullscreen(w, f) true
+#endif
+static inline bool gow_set_title(SDL_Window *w, const char *t) {
+#if defined(__ANDROID__) || defined(GOW_ANDROID)
+    (void)w; (void)t;
+    return true;
+#else
+    return SDL_SetWindowTitle(w, t);
+#endif
+}
+
 #include <SDL3/SDL_main.h>
 
 static SDL_Window *g_win;
@@ -300,6 +321,20 @@ static SDL_Texture *g_tex;
 static SDL_Gamepad *g_pads[8];
 static int g_quit, g_fullscreen;
 static uint64_t g_wall0, g_virt0, g_last_pump, g_title_t, g_title_frame, g_last_frame;
+static volatile double g_hud_fps;
+static volatile double g_hud_frame_ms;
+static uint64_t g_hud_t0, g_hud_frame0;
+
+#ifdef __ANDROID__
+JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFps(JNIEnv *env, jclass cls) {
+    (void)env; (void)cls;
+    return g_hud_fps;
+}
+JNIEXPORT jdouble JNICALL Java_org_gow_shell_GameActivity_nativeGetFrameMs(JNIEnv *env, jclass cls) {
+    (void)env; (void)cls;
+    return g_hud_frame_ms;
+}
+#endif
 static uint64_t g_skips_made, g_skipped_us;  /* virtual-time skips at a high frame rate (rt_host_idle) */
 static uint64_t g_skips_capped;              /* skips shortened (or left out) to keep the sound whole */
 static int g_anchored;
@@ -620,6 +655,18 @@ void rt_host_shutdown(void) {
 /* PSP framebuffer -> texture. 8888 is uploaded directly (red in the low byte = XBGR8888). */
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) {
     g_last_frame = frame;
+    uint64_t hud_now = rt_frames_host_us();
+    if (g_hud_t0 == 0) {
+        g_hud_t0 = hud_now;
+        g_hud_frame0 = frame;
+    } else if (hud_now - g_hud_t0 >= 1000000) {
+        uint64_t elapsed = hud_now - g_hud_t0;
+        uint64_t shown = frame - g_hud_frame0;
+        g_hud_fps = shown ? (double)shown * 1000000.0 / (double)elapsed : 0.0;
+        g_hud_frame_ms = shown ? (double)elapsed / 1000.0 / (double)shown : 0.0;
+        g_hud_t0 = hud_now;
+        g_hud_frame0 = frame;
+    }
     if (rt_gpu_active()) {
         uint64_t t0 = rt_frames_host_us();
         rt_gpu_present(addr, stride, format);
@@ -656,9 +703,11 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
     uint64_t t = now_us();
     if (t - g_title_t >= 1000000) {
         char title[160];
-        double fps = (frame - g_title_frame) * 1e6 / (double)(t - g_title_t);
+        uint64_t elapsed_us = t - g_title_t;
+        uint64_t frames = frame - g_title_frame;
+        double fps = frames ? (double)frames * 1e6 / (double)elapsed_us : 0.0;
         snprintf(title, sizeof(title), "God of War (PSP native port)  |  %.1f fps  |  frame %llu", fps, (unsigned long long)frame);
-        SDL_SetWindowTitle(g_win, title);
+        gow_set_title(g_win, title);
         g_title_t = t;
         g_title_frame = frame;
     }

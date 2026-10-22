@@ -1,0 +1,212 @@
+name: "Compilar APK Android / Build Android APK"
+# Gera o APK do God of War CoO a partir do SEU disco (secret GOW_DISC_URL).
+# O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
+on:
+  push:
+    branches: [android, "feature/performance-hud", "mega-update", "mega-update-v2"]
+    paths:
+      - ".build-trigger"
+      - "android/launcher/**"
+      - "runtime/rt_host.c"
+      - "runtime/rt_frames.c"
+      - "runtime/rt_android.c"
+      - "runtime/rt_fiber.c"
+      - "CMakeLists.txt"
+      - "tools/install_android_launcher.py"
+      - ".github/workflows/android-gow.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GAME_ID: UCUS98653
+  SDL_COMMIT: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: ${{ env.SDL_COMMIT }}
+          path: SDL
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Baixar o disco (link secreto)
+        env:
+          GOW_DISC_URL: ${{ secrets.GOW_DISC_URL }}
+        run: |
+          test -n "$GOW_DISC_URL" || { echo "secret GOW_DISC_URL vazio"; exit 1; }
+          echo "::add-mask::$GOW_DISC_URL"
+          python3 -m pip install --break-system-packages -q --upgrade gdown
+          # Google Drive pode bloquear downloads grandes ou deixar a conexão presa; limite cada tentativa.
+          OK=0
+          for ATTEMPT in 1 2 3; do
+            rm -f game.iso
+            if timeout 90s gdown "$GOW_DISC_URL" -O game.iso; then
+              SIZE=$(stat -c%s game.iso 2>/dev/null || echo 0)
+              if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
+            fi
+            echo "Tentativa $ATTEMPT/3 falhou; aguardando antes de tentar novamente."
+            sleep 12
+          done
+          if [ "$OK" -eq 1 ]; then
+            SIZE=$(stat -c%s game.iso)
+            echo "disco baixado: $SIZE bytes"
+            test "$SIZE" -gt 50000000 || { echo "arquivo pequeno demais, nao parece uma ISO"; exit 1; }
+          else
+            echo "::warning::ISO indisponível no Google Drive; reutilizando somente as bibliotecas nativas da última build aprovada para empacotar o launcher atualizado."
+            echo "USE_FALLBACK=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ferramentas do host (gow_disc)
+        if: env.USE_FALLBACK != 'true'
+        run: |
+          cmake -S . -B build/cmake_tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DGOW_TOOLS_ONLY=ON
+          cmake --build build/cmake_tools --target gow_disc --parallel
+          find build/cmake_tools -name gow_disc -type f
+
+      - name: Decifrar o EBOOT do disco
+        if: env.USE_FALLBACK != 'true'
+        run: |
+          DISC_TOOL="$(find build/cmake_tools -name gow_disc -type f | head -1)"
+          mkdir -p build/eboot
+          "$DISC_TOOL" --disc game.iso --id --decrypt-eboot "build/eboot/${GAME_ID}_EBOOT.BIN"
+          ls -l build/eboot
+
+      - name: Recompilar para C (recomp.py)
+        if: env.USE_FALLBACK != 'true'
+        run: |
+          [ -f recomp/requirements.txt ] && python3 -m pip install --break-system-packages -q -r recomp/requirements.txt || true
+          python3 -I recomp/recomp.py \
+            --elf "build/eboot/${GAME_ID}_EBOOT.BIN" \
+            --ghidra "re/out/recomp/${GAME_ID}_EBOOT.BIN.recomp.json" \
+            --nids re/out/psp_nids_ppsspp.tsv \
+            --out "build/gen/${GAME_ID}_full" \
+            --difftest 0 --boot 0 --all
+          ls -l "build/gen/${GAME_ID}_full" | head
+
+      - name: libSDL3.so (arm64-v8a)
+        if: env.USE_FALLBACK != 'true'
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          cmake -S SDL -B build-sdl -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build build-sdl
+          test -s build-sdl/libSDL3.so
+
+      - name: libmain.so do jogo (arm64-v8a)
+        if: env.USE_FALLBACK != 'true'
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          mkdir -p stubs
+          "$AR" rc stubs/libpthread.a
+          "$AR" rc stubs/librt.a
+          mkdir -p build/deps
+          ln -sfn "$PWD/SDL" "build/deps/SDL3-${SDL_COMMIT}"
+          cmake -S . -B build/cmake_android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DGAME="${GAME_ID}_full" -DGOW_ANDROID=ON \
+            -DGOW_SDL_SO="$PWD/build-sdl/libSDL3.so" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-L$PWD/stubs"
+          cmake --build build/cmake_android --parallel
+          find build/cmake_android -name 'libmain.so' -type f
+
+      - name: Montar as 3 bibliotecas
+        if: env.USE_FALLBACK != 'true'
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          mkdir -p pack/lib/arm64-v8a
+          cp "$(find build/cmake_android -name libmain.so -type f | head -1)" pack/lib/arm64-v8a/
+          cp build-sdl/libSDL3.so pack/lib/arm64-v8a/
+          cp "$(find "$NDK/toolchains/llvm/prebuilt" -path '*aarch64-linux-android/libc++_shared.so' | head -1)" pack/lib/arm64-v8a/
+          (cd pack && zip -qr "$RUNNER_TEMP/source-game.apk" lib)
+          unzip -l "$RUNNER_TEMP/source-game.apk"
+
+      - name: Reutilizar bibliotecas nativas da última build aprovada
+        if: env.USE_FALLBACK == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: GodOfWar-CoO-apk-38
+          run-id: 39636492974
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ${{ runner.temp }}/fallback-artifact
+
+      - name: Extrair bibliotecas nativas do APK anterior
+        if: env.USE_FALLBACK == 'true'
+        run: |
+          BASE_APK="$(find "$RUNNER_TEMP/fallback-artifact" -type f -name '*.apk' | head -1)"
+          test -n "$BASE_APK" || { echo "APK base do artifact 38 não encontrado"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/fallback-apk" pack/lib/arm64-v8a
+          unzip -q "$BASE_APK" 'lib/arm64-v8a/*' -d "$RUNNER_TEMP/fallback-apk"
+          for LIB in libmain.so libSDL3.so libc++_shared.so; do
+            test -s "$RUNNER_TEMP/fallback-apk/lib/arm64-v8a/$LIB" || { echo "Biblioteca ausente: $LIB"; exit 1; }
+            cp "$RUNNER_TEMP/fallback-apk/lib/arm64-v8a/$LIB" pack/lib/arm64-v8a/
+          done
+          (cd pack && zip -qr "$RUNNER_TEMP/source-game.apk" lib)
+          unzip -l "$RUNNER_TEMP/source-game.apk"
+
+      - name: Shell SDL e launcher
+        run: |
+          printf '#include <SDL3/SDL_main.h>\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\n' > stub.c
+          python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-android-project"
+          python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          cd "$RUNNER_TEMP/gow-android-project/org.gow.shell"
+          # versionCode crescente: o Android so atualiza por cima se nao for menor
+          for f in app/build.gradle app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i -E 's/versionCode([ =]+)[0-9]+/versionCode\1${{ github.run_number }}/' "$f"
+              grep -n versionCode "$f" || true
+            fi
+          done
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Empacotar e assinar o APK
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          python3 tools/package_playable_launcher.py \
+            "$RUNNER_TEMP/gow-android-project/org.gow.shell/app/build/outputs/apk/debug/app-debug.apk" \
+            "$RUNNER_TEMP/source-game.apk" \
+            "$RUNNER_TEMP/unsigned.apk"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$RUNNER_TEMP/unsigned.apk" "$RUNNER_TEMP/aligned.apk"
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/gow.keystore"
+            KS="$RUNNER_TEMP/gow.keystore"; ALIAS=gow; export SIGN_PASS="$KS_PASS"
+            echo "assinando com a chave fixa (atualiza por cima do app instalado)"
+          else
+            echo "::warning::sem keystore fixo nos secrets: usando chave temporaria (o Android vai exigir desinstalar)"
+            keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/test.keystore" \
+              -storepass android -keypass android -alias androiddebugkey \
+              -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
+            KS="$RUNNER_TEMP/test.keystore"; ALIAS=androiddebugkey; export SIGN_PASS=android
+          fi
+          "$BUILD_TOOLS/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" \
+            --ks-pass env:SIGN_PASS --key-pass env:SIGN_PASS \
+            --out "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk" "$RUNNER_TEMP/aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GodOfWar-CoO-apk-${{ github.run_number }}
+          path: ${{ runner.temp }}/GodOfWar-PSP-Recomp-Launcher-test.apk
+          if-no-files-found: error
+          retention-days: 1

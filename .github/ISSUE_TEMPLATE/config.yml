@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Questions and ideas
-    url: https://github.com/DrummingBird1/gow-psp-recomp/discussions
-    about: Ask and discuss in Discussions. Never attach game files.
-  - name: Troubleshooting and FAQ
-    url: https://github.com/DrummingBird1/gow-psp-recomp/blob/main/docs/troubleshooting.md
-    about: SmartScreen, where files are, updating, build failures.
+  - name: "Dúvidas e discussões / Questions and discussions"
+    url: https://github.com/flavinxs0/gow-psp-recomp-android/discussions
+    about: "Faça perguntas e compartilhe ideias / Ask questions and share ideas"
+  - name: "Lançamentos / Releases"
+    url: https://github.com/flavinxs0/gow-psp-recomp-android/releases
+    about: "Baixe versões publicadas / Download published versions"
