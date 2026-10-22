@@ -1490,9 +1490,14 @@ static void render_frame(SDL_GPUCommandBuffer *cmd) {
             ci.texture = t->ms ? t->ms : t->tex;
             ci.load_op = SDL_GPU_LOADOP_LOAD;  /* a new target was uploaded from memory first */
             ci.store_op = SDL_GPU_STOREOP_STORE;
-            if (t->ms) {
+            if (t->ms && c->resolve) {
+                /* the resolve texture only on a pass that resolves: SDL's Vulkan backend keys its
+                 * framebuffer cache on it but builds the framebuffer by the store op, so a pass that
+                 * only stores would leave a framebuffer without the resolve attachment for the next
+                 * resolving pass (wrong attachment count, then VK_ERROR_DEVICE_LOST) */
                 ci.resolve_texture = t->tex;
-                if (c->resolve) { ci.store_op = SDL_GPU_STOREOP_RESOLVE_AND_STORE; g_st.msaa_resolves++; }
+                ci.store_op = SDL_GPU_STOREOP_RESOLVE_AND_STORE;
+                g_st.msaa_resolves++;
             }
             SDL_GPUDepthStencilTargetInfo di;
             memset(&di, 0, sizeof(di));
