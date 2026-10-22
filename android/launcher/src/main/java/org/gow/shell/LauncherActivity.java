@@ -285,6 +285,68 @@ public final class LauncherActivity extends Activity {
         return new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert);
     }
 
+    private void showControlEditorHelp() {
+        LinearLayout root = column();
+        root.setPadding(dp(22), dp(20), dp(22), dp(18));
+        root.setBackground(shape(CARD, BRD, 26));
+
+        TextView eyebrow = tv("C O M O  U S A R", 12, MUTED, true);
+        eyebrow.setPadding(0, 0, 0, dp(8));
+        root.addView(eyebrow, matchWrap());
+
+        LinearLayout titleRow = rowLayout();
+        TextView title = tv("Editor de ", 25, TEXT, true);
+        TextView accent = tv("controles", 25, ROSE, true);
+        titleRow.addView(title);
+        titleRow.addView(accent);
+        root.addView(titleRow, withBottom(dp(16)));
+
+        String[] steps = {
+            "Abra uma partida",
+            "Puxe a aba lateral na borda direita",
+            "Toque em Editar controles na tela",
+            "Escolha PlayStation ou Xbox e arraste cada botão",
+            "Toque em Concluir edição para voltar a jogar"
+        };
+        for (int i = 0; i < steps.length; i++) {
+            LinearLayout item = rowLayout();
+            item.setPadding(dp(12), dp(11), dp(14), dp(11));
+            item.setBackground(shape(Color.rgb(39, 39, 44), BRD, 32));
+            TextView number = tv(String.valueOf(i + 1), 16, TEXT, true);
+            number.setGravity(Gravity.CENTER);
+            number.setBackground(shape(RED, 0, 40));
+            LinearLayout.LayoutParams np = lp(dp(34), dp(34));
+            np.rightMargin = dp(12);
+            item.addView(number, np);
+            TextView text = tv(steps[i], 15, TEXT, false);
+            text.setGravity(Gravity.CENTER_VERTICAL);
+            item.addView(text, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            LinearLayout.LayoutParams ip = matchWrap();
+            ip.bottomMargin = dp(8);
+            root.addView(item, ip);
+        }
+
+        TextView tip = tv("Dica: desconecte o controle físico ou desligue o Automático, senão os botões na tela ficam ocultos.", 14, GREEN, false);
+        tip.setPadding(dp(14), dp(14), dp(14), dp(14));
+        tip.setBackground(shape(Color.rgb(25, 25, 29), BRD, 22));
+        LinearLayout.LayoutParams tipLp = withBottom(dp(14));
+        tipLp.topMargin = dp(4);
+        root.addView(tip, tipLp);
+
+        TextView understood = button("Entendi", true, () -> { });
+        understood.setGravity(Gravity.CENTER);
+        root.addView(understood, matchWrap());
+
+        ScrollView scroll = newScroll();
+        scroll.setFillViewport(true);
+        scroll.addView(root);
+        AlertDialog dlg = dialog().create();
+        understood.setOnClickListener(v -> dlg.dismiss());
+        dlg.setView(scroll, dp(8), dp(8), dp(8), dp(8));
+        dlg.show();
+        dlg.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+    }
+
     private void toast(String message) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show();
     }
@@ -1080,11 +1142,8 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
         left.addView(row("Zona morta do anal\u00f3gico", "Ajustável: 0% a 50%",
                 deadZoneControl(p), false));
-        right.addView(row("Editor de controles individuais", "No jogo, abra a aba lateral e escolha PlayStation ou Xbox para mover cada botão separadamente",
-                button("Como usar", false, () -> new AlertDialog.Builder(this)
-                        .setTitle("Editor de controles")
-                        .setMessage("Abra uma partida e puxe a aba lateral na borda direita. Toque em Editar controles na tela, escolha PlayStation ou Xbox e arraste cada botão. Toque em Concluir edição para voltar a jogar.")
-                        .setPositiveButton("Entendi", null).show()), false));
+        right.addView(row("Editor de controles individuais", "Personalize a posição dos botões durante a partida",
+                button("Como usar", false, () -> showControlEditorHelp()), false));
         right.addView(row("Restaurar posição", "Voltar ao layout original",
                 actions(new String[] { "Restaurar" }, new Runnable[] { () -> {
                     SharedPreferences.Editor editor = p.edit().remove("ctl_offset_x").remove("ctl_offset_y").putBoolean("ctl_edit_layout", false);
