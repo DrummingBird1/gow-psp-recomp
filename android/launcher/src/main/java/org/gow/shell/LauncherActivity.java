@@ -548,7 +548,7 @@ public final class LauncherActivity extends Activity {
         TextView title = tv("", 30, TEXT, true);
         title.setText(name);
         left.addView(title, wrapWrap());
-        left.addView(tv("Launcher n\u00e3o oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
+        left.addView(tv("Launcher oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
         TextView by = tv("By: flavinxs0", 15, ROSE, true);
         by.setPadding(0, dp(2), 0, dp(14));
         left.addView(by, wrapWrap());
