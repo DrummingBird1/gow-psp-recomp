@@ -47,6 +47,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     GpuOptions *o = &rt_gpu_opt;
     if (!strcmp(a, "--fxaa")) { o->fxaa = 1; return 1; }
     if (!strcmp(a, "--vsync")) { o->vsync = 1; return 1; }
+    if (!strcmp(a, "--stretch")) { o->stretch = 1; return 1; }
     if (!strcmp(a, "--hdr")) {
         o->hdr = 1;
         if (v && (!strcmp(v, "scrgb") || !strcmp(v, "hdr10") || !strcmp(v, "auto"))) {
@@ -1324,13 +1325,29 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
         if (o[i].y < by0) by0 = o[i].y;
         if (o[i].y > by1) by1 = o[i].y;
     }
-    /* --aspect: 2D on a shown framebuffer (HUD, text, markers placed over the 3D view) is drawn
-     * narrower around the centre, as the 3D view is, so that the wider window gives it back its
-     * shape. Not full-width passes (screen effects, fades), clears, or copies of render targets. */
+    /* --aspect: compensate 2D overlays on the shown framebuffer so they keep their shape after
+     * presentation scaling. Wide subtitles are overlays too; exclude only passes spanning almost
+     * the whole framebuffer in BOTH dimensions (screen effects/fades), clears, and target copies.
+     * On narrower output, cap expansion per batch so edge text cannot be clipped. */
     float sq = rt_gpu_aspect_squeeze();
-    if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && bx1 - bx0 < DISP_W - 8 && rt_gpu_shown_fb(t->addr)) {
+    int full_screen_pass = bx1 - bx0 >= DISP_W - 8 && by1 - by0 >= DISP_H - 8;
+    if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && !full_screen_pass && rt_gpu_shown_fb(t->addr)) {
         float cx = (float)ox + DISP_W / 2.0f;
+        if (sq > 1.0f) {
+            float lo = (float)ox, hi = lo + DISP_W;
+            if (bx0 < cx) {
+                float fit = (cx - lo) / (cx - bx0);
+                if (fit > 0.0f) sq = fminf(sq, fit);
+            }
+            if (bx1 > cx) {
+                float fit = (hi - cx) / (bx1 - cx);
+                if (fit > 0.0f) sq = fminf(sq, fit);
+            }
+        }
+        float old_bx0 = bx0, old_bx1 = bx1;
         for (uint32_t i = 0; i < n; i++) o[i].x = cx + (o[i].x - cx) * sq;
+        bx0 = cx + (old_bx0 - cx) * sq;
+        bx1 = cx + (old_bx1 - cx) * sq;
     }
     g_nverts += n;
     int wx0 = imax(x1, (int)bx0), wy0 = imax(y1, (int)by0), wx1 = imin(x2 + 1, (int)bx1 + 1), wy1 = imin(y2 + 1, (int)by1 + 1);
@@ -1813,10 +1830,18 @@ static void draw_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
     SDL_GPUTexture *src = post_chain(cmd, t, x, y, &tw, &th, r);
     float pw = r[2] - r[0], ph = r[3] - r[1];
     PostU u;
-    /* letterbox the 480x272 picture into the window (stretched to --aspect) */
-    float lw = DISP_W / rt_gpu_aspect_squeeze();
-    float f = (float)sw / lw < (float)sh / DISP_H ? (float)sw / lw : (float)sh / DISP_H;
-    float dw = floorf(lw * f), dh = floorf(DISP_H * f);
+    /* In --stretch, fill the actual swapchain surface. Otherwise preserve the selected aspect
+     * ratio and letterbox (notably the 4:3 mode on a widescreen Android display). */
+    float dw, dh;
+    if (rt_gpu_opt.stretch) {
+        dw = (float)sw;
+        dh = (float)sh;
+    } else {
+        float lw = DISP_W / rt_gpu_aspect_squeeze();
+        float f = (float)sw / lw < (float)sh / DISP_H ? (float)sw / lw : (float)sh / DISP_H;
+        dw = floorf(lw * f);
+        dh = floorf(DISP_H * f);
+    }
     SDL_GPUViewport vp = { floorf((sw - dw) / 2), floorf((sh - dh) / 2), dw, dh, 0.0f, 1.0f };
     memset(&u, 0, sizeof(u));
     memcpy(u.src, r, sizeof(r));

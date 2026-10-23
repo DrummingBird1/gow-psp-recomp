@@ -97,6 +97,8 @@ public final class LauncherActivity extends Activity {
         getWindow().setNavigationBarColor(BG);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
         pad = dp(20);
+        if ("FULLSCREEN".equals(prefs().getString("screen_mode", "16:9"))
+                && !readArgTokens().contains("--stretch")) writeArgs();
         showMain();
     }
 
@@ -1140,7 +1142,7 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Opacidade dos controles", "20–100%",
                 controlOpacityControl(p), false));
         right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
-        left.addView(row("Zona morta do anal\u00f3gico", "Ajustável: 0% a 50%",
+        left.addView(row("Zona morta do anal\u00f3gico", "Menor valor responde com menos movimento",
                 deadZoneControl(p), false));
         right.addView(row("Editor de controles individuais", "Personalize a posição dos botões durante a partida",
                 button("Como usar", false, () -> showControlEditorHelp()), false));
@@ -1161,7 +1163,7 @@ public final class LauncherActivity extends Activity {
     }
 
     private View deadZoneControl(SharedPreferences p) {
-        final int initial = Math.max(0, Math.min(50, p.getInt("ctl_deadzone", 15)));
+        final int initial = Math.max(0, Math.min(50, p.getInt("ctl_deadzone", 5)));
         LinearLayout control = rowLayout();
         TextView valueLabel = tv(initial + "%", 13, TEXT, true);
         android.widget.SeekBar seek = new android.widget.SeekBar(this);
@@ -1624,12 +1626,13 @@ public final class LauncherActivity extends Activity {
         return (w / a) + ":" + (h / a);
     }
 
-    /** Remove --aspect sempre; os demais argumentos gerenciados só quando pedido. */
+    /** Remove as opções de proporção gerenciadas; os demais argumentos só quando pedido. */
     private List<String> filterTokens(List<String> tokens, boolean res, boolean fxaa, boolean fps, boolean vsync) {
         List<String> out = new ArrayList<>();
         for (int i = 0; i < tokens.size(); i++) {
             String t = tokens.get(i);
             if (t.equals("--aspect")) { i++; continue; }
+            if (t.equals("--stretch")) continue;
             if (res && t.equals("--res-scale")) { i++; continue; }
             if (fps && t.equals("--fps")) { i++; continue; }
             if (fxaa && t.equals("--fxaa")) continue;
@@ -1670,6 +1673,7 @@ public final class LauncherActivity extends Activity {
         } else if ("FULLSCREEN".equals(mode)) {
             out.add("--aspect");
             out.add(stretchRatio());
+            out.add("--stretch");
         }
         return join(out);
     }

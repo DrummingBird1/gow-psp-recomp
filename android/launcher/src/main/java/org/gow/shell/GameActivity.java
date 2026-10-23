@@ -449,7 +449,7 @@ public final class GameActivity extends SDLActivity {
                 posX[i] = prefs.getFloat("ctl_pos_" + layoutProfile + "_" + i + "_x", 0f);
                 posY[i] = prefs.getFloat("ctl_pos_" + layoutProfile + "_" + i + "_y", 0f);
             }
-            int deadZone = Math.max(0, Math.min(50, prefs.getInt("ctl_deadzone", 15)));
+            int deadZone = Math.max(0, Math.min(50, prefs.getInt("ctl_deadzone", 5)));
             this.deadZonePercent = deadZone;
             String profile = xbox ? "xbox" : "ps";
             codes[CROSS] = FACE_CODES[Math.max(0, Math.min(3, prefs.getInt("ctl_map_" + profile + "_cross", 0)))];
