@@ -1,6 +1,7 @@
 # Builds GoWLauncher.exe on Windows and uploads it as a workflow artifact.
 # No game data is used or available here: the launcher bundles only git-tracked sources and asks the player for
-# their own disc image. Releases are created manually (phase 14 step 3), so this workflow publishes nothing.
+# their own disc image. Releases are created manually (AGENTS.md, "Making a release"), so this workflow publishes
+# nothing.
 name: launcher
 
 on:

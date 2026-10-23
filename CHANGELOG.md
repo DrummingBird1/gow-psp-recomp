@@ -19,16 +19,16 @@
 - **High and Ultra presets use 4x anisotropic filtering** (was 16x): it looks nearly the same at these
   resolutions and is lighter on weaker GPUs; 8x and 16x stay available in the settings.
 - **Graphics API option** in the launcher: Auto, Direct3D 12 or Vulkan.
-- **Fix: choppy sound at high frame rates** (issue #4). Skipped time is capped so sound that is playing stays whole;
+- **Fix: choppy sound at high frame rates** (issue #3). Skipped time is capped so sound that is playing stays whole;
   the starting preset keeps 60 FPS, and the FPS setting says what a higher rate costs. Remaining dropouts are logged.
 - **Texture packs:** the launcher shows whether a pack matches the game and warns about PPSSPP packs, which use a
-  different format (issue #5); a *Dump textures* option writes the game's textures as a starting point.
+  different format (issue #4); a *Dump textures* option writes the game's textures as a starting point.
 - **Controls page:** rebind keyboard keys and gamepad buttons in the launcher (`--controls FILE` for the game).
   The mouse pointer hides in fullscreen after 2 seconds.
 - **Settings check:** out-of-range or broken settings are reset to defaults with a note, instead of failing.
 - **Report a bug / Open logs folder:** collects the logs, input recording and PC details (no file paths) into a ZIP
   and opens a prefilled GitHub issue. Play records the input to `GoW_PSP_data\build` for bug reports.
-- **Add to Steam / Create desktop shortcut** per game, with the game's icon.
+- **Add to Steam / Create desktop shortcut** per game, with the game's icon (issue #5).
 - **Launcher self-update:** checks GitHub at start (opt-out in Advanced, or skip a version), shows what's new,
   downloads the ZIP, checks it against `SHA256SUMS.txt` and restarts. `GoW_PSP_data` and settings stay as they are.
 - **No console window:** the launcher is now a windowed program, so no black console window opens next to it
