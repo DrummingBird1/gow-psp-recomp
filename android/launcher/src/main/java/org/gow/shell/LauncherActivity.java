@@ -329,6 +329,65 @@ public final class LauncherActivity extends Activity {
             case "LIMPAR LOG": return "CLEAR LOG";
             case "ARGUMENTOS AVANÇADOS": return "ADVANCED ARGUMENTS";
             case "LICENÇAS": return "LICENSES";
+
+            case "Portuguese": return "Português";
+            case "Toque em Editar controles na tela": return "Tap Edit on-screen controls";
+            case "Escolha PlayStation ou Xbox e arraste cada botão": return "Choose PlayStation or Xbox and drag each button";
+            case "Desempenho / HUD": return "Performance / HUD";
+            case "Instalar arquivos do jogo": return "Install game files";
+            case "O jogo pode não iniciar sem os arquivos necessários.": return "The game may not start without the required files.";
+            case "Instalar arquivos": return "Install files";
+            case "Selecione seus próprios arquivos. O app fará uma cópia na pasta privada dele.": return "Select your own files. The app will copy them to its private folder.";
+            case "Fechar": return "Close";
+            case "Não foi possível abrir o seletor de arquivos.": return "Could not open the file picker.";
+            case "Não foi possível criar a pasta do app.": return "Could not create the app folder.";
+            case "Não foi possível limpar a cópia temporária.": return "Could not clear the temporary copy.";
+            case "O seletor não forneceu acesso ao arquivo.": return "The file picker did not grant access to the file.";
+            case "O arquivo copiado está vazio ou incompleto.": return "The copied file is empty or incomplete.";
+            case "Não foi possível preparar o backup.": return "Could not prepare the backup.";
+            case "Não foi possível preservar o arquivo anterior.": return "Could not preserve the previous file.";
+            case "Não foi possível concluir a importação.": return "Could not complete the import.";
+            case "Verificando atualizações...": return "Checking for updates...";
+            case "A API não retornou uma versão publicada.": return "The API did not return a published release.";
+            case "Você está na versão mais recente publicada.": return "You are on the latest published version.";
+            case "Baixar atualização": return "Download update";
+            case "Confira sua conexão ou abra a página de releases.": return "Check your connection or open the releases page.";
+            case "Baixando atualização...": return "Downloading update...";
+            case "O APK baixado está incompleto.": return "The downloaded APK is incomplete.";
+            case "O arquivo baixado não é um APK válido.": return "The downloaded file is not a valid APK.";
+            case "Abrir permissões": return "Open permissions";
+            case "Ative a permissão de instalação nas configurações do Android.": return "Enable install permission in Android settings.";
+            case "Não foi possível abrir o instalador do Android.": return "Could not open the Android installer.";
+            case "Proporção de tela": return "Screen aspect ratio";
+            case "Posição": return "Position";
+            case "Restaurar posição": return "Restore position";
+            case "Voltar ao layout original": return "Restore original layout";
+            case "Zona morta do analógico, de zero a cinquenta por cento": return "Analog stick deadzone, from zero to fifty percent";
+            case "Opacidade dos controles, de 20 a 100 por cento": return "Control opacity, from 20 to 100 percent";
+            case "Círculo": return "Circle";
+            case "Triângulo": return "Triangle";
+            case "Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout.": return "Choose the action for each button. Change the profile on the Controls screen to configure the other layout.";
+            case "Restaurar padrão": return "Restore default";
+            case "Mapeamento padrão restaurado. Vale ao abrir o jogo novamente.": return "Default mapping restored. It takes effect the next time you open the game.";
+            case "Mapeamento dos botões": return "Button mapping";
+            case "Automático ligado: os controles na tela somem ao conectar o controle.": return "Automatic enabled: on-screen controls disappear when a controller connects.";
+            case "Automático desligado: os controles na tela ficam sempre visíveis.": return "Automatic disabled: on-screen controls remain visible.";
+            case "Nenhum save encontrado ainda.": return "No save data found yet.";
+            case "Falha ao criar o backup.": return "Failed to create backup.";
+            case "Nenhum backup encontrado.": return "No backup found.";
+            case "Falha ao restaurar.": return "Restore failed.";
+            case "Nenhum log encontrado ainda. Inicie o jogo para gerar o registro.": return "No log found yet. Start the game to generate one.";
+            case "Nenhum log para limpar.": return "No log to clear.";
+            case "Apagar o log.txt da última sessão?": return "Delete the log.txt from the last session?";
+            case "Não foi possível apagar o log.": return "Could not delete the log.";
+            case "Edite com cuidado. A proporção de tela (--aspect) é controlada pela tela Gráficos.": return "Edit carefully. Screen aspect ratio (--aspect) is controlled on the Graphics screen.";
+            case "Padrões restaurados.": return "Defaults restored.";
+            case "Aparelho": return "Device";
+            case "Arquitetura": return "Architecture";
+            case "Código-fonte": return "Source code";
+            case "Projeto no GitHub": return "Project on GitHub";
+            case "Bibliotecas de código aberto": return "Open-source libraries";
+            case "A lista completa de componentes está no repositório do projeto.": return "The complete component list is in the project repository.";
             default: return value;
         }
     }
@@ -458,7 +517,7 @@ public final class LauncherActivity extends Activity {
     }
 
     private void toast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        Toast.makeText(this, localized(message), Toast.LENGTH_LONG).show();
     }
 
     private TextView button(String label, boolean primary, final Runnable action) {
@@ -703,13 +762,13 @@ public final class LauncherActivity extends Activity {
         File iso = new File(gameDir(), "game.iso");
         File image = new File(gameDir(), "image.bin");
         if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
-            dialog().setTitle("Arquivos do jogo")
+            dialog().setTitle(localized("Arquivos do jogo"))
                     .setMessage("game.iso: " + (iso.isFile() && iso.length() > 0 ? "pronto" : "pendente")
                             + "\nimage.bin: " + (image.isFile() && image.length() > 0 ? "pronto" : "pendente")
                             + "\n\nO jogo pode não iniciar sem os arquivos necessários.")
-                    .setNegativeButton("Voltar", null)
-                    .setNeutralButton("Instalar arquivos", (d, w) -> showGameFiles())
-                    .setPositiveButton("Tentar jogar", (d, w) -> startActivity(new Intent(this, GameActivity.class)))
+                    .setNegativeButton(localized("Voltar"), null)
+                    .setNeutralButton(localized("Instalar arquivos"), (d, w) -> showGameFiles())
+                    .setPositiveButton(localized("Tentar jogar"), (d, w) -> startActivity(new Intent(this, GameActivity.class)))
                     .show();
             return;
         }
@@ -723,12 +782,12 @@ public final class LauncherActivity extends Activity {
                 ? String.format(Locale.US, "Pronto (%.1f GB)", iso.length() / 1073741824.0) : "Pendente";
         String imageState = image.isFile() && image.length() > 0
                 ? String.format(Locale.US, "Pronto (%.1f MB)", image.length() / 1048576.0) : "Pendente";
-        dialog().setTitle("Instalar arquivos do jogo")
+        dialog().setTitle(localized("Instalar arquivos do jogo"))
                 .setMessage("game.iso — " + isoState + "\nimage.bin — " + imageState
                         + "\n\nSelecione seus próprios arquivos. O app fará uma cópia na pasta privada dele.")
-                .setPositiveButton("Selecionar game.iso", (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
-                .setNeutralButton("Selecionar image.bin", (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
-                .setNegativeButton("Fechar", null)
+                .setPositiveButton(localized("Selecionar game.iso"), (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
+                .setNeutralButton(localized("Selecionar image.bin"), (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
+                .setNegativeButton(localized("Fechar"), null)
                 .show();
     }
 
@@ -861,26 +920,26 @@ public final class LauncherActivity extends Activity {
                 final String apkUrl = foundUrl;
                 final String apkName = foundName;
                 runOnUiThread(() -> {
-                    AlertDialog.Builder builder = dialog().setTitle("Verificador de atualizações")
+                    AlertDialog.Builder builder = dialog().setTitle(localized("Verificador de atualizações"))
                             .setMessage(sameVersion
                                     ? "Versão instalada: " + VERSION + "\nÚltima release: " + tag + "\n\nVocê está na versão mais recente publicada."
                                     : "Nova release: " + releaseName + " (" + tag + ")\nVersão instalada: " + VERSION + "\n\nBaixe o APK para atualizar pelo instalador do Android.");
                     if (!sameVersion && apkUrl != null && !apkUrl.isEmpty()) {
-                        builder.setPositiveButton("Baixar atualização", (d, w) -> downloadUpdate(apkUrl, apkName));
-                        builder.setNeutralButton("Ver release", (d, w) -> openUrl(releaseUrl));
+                        builder.setPositiveButton(localized("Baixar atualização"), (d, w) -> downloadUpdate(apkUrl, apkName));
+                        builder.setNeutralButton(localized("Ver release"), (d, w) -> openUrl(releaseUrl));
                     } else {
-                        builder.setPositiveButton("Abrir release", (d, w) -> openUrl(releaseUrl));
+                        builder.setPositiveButton(localized("Abrir release"), (d, w) -> openUrl(releaseUrl));
                     }
-                    builder.setNegativeButton("Fechar", null).show();
+                    builder.setNegativeButton(localized("Fechar"), null).show();
                 });
             } catch (Exception e) {
                 final String reason = e.getClass().getSimpleName()
                         + (e.getMessage() == null || e.getMessage().trim().isEmpty() ? "" : ": " + e.getMessage());
-                runOnUiThread(() -> dialog().setTitle("Verificador de atualizações")
+                runOnUiThread(() -> dialog().setTitle(localized("Verificador de atualizações"))
                         .setMessage("Não foi possível consultar o GitHub.\n\nDetalhe: " + reason
                                 + "\n\nConfira sua conexão ou abra a página de releases.")
-                        .setPositiveButton("Abrir releases", (d, w) -> openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
-                        .setNegativeButton("Fechar", null).show());
+                        .setPositiveButton(localized("Abrir releases"), (d, w) -> openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
+                        .setNegativeButton(localized("Fechar"), null).show());
             } finally {
                 if (connection != null) connection.disconnect();
             }
@@ -916,12 +975,12 @@ public final class LauncherActivity extends Activity {
                 runOnUiThread(() -> {
                     if (Build.VERSION.SDK_INT >= 26 && !getPackageManager().canRequestPackageInstalls()) {
                         prefs().edit().putString("pending_update_apk", ready.getAbsolutePath()).apply();
-                        dialog().setTitle("Permitir instalação")
-                            .setMessage("O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir.")
-                            .setPositiveButton("Abrir permissões", (d, w) -> {
+                        dialog().setTitle(localized("Permitir instalação"))
+                            .setMessage(localized("O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir."))
+                            .setPositiveButton(localized("Abrir permissões"), (d, w) -> {
                                 try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
                                 catch (Exception e) { toast("Ative a permissão de instalação nas configurações do Android."); }
-                            }).setNegativeButton("Fechar", null).show();
+                            }).setNegativeButton(localized("Fechar"), null).show();
                         return;
                     }
                     launchApkInstaller(ready);
@@ -929,7 +988,7 @@ public final class LauncherActivity extends Activity {
             } catch (Exception e) {
                 if (target != null) target.delete();
                 final String message = e.getMessage() == null ? "erro desconhecido" : e.getMessage();
-                runOnUiThread(() -> dialog().setTitle("Falha na atualização").setMessage("Não foi possível baixar o APK: " + message).setPositiveButton("OK", null).show());
+                runOnUiThread(() -> dialog().setTitle(localized("Falha na atualização")).setMessage("Não foi possível baixar o APK: " + message).setPositiveButton(localized("OK"), null).show());
             } finally { if (connection != null) connection.disconnect(); }
         }, "gow-update-download").start();
     }
@@ -1469,11 +1528,11 @@ public final class LauncherActivity extends Activity {
         }
         Arrays.sort(backups);
         final File latest = backups[backups.length - 1];
-        dialog().setTitle("RESTAURAR SAVES")
+        dialog().setTitle(localized("RESTAURAR SAVES"))
                 .setMessage("Restaurar o backup " + latest.getName()
                         + "?\n\nOs saves atuais ser\u00e3o sobrescritos.")
-                .setNegativeButton("CANCELAR", null)
-                .setPositiveButton("RESTAURAR", (d, w) -> new Thread(() -> {
+                .setNegativeButton(localized("CANCELAR"), null)
+                .setPositiveButton(localized("RESTAURAR"), (d, w) -> new Thread(() -> {
                     final boolean ok = copyTree(latest, savesDir());
                     runOnUiThread(() -> toast(ok ? "Saves restaurados." : "Falha ao restaurar."));
                 }).start())
@@ -1509,7 +1568,7 @@ public final class LauncherActivity extends Activity {
         body.setPadding(dp(16), dp(8), dp(16), dp(8));
         ScrollView scroller = new ScrollView(this);
         scroller.addView(body);
-        dialog().setTitle("LOG").setView(scroller).setPositiveButton("FECHAR", null).show();
+        dialog().setTitle(localized("LOG")).setView(scroller).setPositiveButton(localized("FECHAR"), null).show();
     }
 
     private void shareLog() {
@@ -1530,10 +1589,10 @@ public final class LauncherActivity extends Activity {
             toast("Nenhum log para limpar.");
             return;
         }
-        dialog().setTitle("LIMPAR LOG")
-                .setMessage("Apagar o log.txt da \u00faltima sess\u00e3o?")
-                .setNegativeButton("CANCELAR", null)
-                .setPositiveButton("LIMPAR", (d, w) -> {
+        dialog().setTitle(localized("LIMPAR LOG"))
+                .setMessage(localized("Apagar o log.txt da \u00faltima sess\u00e3o?"))
+                .setNegativeButton(localized("CANCELAR"), null)
+                .setPositiveButton(localized("LIMPAR"), (d, w) -> {
                     toast(logFile().delete() ? "Log apagado." : "N\u00e3o foi poss\u00edvel apagar o log.");
                 })
                 .show();
@@ -1548,11 +1607,11 @@ public final class LauncherActivity extends Activity {
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         input.setMinLines(3);
         input.setGravity(Gravity.TOP | Gravity.START);
-        dialog().setTitle("ARGUMENTOS AVAN\u00c7ADOS")
-                .setMessage("Edite com cuidado. A propor\u00e7\u00e3o de tela (--aspect) \u00e9 controlada pela tela Gr\u00e1ficos.")
+        dialog().setTitle(localized("ARGUMENTOS AVAN\u00c7ADOS"))
+                .setMessage(localized("Edite com cuidado. A propor\u00e7\u00e3o de tela (--aspect) \u00e9 controlada pela tela Gr\u00e1ficos."))
                 .setView(input)
-                .setNegativeButton("CANCELAR", null)
-                .setPositiveButton("SALVAR", (d, w) -> {
+                .setNegativeButton(localized("CANCELAR"), null)
+                .setPositiveButton(localized("SALVAR"), (d, w) -> {
                     saveArgsRaw(input.getText().toString());
                     toast("args.txt salvo.");
                     showExtras();
@@ -1632,10 +1691,10 @@ public final class LauncherActivity extends Activity {
     }
 
     private void showLicenses() {
-        dialog().setTitle("LICEN\u00c7AS")
+        dialog().setTitle(localized("LICEN\u00c7AS"))
                 .setMessage("Este app usa a biblioteca SDL (licen\u00e7a zlib).\n\n"
                         + "A lista completa de componentes est\u00e1 no reposit\u00f3rio do projeto.")
-                .setPositiveButton("OK", null)
+                .setPositiveButton(localized("OK"), null)
                 .show();
     }
 
