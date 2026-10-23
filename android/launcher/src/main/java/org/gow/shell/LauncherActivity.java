@@ -1141,7 +1141,7 @@ public final class LauncherActivity extends Activity {
                 padState, false));
         right.addView(row("Opacidade dos controles", "20–100%",
                 controlOpacityControl(p), false));
-        right.addView(row("Vibra\u00e7\u00e3o do controle", null, toggle(true, on -> { }), true));
+        right.addView(row("Vibração do controle", "Resposta tátil ao tocar nos controles virtuais", toggle(p.getBoolean("ctl_vibration", true), on -> p.edit().putBoolean("ctl_vibration", on).apply()), false));
         left.addView(row("Zona morta do anal\u00f3gico", "Menor valor responde com menos movimento",
                 deadZoneControl(p), false));
         right.addView(row("Editor de controles individuais", "Personalize a posição dos botões durante a partida",
@@ -1299,7 +1299,7 @@ public final class LauncherActivity extends Activity {
                 actions(new String[] { "Gerenciar" }, new Runnable[] { this::showGameFiles }, false), false));
         right.addView(row("Restaurar padr\u00f5es", "Volta todas as configura\u00e7\u00f5es ao original",
                 actions(new String[] { "Restaurar" }, new Runnable[] { this::confirmReset }, true), false));
-        right.addView(row("Idioma", null, seg(new String[] { "Portugu\u00eas", "English" }, 0, i -> { }), true));
+        right.addView(row("Idioma", "Idioma da interface do launcher", seg(new String[] { "Português", "English" }, "en".equals(prefs().getString("launcher_language", "pt")) ? 1 : 0, i -> { prefs().edit().putString("launcher_language", i == 1 ? "en" : "pt").apply(); toast(i == 1 ? "English selected." : "Idioma Português selecionado."); }), false));
         right.addView(row("Verificar atualizações", "Consultar a versão mais recente do APK no GitHub",
                 actions(new String[] { "Verificar" }, new Runnable[] { this::checkForUpdates }, false), false));
         showScreen("extras", "Extras", left, right);
