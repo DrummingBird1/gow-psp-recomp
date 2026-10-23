@@ -225,9 +225,80 @@ public final class LauncherActivity extends Activity {
         return d;
     }
 
+    private String localized(String value) {
+        if (!"en".equals(prefs().getString("launcher_language", "pt"))) return value;
+        switch (value) {
+            case "Início": return "Home";
+            case "Gráficos": return "Graphics";
+            case "HUD": return "HUD";
+            case "Desempenho": return "Performance";
+            case "Controles": return "Controls";
+            case "Extras": return "Extras";
+            case "Sobre": return "About";
+            case "Voltar": return "Back";
+            case "Voltar sem alterar": return "Back without changes";
+            case "JOGAR": return "PLAY";
+            case "Jogar": return "Play";
+            case "Aplicar": return "Apply";
+            case "Cancelar": return "Cancel";
+            case "Restaurar": return "Restore";
+            case "Restaurar padrões": return "Restore defaults";
+            case "Idioma": return "Language";
+            case "Idioma da interface do launcher": return "Launcher interface language";
+            case "Vibração do controle": return "Controller vibration";
+            case "Resposta tátil ao tocar nos controles virtuais": return "Haptic feedback when using virtual controls";
+            case "Verificar atualizações": return "Check for updates";
+            case "Consultar a versão mais recente do APK no GitHub": return "Check GitHub for the latest APK";
+            case "Verificar": return "Check";
+            case "Opacidade dos controles": return "Control opacity";
+            case "Controles na tela": return "On-screen controls";
+            case "Direção, analógico e botões": return "D-pad, analog stick and buttons";
+            case "Estilo dos botões": return "Button style";
+            case "Automático": return "Automatic";
+            case "Oculta os controles na tela ao conectar um controle": return "Hide on-screen controls when a controller connects";
+            case "Controle detectado": return "Detected controller";
+            case "Nenhum controle físico": return "No physical controller";
+            case "Não conectado": return "Not connected";
+            case "Zona morta do analógico": return "Analog stick deadzone";
+            case "Menor valor responde com menos movimento": return "Lower values respond to smaller movements";
+            case "Editor de controles individuais": return "Individual control editor";
+            case "Personalize a posição dos botões durante a partida": return "Customize button positions during gameplay";
+            case "Como usar": return "How to use";
+            case "Posições originais restauradas.": return "Default positions restored.";
+            case "Saves": return "Saves";
+            case "Backup e restauração de ms0/PSP/SAVEDATA": return "Back up and restore ms0/PSP/SAVEDATA";
+            case "Logs": return "Logs";
+            case "Ver, compartilhar ou limpar o log.txt": return "View, share or clear log.txt";
+            case "Argumentos avançados": return "Advanced arguments";
+            case "Ver e editar o args.txt": return "View and edit args.txt";
+            case "Arquivos do jogo": return "Game files";
+            case "Importar ou substituir game.iso e image.bin": return "Import or replace game.iso and image.bin";
+            case "Gerenciar": return "Manage";
+            case "Volta todas as configurações ao original": return "Reset all settings to defaults";
+            case "Português": return "Portuguese";
+            case "English": return "English";
+            case "Memória (RAM)": return "Memory (RAM)";
+            case "Tempo de quadro": return "Frame time";
+            case "Mostrar HUD em jogo": return "Show in-game HUD";
+            case "Mostrar HUD de desempenho": return "Show performance HUD";
+            case "FPS": return "FPS";
+            case "Em linhas": return "Multiple lines";
+            case "Uma linha": return "Single line";
+            case "Esq.": return "Left";
+            case "Dir.": return "Right";
+            case "Opacidade do HUD": return "HUD opacity";
+            case "Concluir edição": return "Finish editing";
+            case "Editar controles na tela": return "Edit on-screen controls";
+            case "Editar HUD de FPS": return "Edit FPS HUD";
+            case "Sair do game": return "Exit game";
+            case "Toque em Concluir edição para voltar a jogar": return "Tap Finish editing to return to the game";
+            default: return value;
+        }
+    }
+
     private TextView tv(String value, int size, int color, boolean bold) {
         TextView t = new TextView(this);
-        t.setText(value);
+        t.setText(localized(value));
         t.setTextSize(size);
         t.setTextColor(color);
         t.setTypeface(Typeface.create("sans-serif", bold ? Typeface.BOLD : Typeface.NORMAL));
