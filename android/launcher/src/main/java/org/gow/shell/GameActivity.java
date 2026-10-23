@@ -149,6 +149,27 @@ public final class GameActivity extends SDLActivity {
         addContentView(finishEditButton, doneLp);
     }
 
+    private void styleGameDialog(android.app.AlertDialog dialog) {
+        if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(drawerBackground());
+        int accent = Color.rgb(235, 70, 85);
+        int titleId = getResources().getIdentifier("alertTitle", "id", "android");
+        TextView title = titleId == 0 ? null : dialog.findViewById(titleId);
+        if (title != null) title.setTextColor(Color.WHITE);
+        Button positive = dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE);
+        Button negative = dialog.getButton(android.app.AlertDialog.BUTTON_NEGATIVE);
+        Button neutral = dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL);
+        if (positive != null) positive.setTextColor(accent);
+        if (negative != null) negative.setTextColor(Color.LTGRAY);
+        if (neutral != null) neutral.setTextColor(accent);
+        android.widget.ListView choices = dialog.getListView();
+        if (choices != null) {
+            for (int i = 0; i < choices.getChildCount(); i++) {
+                View item = choices.getChildAt(i);
+                if (item instanceof TextView) ((TextView) item).setTextColor(Color.WHITE);
+            }
+        }
+    }
+
     private GradientDrawable drawerBackground() {
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(Color.argb(245, 18, 18, 23));
@@ -162,8 +183,17 @@ public final class GameActivity extends SDLActivity {
         b.setText(label);
         b.setTextColor(Color.WHITE);
         b.setAllCaps(false);
+        b.setGravity(Gravity.CENTER_VERTICAL | Gravity.LEFT);
+        b.setPadding(dp(14), 0, dp(10), 0);
+        GradientDrawable buttonBg = new GradientDrawable();
+        buttonBg.setColor(Color.rgb(29, 22, 26));
+        buttonBg.setCornerRadius(dp(8));
+        buttonBg.setStroke(dp(1), Color.rgb(112, 35, 47));
+        b.setBackground(buttonBg);
         b.setOnClickListener(v -> { toggleGameDrawer(); action.run(); });
-        gameDrawer.addView(b, new LinearLayout.LayoutParams(-1, dp(52)));
+        LinearLayout.LayoutParams buttonLp = new LinearLayout.LayoutParams(-1, dp(52));
+        buttonLp.bottomMargin = dp(8);
+        gameDrawer.addView(b, buttonLp);
     }
 
     private void toggleGameDrawer() {
@@ -177,26 +207,31 @@ public final class GameActivity extends SDLActivity {
     private void showInGameControlEditor() {
         final String[] profiles = { "PlayStation", "Xbox" };
         int current = "xbox".equals(prefs.getString("ctl_style", "ps")) ? 1 : 0;
-        new android.app.AlertDialog.Builder(this)
+        android.app.AlertDialog profileDialog = new android.app.AlertDialog.Builder(this)
                 .setTitle("Editar controles na tela")
                 .setSingleChoiceItems(profiles, current, (dialog, which) -> {
                     prefs.edit().putString("ctl_style", which == 1 ? "xbox" : "ps").apply();
                     if (controls != null) controls.setControllerStyle(which == 1);
                     dialog.dismiss();
-                    new android.app.AlertDialog.Builder(this)
-                            .setTitle(profiles[which])
+                    android.app.AlertDialog editDialog = new android.app.AlertDialog.Builder(this)
+                             .setTitle(profiles[which])
                             .setMessage("Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar.")
                             .setPositiveButton("Editar", (d, w) -> {
                                 if (controls != null) controls.setEditMode(true);
                                 if (finishEditButton != null) finishEditButton.setVisibility(View.VISIBLE);
                             })
-                            .setNegativeButton("Cancelar", null).show();
-                }).setNegativeButton("Cancelar", null).show();
+                            .setNegativeButton("Cancelar", null).create();
+                    editDialog.show();
+                    styleGameDialog(editDialog);
+                }).setNegativeButton("Cancelar", null).create();
+        profileDialog.show();
+        styleGameDialog(profileDialog);
     }
 
     private void showInGameHudEditor() {
         LinearLayout box = new LinearLayout(this);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
+        box.setBackgroundColor(Color.rgb(18, 18, 23));
         box.setOrientation(LinearLayout.VERTICAL);
         android.widget.Switch enabled = hudSwitch("Mostrar HUD de desempenho", "performance_hud_enabled", true);
         android.widget.Switch fps = hudSwitch("FPS", "performance_hud_fps", true);
@@ -224,7 +259,7 @@ public final class GameActivity extends SDLActivity {
             opacity.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235,70,85)));
         }
         box.addView(opacity);
-        new android.app.AlertDialog.Builder(this).setTitle("Editar HUD de FPS").setView(box)
+        android.app.AlertDialog hudDialog = new android.app.AlertDialog.Builder(this).setTitle("Editar HUD de FPS").setView(box)
                 .setPositiveButton("Salvar", (d, w) -> {
                     prefs.edit().putBoolean("performance_hud_enabled", enabled.isChecked())
                             .putBoolean("performance_hud_fps", fps.isChecked())
@@ -234,7 +269,9 @@ public final class GameActivity extends SDLActivity {
                             .putInt("performance_hud_position", right.isChecked() ? 1 : 0)
                             .putInt("performance_hud_opacity", opacity.getProgress()).apply();
                     refreshPerformanceHud();
-                }).setNegativeButton("Cancelar", null).show();
+                }).setNegativeButton("Cancelar", null).create();
+        hudDialog.show();
+        styleGameDialog(hudDialog);
     }
 
     private android.widget.Switch hudSwitch(String label, String key, boolean defaultValue) {
