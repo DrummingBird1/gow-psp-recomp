@@ -269,7 +269,14 @@ if(MSVC)
   # the renderer's per-pixel functions are hot; stack cookies cost several percent there
   set_source_files_properties(runtime/rt_gesoft.c PROPERTIES COMPILE_OPTIONS /GS-)
 else()
-  target_compile_options(gow_rt PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
+  # Android runs the recompilation and GE command processing on ARM64; use the
+  # stronger optimizing pass for the native game/runtime hot paths without
+  # enabling fast-math or changing floating-point contraction semantics.
+  if(ANDROID)
+    target_compile_options(gow_rt PRIVATE -O3 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
+  else()
+    target_compile_options(gow_rt PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
+  endif()
   target_link_libraries(gow_rt PRIVATE m)
 endif()
 
