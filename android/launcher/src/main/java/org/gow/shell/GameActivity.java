@@ -481,6 +481,7 @@ public final class GameActivity extends SDLActivity {
 
         TouchControls(Context ctx, int opacityPercent, boolean xbox, SharedPreferences prefs) {
             super(ctx);
+            Arrays.fill(capturedPointerIds, -1);
             this.xbox = xbox;
             this.editLayout = prefs.getBoolean("ctl_edit_layout", false);
             this.layoutOffsetX = prefs.getFloat("ctl_offset_x", 0f);
