@@ -318,7 +318,7 @@ public final class LauncherActivity extends Activity {
             case "Aviso": return "Warning";
             case "Projeto não oficial, sem afiliação com a Sony.\n": return "Unofficial project, not affiliated with Sony.\n";
             case "Pasta: Android/data/org.gow.shell/files": return "Folder: Android/data/org.gow.shell/files";
-            case "Arquivos do jogo": return "Game files";
+
             case "Verificador de atualizações": return "Update checker";
             case "Não foi possível consultar o GitHub.\n\nDetalhe: ": return "Could not check GitHub.\n\nDetails: ";
             case "Permitir instalação": return "Allow installation";
