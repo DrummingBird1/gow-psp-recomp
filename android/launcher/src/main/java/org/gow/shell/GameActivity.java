@@ -629,7 +629,6 @@ public final class GameActivity extends SDLActivity {
             return selected;
         }
 
-        @Override
         private int pointerSlot(int pointerId) {
             for (int i = 0; i < capturedPointerIds.length; i++) {
                 if (capturedPointerIds[i] == pointerId) return i;
