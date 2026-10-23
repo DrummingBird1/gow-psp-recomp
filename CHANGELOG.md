@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Fix: crash at launch or a black screen with MSAA on Vulkan** (issue #3), at every MSAA level, with or without
+  anisotropic filtering; Chains of Olympus was affected. Direct3D 12 (the *Auto* choice) was not.
+- **A lost graphics device stops the game with a clear message** in the log and the launcher's dialog, instead of a
+  crash.
+- **Fix: choppy music at 120 FPS and above** (issue #3) when the PC can't hold the chosen rate: the time skips that
+  keep the game at full speed now leave the music thread room to queue its next block.
+
 ## v1.2.0 (2026-10-18)
 
 - **Fix: crash with anisotropic filtering** on some GPUs (issue #3). Filtering is only applied where it can work, the
