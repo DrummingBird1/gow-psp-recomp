@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.2.1 (not yet released)
+
+- **Fix: crash at launch or a black screen with MSAA on Vulkan** (issue #3), at every MSAA level, with or without
+  anisotropic filtering; Chains of Olympus was affected. Direct3D 12 (the *Auto* choice) was not.
+- **A lost graphics device stops the game with a clear message** in the log and the launcher's dialog, instead of a
+  crash.
+- **Fix: choppy music at 120 FPS and above** (issue #3) when the PC can't hold the chosen rate: the time skips that
+  keep the game at full speed now leave the music thread room to queue its next block.
+- **Fix: the comma key can be bound** (issue #3): a control bound to it got no key at all. Settings saved by v1.2.0
+  are fixed when the game starts.
+- **Bug reports carry no personal paths:** the logs in the *Report a bug* ZIP show your folders as `<game folder>`,
+  `<user folder>` and so on, and your Windows user name as `<user>`. Before, the game log named the disc image by
+  its full path.
+- **Skipped movies are in the input recording,** so the recording a bug report attaches replays past a skipped
+  intro.
+- **Movies skip on the keys and buttons bound to Start or Cross** (and on Enter and Space, as before). The click
+  that brings the window to the front no longer skips a movie.
+- **Self-update:** downloads only over https, and the message for a bad download says what the check proves (a
+  damaged download, not a forged release: the launcher is not signed).
+- **A damaged disc image can't make the launcher's disc reader read past its buffers.**
+- For contributors: CI builds of pull requests upload their artifacts again, and `AGENTS.md` describes the project
+  after the launch.
+
 ## v1.2.0 (2026-10-18)
 
 - **Fix: crash with anisotropic filtering** on some GPUs (issue #3). Filtering is only applied where it can work, the
@@ -10,16 +33,16 @@
 - **High and Ultra presets use 4x anisotropic filtering** (was 16x): it looks nearly the same at these
   resolutions and is lighter on weaker GPUs; 8x and 16x stay available in the settings.
 - **Graphics API option** in the launcher: Auto, Direct3D 12 or Vulkan.
-- **Fix: choppy sound at high frame rates** (issue #4). Skipped time is capped so sound that is playing stays whole;
+- **Fix: choppy sound at high frame rates** (issue #3). Skipped time is capped so sound that is playing stays whole;
   the starting preset keeps 60 FPS, and the FPS setting says what a higher rate costs. Remaining dropouts are logged.
 - **Texture packs:** the launcher shows whether a pack matches the game and warns about PPSSPP packs, which use a
-  different format (issue #5); a *Dump textures* option writes the game's textures as a starting point.
+  different format (issue #4); a *Dump textures* option writes the game's textures as a starting point.
 - **Controls page:** rebind keyboard keys and gamepad buttons in the launcher (`--controls FILE` for the game).
   The mouse pointer hides in fullscreen after 2 seconds.
 - **Settings check:** out-of-range or broken settings are reset to defaults with a note, instead of failing.
 - **Report a bug / Open logs folder:** collects the logs, input recording and PC details (no file paths) into a ZIP
   and opens a prefilled GitHub issue. Play records the input to `GoW_PSP_data\build` for bug reports.
-- **Add to Steam / Create desktop shortcut** per game, with the game's icon.
+- **Add to Steam / Create desktop shortcut** per game, with the game's icon (issue #5).
 - **Launcher self-update:** checks GitHub at start (opt-out in Advanced, or skip a version), shows what's new,
   downloads the ZIP, checks it against `SHA256SUMS.txt` and restarts. `GoW_PSP_data` and settings stay as they are.
 - **No console window:** the launcher is now a windowed program, so no black console window opens next to it

@@ -15,7 +15,7 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 
 ![The launcher](docs/images/launcher-main.png)
 
-## Status: preview (v1.2.0)
+## Status: preview (v1.2.1)
 
 - Every level of both games loads and runs (automated tours: [phase 11](docs/phase11-level-tour.md),
   [phase 12](docs/phase12-gos-level-tour.md)).
@@ -54,7 +54,7 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 
 You only download **one file**, the launcher. No Python, no manual setup.
 
-1. Download [`GoW_PSP_Launcher-v1.2.0.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.2.0.zip)
+1. Download [`GoW_PSP_Launcher-v1.2.1.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.2.1.zip)
    from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
    one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`.
    Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
@@ -71,9 +71,9 @@ You only download **one file**, the launcher. No Python, no manual setup.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
 > "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
-> PyInstaller programs as a false positive. Check that your download is the real one (v1.2.0 SHA-256):
-> - `GoW_PSP_Launcher-v1.2.0.zip`: `df103bf9996012c6e2518343044f65618d5ba1104315435b08475758e1dfb648`
-> - `GoW_PSP\GoWLauncher.exe`: `5d3802944caf644f955fa004d9e051709ffdce28a094028314277c660e32dab7`
+> PyInstaller programs as a false positive. Check that your download is the real one (v1.2.1 SHA-256):
+> - `GoW_PSP_Launcher-v1.2.1.zip`: (SHA-256 added when v1.2.1 is published)
+> - `GoW_PSP\GoWLauncher.exe`: (added when v1.2.1 is published)
 >
 > (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
 

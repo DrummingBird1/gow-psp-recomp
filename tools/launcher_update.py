@@ -4,7 +4,11 @@ SHA256SUMS.txt and swaps the exe in place.
 A running exe can't be overwritten on Windows but it can be renamed: the update renames GoWLauncher.exe to
 GoWLauncher.old.exe, moves the new exe into its place, starts it with --updated <old exe> and exits; the new
 launcher deletes the old exe. GoW_PSP_data (builds, saves, settings) next to the exe is never touched.
-If any step fails the old exe is put back. GOW_UPDATE_API points at another releases/latest JSON (tests).
+If any step fails the old exe is put back. GOW_UPDATE_API points at another releases/latest JSON (tests): https, or
+http on this PC only, as are the download links.
+
+What the check proves: SHA256SUMS.txt comes from the same GitHub release as the ZIP, so a matching hash means the
+download arrived whole, not that the release itself is genuine (the exe is not signed).
 """
 import hashlib
 import json
@@ -30,7 +34,14 @@ def version_tuple(v):
     return tuple(int(x) for x in re.findall(r"\d+", v)[:3]) or (0,)
 
 
+def _allowed(url):
+    """https anywhere, plain http only to this PC (the tests' local server)."""
+    return url.startswith("https://") or re.match(r"http://(127\.0\.0\.1|localhost)(:\d+)?/", url) is not None
+
+
 def _get(url, timeout=10):
+    if not _allowed(url):
+        raise UpdateError(f"not an https link: {url}")
     req = urllib.request.Request(url, headers=UA)
     return urllib.request.urlopen(req, timeout=timeout)
 
@@ -84,7 +95,7 @@ def download(info, workdir, progress=lambda done, total: None):
         raise UpdateError(f"SHA256SUMS.txt doesn't list {info['zip_name']}")
     if h.hexdigest() != want:
         zpath.unlink(missing_ok=True)
-        raise UpdateError("the downloaded ZIP doesn't match SHA256SUMS.txt (damaged or tampered); nothing was changed")
+        raise UpdateError("the downloaded ZIP doesn't match SHA256SUMS.txt (damaged in the download); nothing was changed")
     new = workdir / "GoWLauncher.new.exe"
     try:
         with zipfile.ZipFile(zpath) as z, z.open("GoW_PSP/GoWLauncher.exe") as src, open(new, "wb") as dst:
@@ -125,9 +136,15 @@ def apply(new_exe, current_exe, restart_args=()):
 
 
 def cleanup(old_exe):
-    """Run by the new launcher: deletes the old exe (it may take a moment to exit)."""
+    """Run by the new launcher: deletes the old exe (it may take a moment to exit). Only an .old*.exe next to the
+    running one, whatever path --updated was given."""
     p = Path(old_exe)
     if not p.name.lower().endswith(".exe") or ".old" not in p.name:
+        return False
+    try:
+        if p.resolve().parent != Path(sys.executable).resolve().parent:
+            return False
+    except OSError:
         return False
     for _ in range(40):
         try:

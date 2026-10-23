@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.
@@ -109,6 +109,7 @@ def write_controls(cfg):
     f.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# written by the launcher (Options > Controls); see runtime/rt_host.c, --controls"]
     for b, (keys, pads) in controls_of(cfg).items():
+        keys = ["Comma" if k == "," else k for k in keys]  # the file is comma-separated (settings from v1.2.0 say ",")
         lines.append(f"{b} = " + ", ".join(keys + [f"pad:{p}" for p in pads]))
     f.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return f
@@ -633,10 +634,31 @@ def report_settings(cfg):
     return out
 
 
+def redact_paths(text, cfg=None):
+    """Text for a bug report without personal paths: the player's own folders become placeholders (<game folder>,
+    <data folder>, <user folder>...), any other absolute path keeps only its file name, and the Windows user name
+    becomes <user>. The logs name the disc image, the input recording and so on by full path."""
+    import re as _re
+    cfg = cfg or {}
+    known = [(cfg.get("game_folder"), "<game folder>"), (cfg.get("texture_pack"), "<texture pack>"), (str(ROOT), "<data folder>"),
+             (str(Path(sys.executable).resolve().parent) if FROZEN else "", "<launcher folder>"),
+             (os.environ.get("USERPROFILE") or str(Path.home()), "<user folder>")]
+    known += [(str(Path(p).parent), "<disc folder>") for p in (cfg.get("disc") or {}).values() if p]
+    for p, name in sorted(((str(Path(p)), n) for p, n in known if p), key=lambda x: -len(x[0])):
+        for v in {p, p.replace("\\", "/")}:
+            text = _re.sub(_re.escape(v), name, text, flags=_re.I)
+    text = _re.sub(r"(?i)(?<![A-Za-z])([A-Za-z]:[\\/]Users[\\/])[^\\/\r\n\"'<>|*?:]+", r"\1<user>", text)
+    text = _re.sub(r"(?<![A-Za-z])[A-Za-z]:[\\/](?:[^\\/\r\n\"'|*?:]+[\\/])+", "<...>/", text)  # other folders
+    user = os.environ.get("USERNAME", "")
+    if len(user) >= 3:
+        text = _re.sub(r"(?i)(?<![A-Za-z0-9])" + _re.escape(user) + r"(?![A-Za-z0-9])", "<user>", text)
+    return text
+
+
 def make_bug_report(cfg, game, launcher_log=()):
     """Zips what a bug report needs into build/bug_reports/: the last Play's log and recorded input, the settings
-    (no paths), PC info and the launcher's log. Never game files: no disc image, EBOOT, generated C, saves or
-    screenshots. Returns the zip's path."""
+    (no paths), PC info and the launcher's log, all with paths and the user name taken out (redact_paths). Never
+    game files: no disc image, EBOOT, generated C, saves or screenshots. Returns the zip's path."""
     import time
     import zipfile
     d = ROOT / "build" / "bug_reports"
@@ -645,13 +667,14 @@ def make_bug_report(cfg, game, launcher_log=()):
     with zipfile.ZipFile(z, "w", zipfile.ZIP_DEFLATED) as f:
         for p in (game_log(game), game_input_log(game)):
             if p.exists():
-                f.write(p, p.name)
+                f.writestr(p.name, redact_paths(p.read_text(encoding="utf-8", errors="replace"), cfg))
         f.writestr("settings.json", json.dumps(report_settings(cfg), indent=1))
         f.writestr("pc_info.txt", pc_info() + "\n")
         if launcher_log:
-            f.writestr("launcher_log.txt", "\n".join(launcher_log) + "\n")
+            f.writestr("launcher_log.txt", redact_paths("\n".join(launcher_log) + "\n", cfg))
         f.writestr("README.txt", "God of War PSP native port: bug report. The game's log and recorded button presses of the "
-                   "last Play, the launcher settings (no paths), PC info. No game files.\n")
+                   "last Play, the launcher settings, PC info. Paths keep only file names (your folders show as "
+                   "<game folder>, <user folder>...), and the Windows user name shows as <user>. No game files.\n")
     return z
 
 

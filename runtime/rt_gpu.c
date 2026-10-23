@@ -1350,6 +1350,33 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
 }
 
 /* --- submission -------------------------------------------------------------------- */
+/* Submissions that keep failing mean the device is gone (e.g. VK_ERROR_DEVICE_LOST after a driver
+ * reset), and SDL's own cleanup can crash after that: stop with a line the launcher shows. A
+ * single failure (a present that fails once) is only logged. */
+#define SUBMIT_FAILS_MAX 10
+static int g_submit_fails;  /* in a row */
+
+static void submitted(bool ok) {
+    if (ok) { g_submit_fails = 0; return; }
+    if (++g_submit_fails == 1) fprintf(stderr, "[gpu] submitting GPU work failed: %s\n", SDL_GetError());
+    if (g_submit_fails < SUBMIT_FAILS_MAX) return;
+    fprintf(stderr, "[gpu] submitting GPU work failed %d times in a row: the graphics device was lost; stopping\n", g_submit_fails);
+    fflush(stdout);
+    fflush(stderr);
+    exit(1);
+}
+
+static void submit(SDL_GPUCommandBuffer *cmd) { submitted(SDL_SubmitGPUCommandBuffer(cmd)); }
+
+/* submits and waits until the GPU has done it */
+static void submit_and_wait(SDL_GPUCommandBuffer *cmd) {
+    SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+    submitted(f != NULL);
+    if (!f) return;
+    SDL_WaitForGPUFences(g_dev, true, &f, 1);
+    SDL_ReleaseGPUFence(g_dev, f);
+}
+
 static void upload_frame(SDL_GPUCommandBuffer *cmd) {
     uint32_t vbytes = (uint32_t)(g_nverts * sizeof(GpuVertex));
     g_voff = (uint32_t)((vbytes + 511) & ~511u);
@@ -1490,9 +1517,14 @@ static void render_frame(SDL_GPUCommandBuffer *cmd) {
             ci.texture = t->ms ? t->ms : t->tex;
             ci.load_op = SDL_GPU_LOADOP_LOAD;  /* a new target was uploaded from memory first */
             ci.store_op = SDL_GPU_STOREOP_STORE;
-            if (t->ms) {
+            if (t->ms && c->resolve) {
+                /* the resolve texture only on a pass that resolves: SDL's Vulkan backend keys its
+                 * framebuffer cache on it but builds the framebuffer by the store op, so a pass that
+                 * only stores would leave a framebuffer without the resolve attachment for the next
+                 * resolving pass (wrong attachment count, then VK_ERROR_DEVICE_LOST) */
                 ci.resolve_texture = t->tex;
-                if (c->resolve) { ci.store_op = SDL_GPU_STOREOP_RESOLVE_AND_STORE; g_st.msaa_resolves++; }
+                ci.store_op = SDL_GPU_STOREOP_RESOLVE_AND_STORE;
+                g_st.msaa_resolves++;
             }
             SDL_GPUDepthStencilTargetInfo di;
             memset(&di, 0, sizeof(di));
@@ -1542,7 +1574,7 @@ static void submit_pending(void) {
     if (!cmd) return;
     upload_frame(cmd);
     render_frame(cmd);
-    SDL_SubmitGPUCommandBuffer(cmd);
+    submit(cmd);
     reset_recorded();
     g_st.submits++;
 }
@@ -1573,9 +1605,7 @@ static int download_tex(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *src, int x, i
     SDL_GPUTextureTransferInfo dst = { tb, 0, (Uint32)w, (Uint32)h };
     SDL_DownloadFromGPUTexture(cp, &r, &dst);
     SDL_EndGPUCopyPass(cp);
-    SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
-    SDL_WaitForGPUFences(g_dev, true, &f, 1);
-    SDL_ReleaseGPUFence(g_dev, f);
+    submit_and_wait(cmd);
     const uint8_t *p = SDL_MapGPUTransferBuffer(g_dev, tb, false);
     memcpy(out, p, bytes);
     SDL_UnmapGPUTransferBuffer(g_dev, tb);
@@ -1878,15 +1908,13 @@ void rt_gpu_present(uint32_t addr, uint32_t stride, uint32_t fmt) {
     if (sync) {
         /* RT_GPU_SYNC: wait for each frame, measuring how long the GPU takes after submission */
         uint64_t t0 = SDL_GetTicksNS();
-        SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
-        SDL_WaitForGPUFences(g_dev, true, &f, 1);
-        SDL_ReleaseGPUFence(g_dev, f);
+        submit_and_wait(cmd);
         uint64_t dt = SDL_GetTicksNS() - t0;
         g_st.gpu_wait_ns += dt;
         rt_perf_us[RT_PERF_GPU] += dt / 1000;  /* --perf-csv gpu_ms (in the next frame's row) */
         if (dt > g_st.gpu_wait_max) g_st.gpu_wait_max = dt;
     } else {
-        SDL_SubmitGPUCommandBuffer(cmd);
+        submit(cmd);
     }
     reset_recorded();
     for (int i = 0; i < g_nrelease; i++) SDL_ReleaseGPUTexture(g_dev, g_release[i]);  /* submitted: SDL keeps them until done */

@@ -93,6 +93,7 @@ static int iso_lookup(const char *path, uint32_t *lba, uint32_t *size, int *is_d
             const uint8_t *r = buf + pos;
             char name[256];
             uint8_t nlen = r[32];
+            if (len < 34 || pos + len > n || 33u + nlen > len) break;  /* a damaged image: the record or its name runs out */
             memcpy(name, r + 33, nlen);
             name[nlen] = 0;
             char *semi = strchr(name, ';');
@@ -192,7 +193,7 @@ static int decrypt_eboot(const char *out) {
     }
     uint8_t *dec = (uint8_t *)calloc(max, 1);
     int got = dec ? rt_prx_decrypt(in, dec, psp_size) : -1;
-    if (got <= 0 && rd32(in + 0x150) == 0x464C457F) {  /* as PPSSPP: an unencrypted ELF behind the header */
+    if (dec && got <= 0 && psp_size > 0x154 && rd32(in + 0x150) == 0x464C457F) {  /* as PPSSPP: an unencrypted ELF behind the header */
         got = (int)(psp_size - 0x150);
         memcpy(dec, in + 0x150, (size_t)got);
     }

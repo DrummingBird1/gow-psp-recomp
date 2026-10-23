@@ -19,7 +19,8 @@
  * through a frame. --record-input writes every change of what the game reads, keyed by the
  * displayed frame (and virtual time for changes between frames), in the --input format;
  * --input with that file replays the session, headless too, read for read. A recording also
- * holds the display refresh (fps=) and the virtual-time skips (skip=) of a high frame rate. */
+ * holds the display refresh (fps=), the virtual-time skips (skip=) of a high frame rate, and
+ * the movies the player skipped (movie=). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -51,6 +52,9 @@ static double g_script_fps;     /* "fps=N" of a recording: the display refresh i
 typedef struct { uint64_t now, next, us; } Skip;
 static Skip *g_skips;
 static int g_nskips, g_skip_at;
+/* "movie=US" of a recording: the player skipped the movie that was playing at virtual time US */
+static uint64_t *g_movie_skips;
+static int g_nmovie_skips, g_movie_skip_at;
 
 static const struct { const char *name; uint32_t bits; int lx, ly; } k_names[] = {
     { "select", PSP_SELECT }, { "start", PSP_START }, { "up", PSP_UP }, { "right", PSP_RIGHT }, { "down", PSP_DOWN },
@@ -93,6 +97,11 @@ static int parse_script(const char *spec) {
             if (!s.next || !s.us) { fprintf(stderr, "[host] bad --input entry '%s' (skip=NOW:NEXT:US)\n", item); return 0; }
             g_skips = realloc(g_skips, sizeof(*g_skips) * (g_nskips + 1));
             g_skips[g_nskips++] = s;
+            continue;
+        }
+        if (!strncmp(item, "movie=", 6)) {
+            g_movie_skips = realloc(g_movie_skips, sizeof(*g_movie_skips) * (g_nmovie_skips + 1));
+            g_movie_skips[g_nmovie_skips++] = strtoull(item + 6, NULL, 10);
             continue;
         }
         char *f = strtok(item, ":"), *b = strtok(NULL, ":"), *d = strtok(NULL, ":");
@@ -259,6 +268,15 @@ static void replay_skips(uint64_t now, uint64_t next) {
     if (g_skip_at < g_nskips && g_skips[g_skip_at].now == now && g_skips[g_skip_at].next == next) k_idle_skip = g_skips[g_skip_at++].us;
 }
 
+/* replay: the recording's next movie skip, once virtual time gets to it (the movie code asks at the
+ * same virtual times as in the recorded session, so the first ask at or after it is the one) */
+static int replay_movie_skip(void) {
+    if (g_movie_skip_at >= g_nmovie_skips || g_movie_skips[g_movie_skip_at] > k_now) return 0;
+    g_movie_skip_at++;
+    printf("[host] movie skipped as in the recording\n");
+    return 1;
+}
+
 static int live_input(uint32_t *b, int *lx, int *ly);  /* keyboard and gamepads, when there is a window */
 
 uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly) {
@@ -319,7 +337,7 @@ static uint64_t now_us(void) { return SDL_GetTicksNS() / 1000; }
  *   cross = Z, pad:a        keys by SDL name (Z, Up, Space, Return, Left Shift...), gamepad buttons
  *   stick_up = I            as pad:<SDL name> (a b x y back start leftshoulder rightshoulder
  *                           lefttrigger righttrigger dpup dpdown dpleft dpright leftstick rightstick)
- * '#' starts a comment. Unknown names are reported and skipped; the game keeps running. */
+ * '#' starts a comment; the comma key is "Comma". Unknown names are reported and skipped; the game keeps running. */
 enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, NBIND };
 #define PAD_LT 100  /* the triggers are axes: pseudo button numbers */
 #define PAD_RT 101
@@ -375,7 +393,7 @@ static void load_controls(const char *path) {
                 if (p == SDL_GAMEPAD_BUTTON_INVALID) { fprintf(stderr, "[host] --controls: unknown gamepad button '%s'\n", t); bad++; }
                 else if (g_bind[b].np < 4) g_bind[b].p[g_bind[b].np++] = p;
             } else {
-                SDL_Scancode sc = SDL_GetScancodeFromName(t);
+                SDL_Scancode sc = !SDL_strcasecmp(t, "Comma") ? SDL_SCANCODE_COMMA : SDL_GetScancodeFromName(t);  /* "," would split the line */
                 if (sc == SDL_SCANCODE_UNKNOWN) { fprintf(stderr, "[host] --controls: unknown key '%s'\n", t); bad++; }
                 else if (g_bind[b].nk < 4) g_bind[b].k[g_bind[b].nk++] = sc;
             }
@@ -393,7 +411,7 @@ static int pad_down(SDL_Gamepad *gp, int p) {
 }
 
 /* The mouse pointer hides itself in fullscreen when it has not moved for 2 s. */
-static uint64_t g_mouse_t;
+static uint64_t g_mouse_t, g_focus_t;
 static int g_cursor_hidden;
 static void update_cursor(void) {
     int hide = g_fullscreen && now_us() - g_mouse_t > 2000000;
@@ -435,9 +453,16 @@ void rt_host_movie_playing(int on) {
     g_movie_on = on;
 }
 
+/* A skip the player asked for is written to the input recording ("movie=US"), so that its replay
+ * skips the same movie at the same point; a replay takes the recording's skips. */
 int rt_host_take_movie_skip(void) {
+    if (replay_movie_skip()) return 1;
     int r = g_skip_req;
     g_skip_req = 0;
+    if (r && g_rec) {
+        fprintf(g_rec, "movie=%llu\n", (unsigned long long)k_now);
+        fflush(g_rec);
+    }
     return r;
 }
 
@@ -446,6 +471,21 @@ static void movie_skip_press(uint32_t bits) {
     g_skip_req = 1;
     g_eat |= bits;  /* only the press that skipped is kept from the game */
     printf("[host] movie skipped by the player\n");
+}
+
+/* the PSP buttons a key or gamepad button is bound to (--controls), for the movie skip */
+static uint32_t key_bits(SDL_Scancode sc) {
+    uint32_t b = 0;
+    for (int i = 0; i < 12; i++)
+        for (int j = 0; j < g_bind[i].nk; j++) if (g_bind[i].k[j] == sc) b |= b_bits[i];
+    return b;
+}
+
+static uint32_t pad_bits(int button) {
+    uint32_t b = 0;
+    for (int i = 0; i < 12; i++)
+        for (int j = 0; j < g_bind[i].np; j++) if (g_bind[i].p[j] == button) b |= b_bits[i];
+    return b;
 }
 
 /* "Quit the game?" over the game window. The game (and its sound) waits while it is open:
@@ -528,14 +568,25 @@ static void pump(void) {
                 g_fullscreen = !g_fullscreen;
                 SDL_SetWindowFullscreen(g_win, g_fullscreen);
             } else if (e.key.key == SDLK_F12) screenshot();
-            else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE) movie_skip_press(PSP_START);
+            else {
+                /* a movie skips on the keys bound to Start or Cross, and on Enter and Space; the press is kept
+                 * from the game only for the buttons that key is bound to */
+                uint32_t kb = key_bits(e.key.scancode);
+                if ((kb & (PSP_START | PSP_CROSS)) || e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE)
+                    movie_skip_press(kb);
+            }
             break;
-        case SDL_EVENT_MOUSE_BUTTON_DOWN: g_mouse_t = now_us(); movie_skip_press(0); break;
+        case SDL_EVENT_WINDOW_FOCUS_GAINED: g_focus_t = now_us(); break;
+        case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            g_mouse_t = now_us();
+            if (g_mouse_t - g_focus_t > 300000) movie_skip_press(0);  /* not the click that brought the window to the front */
+            break;
         case SDL_EVENT_MOUSE_MOTION: g_mouse_t = now_us(); break;
-        case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
-            if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) movie_skip_press(PSP_START);
-            else if (e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) movie_skip_press(PSP_CROSS);
+        case SDL_EVENT_GAMEPAD_BUTTON_DOWN: {
+            uint32_t pb = pad_bits(e.gbutton.button);
+            if (pb & (PSP_START | PSP_CROSS)) movie_skip_press(pb);
             break;
+        }
         case SDL_EVENT_GAMEPAD_ADDED: open_pad(e.gdevice.which); break;
         case SDL_EVENT_GAMEPAD_REMOVED: close_pad(e.gdevice.which); break;
         default: break;
@@ -671,9 +722,13 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
  * PC game does. Audio keeps going: the game keeps one block (~23 ms) queued ahead of the
  * "hardware", so a skip within that margin only delays the next block; a longer one leaves a
  * short gap in a channel. Beyond SKIP_MAX_US (a hitch, e.g. loading) the lost time is dropped,
- * as at 60 Hz. Skips are written to an input recording, so that its replay takes the same ones. */
+ * as at 60 Hz. Skips are written to an input recording, so that its replay takes the same ones.
+ * SKIP_HEADROOM_US stays unskipped before the end of a channel's queue: the thread that feeds it
+ * wakes when its block starts but takes a few ms of virtual time to queue the next one (CoO's
+ * music: 2-4.5 ms), so a skip to the very end left a gap after almost every 46 ms block. */
 #define SKIP_MIN_US 4000
 #define SKIP_MAX_US 100000
+#define SKIP_HEADROOM_US 10000
 
 static void rec_skip(uint64_t now, uint64_t next, uint64_t us) {
     if (!g_rec) return;
@@ -701,6 +756,7 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
          * leave a dropout (heard as choppy sound over the music); what can't be skipped now is
          * skipped later or, past SKIP_MAX_US, dropped */
         uint64_t want = (uint64_t)-ahead, budget = rt_audio_skip_budget_us(next_virt);  /* the skip comes on top of next_virt */
+        budget = budget > SKIP_HEADROOM_US ? budget - SKIP_HEADROOM_US : 0;
         uint64_t sk = want < budget ? want : budget;
         if (sk < want) g_skips_capped++;
         if (sk >= SKIP_MIN_US) {
@@ -770,5 +826,5 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
 int rt_host_idle(uint64_t now_us, uint64_t next_us) { replay_skips(now_us, next_us); return 0; }
 static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
 void rt_host_movie_playing(int on) { (void)on; }
-int rt_host_take_movie_skip(void) { return 0; }
+int rt_host_take_movie_skip(void) { return replay_movie_skip(); }
 #endif

@@ -366,7 +366,7 @@ def sdl_key_name(e):
         return "Left Alt"
     names = {Qt.Key.Key_Up: "Up", Qt.Key.Key_Down: "Down", Qt.Key.Key_Left: "Left", Qt.Key.Key_Right: "Right",
              Qt.Key.Key_Space: "Space", Qt.Key.Key_Return: "Return", Qt.Key.Key_Enter: "Keypad Enter",
-             Qt.Key.Key_Tab: "Tab", Qt.Key.Key_Backspace: "Backspace", Qt.Key.Key_Comma: ",", Qt.Key.Key_Period: ".",
+             Qt.Key.Key_Tab: "Tab", Qt.Key.Key_Backspace: "Backspace", Qt.Key.Key_Comma: "Comma", Qt.Key.Key_Period: ".",
              Qt.Key.Key_Slash: "/", Qt.Key.Key_Semicolon: ";", Qt.Key.Key_Apostrophe: "'", Qt.Key.Key_BracketLeft: "[",
              Qt.Key.Key_BracketRight: "]", Qt.Key.Key_Minus: "-", Qt.Key.Key_Equal: "=", Qt.Key.Key_Escape: "Escape",
              Qt.Key.Key_F11: "F11", Qt.Key.Key_F12: "F12", Qt.Key.Key_Insert: "Insert", Qt.Key.Key_Delete: "Delete",
