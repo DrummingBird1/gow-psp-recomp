@@ -7,10 +7,16 @@ on:
     paths:
       - ".build-trigger"
       - "android/launcher/**"
-      - "runtime/rt_host.c"
-      - "runtime/rt_frames.c"
-      - "runtime/rt_android.c"
-      - "runtime/rt_fiber.c"
+      - "runtime/**"
+      - "CMakeLists.txt"
+      - "tools/install_android_launcher.py"
+      - ".github/workflows/android-gow.yml"
+  pull_request:
+    branches: [android]
+    paths:
+      - ".build-trigger"
+      - "android/launcher/**"
+      - "runtime/**"
       - "CMakeLists.txt"
       - "tools/install_android_launcher.py"
       - ".github/workflows/android-gow.yml"
