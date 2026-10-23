@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.2.1 (not yet released)
+## v1.2.1 (2026-10-23)
 
 - **Fix: crash at launch or a black screen with MSAA on Vulkan** (issue #3), at every MSAA level, with or without
   anisotropic filtering; Chains of Olympus was affected. Direct3D 12 (the *Auto* choice) was not.

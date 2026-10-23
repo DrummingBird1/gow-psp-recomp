@@ -20,7 +20,7 @@ Read `README.md`, `CHANGELOG.md`, `docs/README.md` and `docs/phase13-graphics.md
 ## Where things stand
 
 - The repository is **public**: <https://github.com/DrummingBird1/gow-psp-recomp>, default branch `main`. Released:
-  v1.0.0 to v1.2.0 (the latest). Since v1.1.5 every release has `GoW_PSP_Launcher-vX.Y.Z.zip` and `SHA256SUMS.txt`.
+  v1.0.0 to v1.2.1 (the latest). Since v1.1.5 every release has `GoW_PSP_Launcher-vX.Y.Z.zip` and `SHA256SUMS.txt`.
   `CHANGELOG.md` says what each release changed, and the README's *Known issues* section lists what is still open.
 - Phases 1 to 15 are done; `docs/README.md` links each phase's page. Phase 14 is the one-download launcher
   (`docs/phase14-launcher.md`) and phase 15 the portable build toolchain (`docs/phase15-portable-toolchain.md`).
