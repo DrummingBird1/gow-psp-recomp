@@ -472,8 +472,10 @@ public final class GameActivity extends SDLActivity {
         private int selectedControl = -1;
         private boolean editLayout;
         private boolean stickHeld;
-        // Pointer that captured the analog stick; remains captured across the full screen.
+        // Each finger captures the control it first touches until that finger is lifted.
         private int stickPointerId = -1;
+        private final int[] capturedPointerIds = new int[10];
+        private final int[] capturedButtonMasks = new int[10];
 
         private boolean xbox;
 
@@ -627,8 +629,42 @@ public final class GameActivity extends SDLActivity {
         }
 
         @Override
+        private int pointerSlot(int pointerId) {
+            for (int i = 0; i < capturedPointerIds.length; i++) {
+                if (capturedPointerIds[i] == pointerId) return i;
+            }
+            return -1;
+        }
+
+        private void captureButtons(int pointerId, float x, float y) {
+            int slot = pointerSlot(pointerId);
+            if (slot < 0) {
+                for (int i = 0; i < capturedPointerIds.length; i++) {
+                    if (capturedPointerIds[i] < 0) { slot = i; break; }
+                }
+            }
+            if (slot < 0) return;
+            Arrays.fill(want, false);
+            collect(x, y, false);
+            int mask = 0;
+            for (int i = 0; i < N && i < 31; i++) if (want[i]) mask |= (1 << i);
+            Arrays.fill(want, false);
+            capturedPointerIds[slot] = pointerId;
+            capturedButtonMasks[slot] = mask;
+        }
+
+        private void clearCapturedPointer(int pointerId) {
+            int slot = pointerSlot(pointerId);
+            if (slot >= 0) {
+                capturedPointerIds[slot] = -1;
+                capturedButtonMasks[slot] = 0;
+            }
+        }
+
+        @Override
         public boolean onTouchEvent(MotionEvent ev) {
             int action = ev.getActionMasked();
+            int actionIndex = ev.getActionIndex();
             if (action == MotionEvent.ACTION_CANCEL) {
                 releaseAll();
                 return true;
@@ -655,16 +691,27 @@ public final class GameActivity extends SDLActivity {
                 return true;
             }
 
-            int actionIndex = ev.getActionIndex();
-            if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
-                    && stickPointerId < 0) {
+            if (action == MotionEvent.ACTION_UP) {
+                // Always release every virtual key when the final finger is lifted.
+                releaseAll();
+                return true;
+            }
+
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN) {
                 float x = ev.getX(actionIndex) - layoutOffsetX;
                 float y = ev.getY(actionIndex) - layoutOffsetY;
-                if (isStickHit(x, y)) stickPointerId = ev.getPointerId(actionIndex);
+                int pointerId = ev.getPointerId(actionIndex);
+                if (stickPointerId < 0 && isStickHit(x, y)) {
+                    stickPointerId = pointerId;
+                } else {
+                    captureButtons(pointerId, x, y);
+                }
             }
-            if (action == MotionEvent.ACTION_POINTER_UP
-                    && ev.getPointerId(actionIndex) == stickPointerId) {
-                stickPointerId = -1;
+
+            if (action == MotionEvent.ACTION_POINTER_UP) {
+                int pointerId = ev.getPointerId(actionIndex);
+                clearCapturedPointer(pointerId);
+                if (pointerId == stickPointerId) stickPointerId = -1;
             }
 
             Arrays.fill(want, false);
@@ -672,18 +719,24 @@ public final class GameActivity extends SDLActivity {
             int skip = action == MotionEvent.ACTION_POINTER_UP ? actionIndex : -1;
             for (int i = 0; i < ev.getPointerCount(); i++) {
                 if (i == skip) continue;
+                int pointerId = ev.getPointerId(i);
                 float x = ev.getX(i) - layoutOffsetX;
                 float y = ev.getY(i) - layoutOffsetY;
-                if (ev.getPointerId(i) == stickPointerId) {
-                    // The captured finger continues controlling the stick anywhere on screen.
+                if (pointerId == stickPointerId) {
+                    // The analog remains tied to its original finger across the screen.
                     updateStick(x, y);
                 } else {
-                    // Other fingers can press/release buttons without stealing the stick.
-                    collect(x, y, false);
+                    // Buttons remain tied to the original finger/control, not hover-dragged to another.
+                    int slot = pointerSlot(pointerId);
+                    if (slot >= 0) {
+                        int mask = capturedButtonMasks[slot];
+                        for (int b = 0; b < N && b < 31; b++) {
+                            if ((mask & (1 << b)) != 0) want[b] = true;
+                        }
+                    }
                 }
             }
             if (!stickHeld) { knobX = 0; knobY = 0; }
-            if (action == MotionEvent.ACTION_UP) stickPointerId = -1;
             apply();
             return true;
         }
@@ -729,6 +782,8 @@ public final class GameActivity extends SDLActivity {
 
         void releaseAll() {
             Arrays.fill(want, false);
+            Arrays.fill(capturedPointerIds, -1);
+            Arrays.fill(capturedButtonMasks, 0);
             stickPointerId = -1;
             stickHeld = false;
             knobX = 0;
