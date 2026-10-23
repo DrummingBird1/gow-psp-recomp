@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.2.0"
+VERSION = "1.2.1"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.2.1 (not yet released)
 
 - **Fix: crash at launch or a black screen with MSAA on Vulkan** (issue #3), at every MSAA level, with or without
   anisotropic filtering; Chains of Olympus was affected. Direct3D 12 (the *Auto* choice) was not.
@@ -8,6 +8,20 @@
   crash.
 - **Fix: choppy music at 120 FPS and above** (issue #3) when the PC can't hold the chosen rate: the time skips that
   keep the game at full speed now leave the music thread room to queue its next block.
+- **Fix: the comma key can be bound** (issue #3): a control bound to it got no key at all. Settings saved by v1.2.0
+  are fixed when the game starts.
+- **Bug reports carry no personal paths:** the logs in the *Report a bug* ZIP show your folders as `<game folder>`,
+  `<user folder>` and so on, and your Windows user name as `<user>`. Before, the game log named the disc image by
+  its full path.
+- **Skipped movies are in the input recording,** so the recording a bug report attaches replays past a skipped
+  intro.
+- **Movies skip on the keys and buttons bound to Start or Cross** (and on Enter and Space, as before). The click
+  that brings the window to the front no longer skips a movie.
+- **Self-update:** downloads only over https, and the message for a bad download says what the check proves (a
+  damaged download, not a forged release: the launcher is not signed).
+- **A damaged disc image can't make the launcher's disc reader read past its buffers.**
+- For contributors: CI builds of pull requests upload their artifacts again, and `AGENTS.md` describes the project
+  after the launch.
 
 ## v1.2.0 (2026-10-18)
 
