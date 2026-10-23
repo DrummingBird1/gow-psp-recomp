@@ -472,6 +472,8 @@ public final class GameActivity extends SDLActivity {
         private int selectedControl = -1;
         private boolean editLayout;
         private boolean stickHeld;
+        // Pointer that captured the analog stick; remains captured across the full screen.
+        private int stickPointerId = -1;
 
         private boolean xbox;
 
@@ -534,7 +536,7 @@ public final class GameActivity extends SDLActivity {
             return x >= r.left - s && x <= r.right + s && y >= r.top - s && y <= r.bottom + s;
         }
 
-        private void collect(float x, float y) {
+        private void collect(float x, float y, boolean includeStick) {
             // Each virtual control has its own position offset; touch hitboxes follow the visuals.
             float px = x - posX[UP], py = y - posY[UP];
             if (near(px, py, padCx, padCy - padArm * 0.55f, padArm * 0.48f)
@@ -549,19 +551,7 @@ public final class GameActivity extends SDLActivity {
             if (near(px, py, padCx + padArm * 0.55f, padCy, padArm * 0.48f)
                     && Math.abs(py - padCy) < padArm * 0.55f) want[RIGHT] = true;
 
-            px = x - posX[SUP]; py = y - posY[SUP];
-            if (near(px, py, stickCx, stickCy, stickR * 1.5f)) {
-                float dx = px - stickCx, dy = py - stickCy;
-                float t = stickR * (deadZonePercent / 100f);
-                if (dy < -t) want[SUP] = true;
-                if (dy > t) want[SDOWN] = true;
-                if (dx < -t) want[SLEFT] = true;
-                if (dx > t) want[SRIGHT] = true;
-                float len = (float) Math.sqrt(dx * dx + dy * dy);
-                float lim = stickR * 0.7f;
-                if (len > lim) { dx *= lim / len; dy *= lim / len; }
-                knobX = dx; knobY = dy; stickHeld = true;
-            }
+            if (includeStick && isStickHit(x, y)) updateStick(x, y);
             float fr = faceR * 1.1f;
             if (near(x - posX[TRIANGLE], y - posY[TRIANGLE], faceCx, faceCy - faceOff, fr)) want[TRIANGLE] = true;
             if (near(x - posX[CROSS], y - posY[CROSS], faceCx, faceCy + faceOff, fr)) want[CROSS] = true;
@@ -571,6 +561,27 @@ public final class GameActivity extends SDLActivity {
             if (hit(rR, x - posX[BR], y - posY[BR])) want[BR] = true;
             if (hit(rStart, x - posX[START], y - posY[START])) want[START] = true;
             if (hit(rSelect, x - posX[SELECT], y - posY[SELECT])) want[SELECT] = true;
+        }
+
+        private boolean isStickHit(float x, float y) {
+            float px = x - posX[SUP], py = y - posY[SUP];
+            return near(px, py, stickCx, stickCy, stickR * 1.5f);
+        }
+
+        private void updateStick(float x, float y) {
+            float px = x - posX[SUP], py = y - posY[SUP];
+            float dx = px - stickCx, dy = py - stickCy;
+            float t = stickR * (deadZonePercent / 100f);
+            if (dy < -t) want[SUP] = true;
+            if (dy > t) want[SDOWN] = true;
+            if (dx < -t) want[SLEFT] = true;
+            if (dx > t) want[SRIGHT] = true;
+            float len = (float) Math.sqrt(dx * dx + dy * dy);
+            float lim = stickR * 0.7f;
+            if (len > lim) { dx *= lim / len; dy *= lim / len; }
+            knobX = dx;
+            knobY = dy;
+            stickHeld = true;
         }
 
         private String controlName(int id) {
@@ -618,13 +629,10 @@ public final class GameActivity extends SDLActivity {
         @Override
         public boolean onTouchEvent(MotionEvent ev) {
             int action = ev.getActionMasked();
-            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            if (action == MotionEvent.ACTION_CANCEL) {
                 releaseAll();
                 return true;
             }
-            Arrays.fill(want, false);
-            stickHeld = false;
-            int skip = action == MotionEvent.ACTION_POINTER_UP ? ev.getActionIndex() : -1;
             if (editLayout) {
                 if (action == MotionEvent.ACTION_DOWN) {
                     selectedControl = pickControl(ev.getX() - layoutOffsetX, ev.getY() - layoutOffsetY);
@@ -641,16 +649,41 @@ public final class GameActivity extends SDLActivity {
                             .putFloat("ctl_pos_" + profile + "_" + selectedControl + "_y", posY[selectedControl]).apply();
                     invalidate(); return true;
                 }
-                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) {
                     selectedControl = -1; releaseAll(); invalidate(); return true;
                 }
                 return true;
             }
+
+            int actionIndex = ev.getActionIndex();
+            if ((action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_POINTER_DOWN)
+                    && stickPointerId < 0) {
+                float x = ev.getX(actionIndex) - layoutOffsetX;
+                float y = ev.getY(actionIndex) - layoutOffsetY;
+                if (isStickHit(x, y)) stickPointerId = ev.getPointerId(actionIndex);
+            }
+            if (action == MotionEvent.ACTION_POINTER_UP
+                    && ev.getPointerId(actionIndex) == stickPointerId) {
+                stickPointerId = -1;
+            }
+
+            Arrays.fill(want, false);
+            stickHeld = false;
+            int skip = action == MotionEvent.ACTION_POINTER_UP ? actionIndex : -1;
             for (int i = 0; i < ev.getPointerCount(); i++) {
                 if (i == skip) continue;
-                collect(ev.getX(i) - layoutOffsetX, ev.getY(i) - layoutOffsetY);
+                float x = ev.getX(i) - layoutOffsetX;
+                float y = ev.getY(i) - layoutOffsetY;
+                if (ev.getPointerId(i) == stickPointerId) {
+                    // The captured finger continues controlling the stick anywhere on screen.
+                    updateStick(x, y);
+                } else {
+                    // Other fingers can press/release buttons without stealing the stick.
+                    collect(x, y, false);
+                }
             }
             if (!stickHeld) { knobX = 0; knobY = 0; }
+            if (action == MotionEvent.ACTION_UP) stickPointerId = -1;
             apply();
             return true;
         }
@@ -693,6 +726,8 @@ public final class GameActivity extends SDLActivity {
 
         void releaseAll() {
             Arrays.fill(want, false);
+            stickPointerId = -1;
+            stickHeld = false;
             knobX = 0;
             knobY = 0;
             apply();
