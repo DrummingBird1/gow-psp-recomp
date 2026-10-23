@@ -1,27 +1,37 @@
-name: Feature request
-description: An idea for the ports or the launcher
+name: "Sugestão de melhoria / Feature request"
+description: "Sugira um recurso ou melhoria / Suggest a feature or improvement"
 labels: [enhancement]
 body:
   - type: markdown
     attributes:
       value: |
-        Open-ended ideas and questions fit better in [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions).
-        **Never attach game files** or screenshots / videos of the game.
+        **🇧🇷 Português:** Explique a melhoria que você gostaria de ver e por que ela seria útil. Não anexe arquivos do jogo ou conteúdo protegido por direitos autorais.
+
+        **🇺🇸 English:** Explain the improvement you would like to see and why it would be useful. Do not attach game files or copyrighted content.
   - type: dropdown
     id: area
     attributes:
-      label: Area
-      options: [Chains of Olympus, Ghost of Sparta, Both games, Launcher, Build / tooling, Documentation]
+      label: "Área / Area"
+      options:
+        - Inicializador / Launcher
+        - Controles / Controls
+        - Gráficos e tela / Graphics and display
+        - Desempenho / Performance
+        - Compatibilidade / Compatibility
+        - Atualizações / Updates
+        - Documentação / Documentation
+        - Outra / Other
     validations:
       required: true
   - type: textarea
     id: what
     attributes:
-      label: What would you like?
-      description: What should happen, and why it would help.
+      label: "Sua sugestão / Your suggestion"
+      description: "O que deveria acontecer e por quê? / What should happen, and why?"
     validations:
       required: true
   - type: textarea
     id: alternatives
     attributes:
-      label: Alternatives or workarounds
+      label: "Alternativas / Alternatives"
+      description: "Descreva soluções alternativas, se houver / Describe any alternatives or workarounds"

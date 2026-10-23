@@ -42,8 +42,10 @@ gow_fetch_archive(libchdr rtissera/libchdr 47d794151b2b64f6aba60304e6480f4f5a2bc
   ee1131e748a2c7d7559b7054540ebe49637433901f92071560df52e369f7c7af)  # zlib/zstd/lzma are in its deps/, no submodules
 
 # SDL3 (zlib license): the game window, keyboard and gamepad input; pinned to release 3.4.16
+option(GOW_ANDROID "Build libmain.so for the Android SDL shell" OFF)
+set(GOW_SDL_SO "" CACHE FILEPATH "libSDL3.so for Android")
 option(GOW_WINDOW "Build the SDL3 window and input (gow_rt --window)" ON)
-if(GOW_WINDOW AND NOT GOW_TOOLS_ONLY)
+if(GOW_WINDOW AND NOT GOW_TOOLS_ONLY AND NOT GOW_ANDROID)
   set(SDL_SHARED OFF CACHE BOOL "" FORCE)
   set(SDL_STATIC ON CACHE BOOL "" FORCE)
   set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
@@ -199,7 +201,17 @@ if(GOW_TOOLS_ONLY)
   return()
 endif()
 
-add_executable(gow_rt
+if(GOW_ANDROID)
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  function(gow_add_rt name)
+    add_library(${name} SHARED ${ARGN} runtime/rt_android.c)
+  endfunction()
+else()
+  function(gow_add_rt name)
+    add_executable(${name} ${ARGN})
+  endfunction()
+endif()
+gow_add_rt(gow_rt
   runtime/rt_atrac.c
   runtime/rt_audio.c
   runtime/rt_core.c
@@ -224,10 +236,25 @@ add_executable(gow_rt
   $<$<PLATFORM_ID:Windows>:runtime/gow_rt.rc>
   ${GEN_SOURCES})
 set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 11)
+if(GOW_ANDROID)
+  set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "main")
+  set_source_files_properties(runtime/rt_main.c PROPERTIES COMPILE_DEFINITIONS "main=gow_main")
+  # Do not rely solely on toolchain predefined macros for Android-only SDL safeguards.
+  target_compile_definitions(gow_rt PRIVATE GOW_ANDROID=1)
+  target_link_options(gow_rt PRIVATE -Wl,--allow-shlib-undefined)
+endif()
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")
 target_link_libraries(gow_rt PRIVATE chdr-static at3_standalone openh264_dec libkirk)
 if(GOW_WINDOW)
-  target_link_libraries(gow_rt PRIVATE SDL3::SDL3-static)
+  if(GOW_ANDROID)
+    add_library(SDL3_android SHARED IMPORTED)
+    set_target_properties(SDL3_android PROPERTIES IMPORTED_LOCATION "${GOW_SDL_SO}")
+    file(GLOB _sdl_inc "${CMAKE_SOURCE_DIR}/build/deps/SDL3-*/include")
+    target_include_directories(gow_rt PRIVATE ${_sdl_inc})
+    target_link_libraries(gow_rt PRIVATE SDL3_android)
+  else()
+    target_link_libraries(gow_rt PRIVATE SDL3::SDL3-static)
+  endif()
   target_compile_definitions(gow_rt PRIVATE GOW_HAVE_SDL)
 endif()
 
@@ -242,7 +269,14 @@ if(MSVC)
   # the renderer's per-pixel functions are hot; stack cookies cost several percent there
   set_source_files_properties(runtime/rt_gesoft.c PROPERTIES COMPILE_OPTIONS /GS-)
 else()
-  target_compile_options(gow_rt PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
+  # Android runs the recompilation and GE command processing on ARM64; use the
+  # stronger optimizing pass for the native game/runtime hot paths without
+  # enabling fast-math or changing floating-point contraction semantics.
+  if(ANDROID)
+    target_compile_options(gow_rt PRIVATE -O3 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
+  else()
+    target_compile_options(gow_rt PRIVATE -O2 -fno-strict-aliasing -ffp-contract=off -Wno-unused-label)
+  endif()
   target_link_libraries(gow_rt PRIVATE m)
 endif()
 
