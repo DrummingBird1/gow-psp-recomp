@@ -193,10 +193,10 @@ int SDL_main(int argc, char **argv) {
     setvbuf(stderr, NULL, _IONBF, 0);
     dup2(fileno(stderr), fileno(stdout));
     setvbuf(stdout, NULL, _IONBF, 0);
-    { pthread_t mt; pthread_create(&mt, NULL, mem_thread, NULL); pthread_detach(mt); }
+    { char mp[600]; snprintf(mp, sizeof mp, "%s/memlog", base); if (access(mp, F_OK) == 0) { pthread_t mt; if (pthread_create(&mt, NULL, mem_thread, NULL) == 0) pthread_detach(mt); } }
     { char gp[600]; snprintf(gp, sizeof gp, "%s/gpu_sync", base); if (access(gp, F_OK) == 0) { setenv("RT_GPU_SYNC", "1", 1); fprintf(stderr, "rt_android: RT_GPU_SYNC ligado (arquivo gpu_sync)\n"); } }
     g_def_log = SDL_GetDefaultLogOutputFunction();
-    SDL_SetLogPriorities(SDL_LOG_PRIORITY_VERBOSE);
+    SDL_SetLogPriorities(SDL_LOG_PRIORITY_INFO);
     SDL_SetLogOutputFunction(sdl_log_to_file, NULL);
     init_stack_bounds();
     install_handlers();
