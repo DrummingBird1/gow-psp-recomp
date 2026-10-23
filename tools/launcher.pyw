@@ -109,6 +109,7 @@ def write_controls(cfg):
     f.parent.mkdir(parents=True, exist_ok=True)
     lines = ["# written by the launcher (Options > Controls); see runtime/rt_host.c, --controls"]
     for b, (keys, pads) in controls_of(cfg).items():
+        keys = ["Comma" if k == "," else k for k in keys]  # the file is comma-separated (settings from v1.2.0 say ",")
         lines.append(f"{b} = " + ", ".join(keys + [f"pad:{p}" for p in pads]))
     f.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return f

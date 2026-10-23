@@ -337,7 +337,7 @@ static uint64_t now_us(void) { return SDL_GetTicksNS() / 1000; }
  *   cross = Z, pad:a        keys by SDL name (Z, Up, Space, Return, Left Shift...), gamepad buttons
  *   stick_up = I            as pad:<SDL name> (a b x y back start leftshoulder rightshoulder
  *                           lefttrigger righttrigger dpup dpdown dpleft dpright leftstick rightstick)
- * '#' starts a comment. Unknown names are reported and skipped; the game keeps running. */
+ * '#' starts a comment; the comma key is "Comma". Unknown names are reported and skipped; the game keeps running. */
 enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, NBIND };
 #define PAD_LT 100  /* the triggers are axes: pseudo button numbers */
 #define PAD_RT 101
@@ -393,7 +393,7 @@ static void load_controls(const char *path) {
                 if (p == SDL_GAMEPAD_BUTTON_INVALID) { fprintf(stderr, "[host] --controls: unknown gamepad button '%s'\n", t); bad++; }
                 else if (g_bind[b].np < 4) g_bind[b].p[g_bind[b].np++] = p;
             } else {
-                SDL_Scancode sc = SDL_GetScancodeFromName(t);
+                SDL_Scancode sc = !SDL_strcasecmp(t, "Comma") ? SDL_SCANCODE_COMMA : SDL_GetScancodeFromName(t);  /* "," would split the line */
                 if (sc == SDL_SCANCODE_UNKNOWN) { fprintf(stderr, "[host] --controls: unknown key '%s'\n", t); bad++; }
                 else if (g_bind[b].nk < 4) g_bind[b].k[g_bind[b].nk++] = sc;
             }
