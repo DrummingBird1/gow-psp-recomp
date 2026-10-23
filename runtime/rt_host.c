@@ -671,9 +671,13 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
  * PC game does. Audio keeps going: the game keeps one block (~23 ms) queued ahead of the
  * "hardware", so a skip within that margin only delays the next block; a longer one leaves a
  * short gap in a channel. Beyond SKIP_MAX_US (a hitch, e.g. loading) the lost time is dropped,
- * as at 60 Hz. Skips are written to an input recording, so that its replay takes the same ones. */
+ * as at 60 Hz. Skips are written to an input recording, so that its replay takes the same ones.
+ * SKIP_HEADROOM_US stays unskipped before the end of a channel's queue: the thread that feeds it
+ * wakes when its block starts but takes a few ms of virtual time to queue the next one (CoO's
+ * music: 2-4.5 ms), so a skip to the very end left a gap after almost every 46 ms block. */
 #define SKIP_MIN_US 4000
 #define SKIP_MAX_US 100000
+#define SKIP_HEADROOM_US 10000
 
 static void rec_skip(uint64_t now, uint64_t next, uint64_t us) {
     if (!g_rec) return;
@@ -701,6 +705,7 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
          * leave a dropout (heard as choppy sound over the music); what can't be skipped now is
          * skipped later or, past SKIP_MAX_US, dropped */
         uint64_t want = (uint64_t)-ahead, budget = rt_audio_skip_budget_us(next_virt);  /* the skip comes on top of next_virt */
+        budget = budget > SKIP_HEADROOM_US ? budget - SKIP_HEADROOM_US : 0;
         uint64_t sk = want < budget ? want : budget;
         if (sk < want) g_skips_capped++;
         if (sk >= SKIP_MIN_US) {
