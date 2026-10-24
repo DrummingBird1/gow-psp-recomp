@@ -388,6 +388,62 @@ public final class LauncherActivity extends Activity {
             case "Projeto no GitHub": return "Project on GitHub";
             case "Bibliotecas de código aberto": return "Open-source libraries";
             case "A lista completa de componentes está no repositório do projeto.": return "The complete component list is in the project repository.";
+
+            case "Escala de resolução": return "Resolution scale";
+            case "Esticada": return "Stretched";
+            case "Esq.": return "Left";
+            case "Dir.": return "Right";
+            case "Estilo": return "Style";
+            case "Opacidade": return "Opacity";
+            case "Salvo. Vale ao tocar em JOGAR.\\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\\nargs.txt: ";
+            case "pronto": return "ready";
+            case "pendente": return "missing";
+            case "Tentar jogar": return "Try to play";
+            case "Selecionar game.iso": return "Select game.iso";
+            case "Selecionar image.bin": return "Select image.bin";
+            case "OK": return "OK";
+            case "Abrir release": return "Open release";
+            case "Abrir releases": return "Open releases";
+            case "Ver release": return "View release";
+            case "Não foi possível baixar o APK: ": return "Could not download APK: ";
+            case "O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir.": return "The APK has been downloaded. Allow this app to install APKs in Android settings, then return and tap Check for updates to finish.";
+            case "Ative a permissão de instalação nas configurações do Android.": return "Enable install permission in Android settings.";
+            case "Nenhum navegador encontrado.": return "No browser found.";
+            case "Salvo. Vale ao tocar em JOGAR.": return "Saved. Takes effect when you tap PLAY.";
+            case "Cruz": return "Cross";
+            case "Quadrado": return "Square";
+            case "Triângulo": return "Triangle";
+            case "Backup": return "Back up";
+            case "Ver": return "View";
+            case "Compartilhar": return "Share";
+            case "Limpar": return "Clear";
+            case "Editar": return "Edit";
+            case "Idioma Português selecionado.": return "Portuguese selected.";
+            case "Saves restaurados.": return "Save data restored.";
+            case "Log apagado.": return "Log deleted.";
+            case "Não foi possível apagar o log.": return "Could not delete the log.";
+            case "args.txt salvo.": return "args.txt saved.";
+            case "Este app usa a biblioteca SDL (licença zlib).\\n\\n": return "This app uses the SDL library (zlib license).\\n\\n";
+            case "Pasta: Android/data/org.gow.shell/files\\n": return "Folder: Android/data/org.gow.shell/files\\n";
+            case "game.iso: ": return "game.iso: ";
+            case " pronto": return " ready";
+            case " pendente": return " missing";
+            case "image.bin — ": return "image.bin — ";
+            case "Restaurar o backup ": return "Restore backup ";
+            case "Saves restaurados.": return "Save data restored.";
+            case "Falha ao importar ": return "Failed to import ";
+            case " instalado (": return " installed (";
+            case " MB).": return " MB).";
+            case "Selecione um arquivo ": return "Select a ";
+            case " para ": return " file for ";
+            case "Copiando ": return "Copying ";
+            case " para o armazenamento do app...": return " to app storage...";
+            case "Falha ao baixar o APK: ": return "Failed to download APK: ";
+            case "Restaurar o backup": return "Restore backup";
+            case "Versão": return "Version";
+            case "Projeto no GitHub": return "Project on GitHub";
+            case "O app fará uma cópia na pasta privada dele.": return "The app will copy it to its private folder.";
+
             default: return value;
         }
     }
@@ -751,7 +807,7 @@ public final class LauncherActivity extends Activity {
         File iso = new File(gameDir(), "game.iso");
         boolean imageOk = image.isFile() && image.length() > 0;
         boolean isoOk = iso.isFile() && iso.length() > 0;
-        status.setText("Pasta: Android/data/org.gow.shell/files\n"
+        status.setText(localized("Pasta: Android/data/org.gow.shell/files\\n")
                 + (imageOk ? "\u2713 image.bin" : "\u2022 image.bin pendente") + "   "
                 + (isoOk ? "\u2713 game.iso" : "\u2022 game.iso pendente"));
         status.setTextColor(imageOk && isoOk ? GREEN : MUTED);
@@ -763,8 +819,8 @@ public final class LauncherActivity extends Activity {
         File image = new File(gameDir(), "image.bin");
         if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
             dialog().setTitle(localized("Arquivos do jogo"))
-                    .setMessage("game.iso: " + (iso.isFile() && iso.length() > 0 ? "pronto" : "pendente")
-                            + "\nimage.bin: " + (image.isFile() && image.length() > 0 ? "pronto" : "pendente")
+                     .setMessage(localized("game.iso: ") + (iso.isFile() && iso.length() > 0 ? localized("pronto") : localized("pendente"))
+                            + "\nimage.bin: " + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
                             + "\n\nO jogo pode não iniciar sem os arquivos necessários.")
                     .setNegativeButton(localized("Voltar"), null)
                     .setNeutralButton(localized("Instalar arquivos"), (d, w) -> showGameFiles())
@@ -783,7 +839,7 @@ public final class LauncherActivity extends Activity {
         String imageState = image.isFile() && image.length() > 0
                 ? String.format(Locale.US, "Pronto (%.1f MB)", image.length() / 1048576.0) : "Pendente";
         dialog().setTitle(localized("Instalar arquivos do jogo"))
-                .setMessage("game.iso — " + isoState + "\nimage.bin — " + imageState
+                .setMessage(localized("game.iso — ") + isoState + "\n" + localized("image.bin — ") + imageState
                         + "\n\nSelecione seus próprios arquivos. O app fará uma cópia na pasta privada dele.")
                 .setPositiveButton(localized("Selecionar game.iso"), (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
                 .setNeutralButton(localized("Selecionar image.bin"), (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
@@ -936,7 +992,7 @@ public final class LauncherActivity extends Activity {
                 final String reason = e.getClass().getSimpleName()
                         + (e.getMessage() == null || e.getMessage().trim().isEmpty() ? "" : ": " + e.getMessage());
                 runOnUiThread(() -> dialog().setTitle(localized("Verificador de atualizações"))
-                        .setMessage("Não foi possível consultar o GitHub.\n\nDetalhe: " + reason
+                        .setMessage(localized("Não foi possível consultar o GitHub.\n\nDetalhe: ") + reason
                                 + "\n\nConfira sua conexão ou abra a página de releases.")
                         .setPositiveButton(localized("Abrir releases"), (d, w) -> openUrl("https://github.com/flavinxs0/gow-psp-recomp-android/releases"))
                         .setNegativeButton(localized("Fechar"), null).show());
@@ -988,7 +1044,7 @@ public final class LauncherActivity extends Activity {
             } catch (Exception e) {
                 if (target != null) target.delete();
                 final String message = e.getMessage() == null ? "erro desconhecido" : e.getMessage();
-                runOnUiThread(() -> dialog().setTitle(localized("Falha na atualização")).setMessage("Não foi possível baixar o APK: " + message).setPositiveButton(localized("OK"), null).show());
+                runOnUiThread(() -> dialog().setTitle(localized("Falha na atualização")).setMessage(localized("Não foi possível baixar o APK: ") + message).setPositiveButton(localized("OK"), null).show());
             } finally { if (connection != null) connection.disconnect(); }
         }, "gow-update-download").start();
     }
@@ -1045,7 +1101,7 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Escala de resolu\u00e7\u00e3o", "--res-scale",
                 seg(new String[] { "1x", "2x", "3x" }, gRes - 1, i -> { gRes = i + 1; tRes = true; }), false));
         right.addView(row("Propor\u00e7\u00e3o de tela", "--aspect",
-                seg(new String[] { "16:9", "4:3", "Esticada" }, gAspect, i -> gAspect = i), false));
+                seg(new String[] { "16:9", "4:3", localized("Esticada") }, gAspect, i -> gAspect = i), false));
         right.addView(row("FXAA", "--fxaa",
                 toggle(gFxaa, on -> { gFxaa = on; tFxaa = true; }), false));
         right.addView(row("VSync", "--vsync",
@@ -1314,7 +1370,7 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Editor de controles individuais", "Personalize a posição dos botões durante a partida",
                 button("Como usar", false, () -> showControlEditorHelp()), false));
         right.addView(row("Restaurar posição", "Voltar ao layout original",
-                actions(new String[] { "Restaurar" }, new Runnable[] { () -> {
+                actions(new String[] { localized("Restaurar") }, new Runnable[] { () -> {
                     SharedPreferences.Editor editor = p.edit().remove("ctl_offset_x").remove("ctl_offset_y").putBoolean("ctl_edit_layout", false);
                     for (String profile : new String[] { "ps", "xbox" }) {
                         for (int control = 0; control < 16; control++) {
@@ -1455,18 +1511,18 @@ public final class LauncherActivity extends Activity {
 
         LinearLayout right = column();
         right.addView(row("Saves", "Backup e restaura\u00e7\u00e3o de ms0/PSP/SAVEDATA",
-                actions(new String[] { "Backup", "Restaurar" },
+                actions(new String[] { localized("Backup"), localized("Restaurar") },
                         new Runnable[] { this::backupSaves, this::restoreSaves }, false), false));
         right.addView(row("Logs", "Ver, compartilhar ou limpar o log.txt",
-                actions(new String[] { "Ver", "Compartilhar", "Limpar" },
+                actions(new String[] { localized("Ver"), localized("Compartilhar"), localized("Limpar") },
                         new Runnable[] { this::showLog, this::shareLog, this::clearLog }, false), false));
         right.addView(row("Argumentos avan\u00e7ados", "Ver e editar o args.txt",
-                actions(new String[] { "Editar" }, new Runnable[] { this::editArgs }, false), false));
+                actions(new String[] { localized("Editar") }, new Runnable[] { this::editArgs }, false), false));
         right.addView(row("Arquivos do jogo", "Importar ou substituir game.iso e image.bin",
                 actions(new String[] { "Gerenciar" }, new Runnable[] { this::showGameFiles }, false), false));
         right.addView(row("Restaurar padr\u00f5es", "Volta todas as configura\u00e7\u00f5es ao original",
-                actions(new String[] { "Restaurar" }, new Runnable[] { this::confirmReset }, true), false));
-        right.addView(row("Idioma", "Idioma da interface do launcher", seg(new String[] { "Português", "English" }, "en".equals(prefs().getString("launcher_language", "pt")) ? 1 : 0, i -> { prefs().edit().putString("launcher_language", i == 1 ? "en" : "pt").apply(); toast(i == 1 ? "English selected." : "Idioma Português selecionado."); showExtras(); }), false));
+                actions(new String[] { localized("Restaurar") }, new Runnable[] { this::confirmReset }, true), false));
+        right.addView(row("Idioma", "Idioma da interface do launcher", seg(new String[] { "Português", "English" }, "en".equals(prefs().getString("launcher_language", "pt")) ? 1 : 0, i -> { prefs().edit().putString("launcher_language", i == 1 ? "en" : "pt").apply(); toast(i == 1 ? "English selected." : localized("Idioma Português selecionado.")); showExtras(); }), false));
         right.addView(row("Verificar atualizações", "Consultar a versão mais recente do APK no GitHub",
                 actions(new String[] { "Verificar" }, new Runnable[] { this::checkForUpdates }, false), false));
         showScreen("extras", "Extras", left, right);
@@ -1529,7 +1585,7 @@ public final class LauncherActivity extends Activity {
         Arrays.sort(backups);
         final File latest = backups[backups.length - 1];
         dialog().setTitle(localized("RESTAURAR SAVES"))
-                .setMessage("Restaurar o backup " + latest.getName()
+                .setMessage(localized("Restaurar o backup ") + latest.getName()
                         + "?\n\nOs saves atuais ser\u00e3o sobrescritos.")
                 .setNegativeButton(localized("CANCELAR"), null)
                 .setPositiveButton(localized("RESTAURAR"), (d, w) -> new Thread(() -> {
@@ -1673,7 +1729,7 @@ public final class LauncherActivity extends Activity {
                 actions(new String[] { "GitHub" }, new Runnable[] { this::openRepo }, false), false));
 
         right.addView(row("Licen\u00e7as", "Bibliotecas de c\u00f3digo aberto",
-                actions(new String[] { "Ver" }, new Runnable[] { this::showLicenses }, false), false));
+                actions(new String[] { localized("Ver") }, new Runnable[] { this::showLicenses }, false), false));
         showScreen("about", "Sobre", left, right);
     }
 
