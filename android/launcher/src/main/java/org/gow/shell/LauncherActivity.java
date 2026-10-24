@@ -1164,7 +1164,7 @@ public final class LauncherActivity extends Activity {
         e.apply();
         writeArgs();
         String line = readArgsLine();
-        toast("Salvo. Vale ao tocar em JOGAR.\nargs.txt: " + (line.isEmpty() ? "(vazio)" : line));
+        toast(localized("Salvo. Vale ao tocar em JOGAR.\\nargs.txt: ") + (line.isEmpty() ? localized("(vazio)") : line));
         showMain();
     }
 
@@ -1783,9 +1783,8 @@ public final class LauncherActivity extends Activity {
     }
 
     private void showLicenses() {
-        dialog().setTitle(localized("LICEN\u00c7AS"))
-                .setMessage("Este app usa a biblioteca SDL (licen\u00e7a zlib).\n\n"
-                        + "A lista completa de componentes est\u00e1 no reposit\u00f3rio do projeto.")
+        dialog().setTitle(localized("LICEN\\u00c7AS"))
+                .setMessage(localized("Este app usa a biblioteca SDL (licen\\u00e7a zlib).\\n\\nA lista completa de componentes est\\u00e1 no reposit\\u00f3rio do projeto."))
                 .setPositiveButton(localized("OK"), null)
                 .show();
     }
