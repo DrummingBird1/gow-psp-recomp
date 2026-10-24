@@ -472,7 +472,7 @@ public final class GameActivity extends SDLActivity {
      * setas = direcional, Z/X/A/S = cruz/bolinha/quadrado/triangulo, Q/W = L/R,
      * Espaco = Start, V = Select, I/K/J/L = analogico (digital, tudo ou nada).
      */
-    final class TouchControls extends View {
+    static final class TouchControls extends View {
         interface Sink {
             void down(int keyCode);
             void up(int keyCode);
@@ -632,13 +632,13 @@ public final class GameActivity extends SDLActivity {
 
         private String controlName(int id) {
             switch (id) {
-                case UP: return localized("CIMA"); case DOWN: return localized("BAIXO"); case LEFT: return localized("ESQUERDA"); case RIGHT: return localized("DIREITA");
-                case CROSS: return xbox ? "A" : localized("CRUZ"); case CIRCLE: return xbox ? "B" : localized("CÍRCULO");
-                case SQUARE: return xbox ? "X" : localized("QUADRADO"); case TRIANGLE: return xbox ? "Y" : localized("TRIÂNGULO");
+                case UP: return ((GameActivity) getContext()).localized("CIMA"); case DOWN: return ((GameActivity) getContext()).localized("BAIXO"); case LEFT: return ((GameActivity) getContext()).localized("ESQUERDA"); case RIGHT: return ((GameActivity) getContext()).localized("DIREITA");
+                case CROSS: return xbox ? "A" : ((GameActivity) getContext()).localized("CRUZ"); case CIRCLE: return xbox ? "B" : ((GameActivity) getContext()).localized("CÍRCULO");
+                case SQUARE: return xbox ? "X" : ((GameActivity) getContext()).localized("QUADRADO"); case TRIANGLE: return xbox ? "Y" : ((GameActivity) getContext()).localized("TRIÂNGULO");
                 case BL: return xbox ? "LB" : "L"; case BR: return xbox ? "RB" : "R";
                 case START: return xbox ? "MENU" : "START"; case SELECT: return xbox ? "VIEW" : "SELECT";
-                case SUP: return localized("ANALÓGICO"); case SDOWN: return localized("ANALÓGICO BAIXO");
-                case SLEFT: return localized("ANALÓGICO ESQUERDA"); default: return localized("ANALÓGICO DIREITA");
+                case SUP: return ((GameActivity) getContext()).localized("ANALÓGICO"); case SDOWN: return ((GameActivity) getContext()).localized("ANALÓGICO BAIXO");
+                case SLEFT: return ((GameActivity) getContext()).localized("ANALÓGICO ESQUERDA"); default: return ((GameActivity) getContext()).localized("ANALÓGICO DIREITA");
             }
         }
 
@@ -863,8 +863,8 @@ public final class GameActivity extends SDLActivity {
             c.save(); c.translate(posX[START],posY[START]); pill(c,rStart,xbox?"MENU":"START",held[START],15*d,11*d); c.restore();
             if(editLayout) {
                 text.setColor(Color.argb(230,255,255,255)); text.setTextSize(12*d);
-                c.drawText(localized("TOQUE E ARRASTE CADA BOTÃO"),getWidth()/2f,28*d,text);
-                if(selectedControl>=0) { text.setColor(Color.rgb(235,70,85)); c.drawText(localized("EDITANDO: ")+controlName(selectedControl),getWidth()/2f,46*d,text); }
+                c.drawText(((GameActivity) getContext()).localized("TOQUE E ARRASTE CADA BOTÃO"),getWidth()/2f,28*d,text);
+                if(selectedControl>=0) { text.setColor(Color.rgb(235,70,85)); c.drawText(((GameActivity) getContext()).localized("EDITANDO: ")+controlName(selectedControl),getWidth()/2f,46*d,text); }
             }
             c.restore();
         }
