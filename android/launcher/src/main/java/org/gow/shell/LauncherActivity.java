@@ -472,6 +472,11 @@ public final class LauncherActivity extends Activity {
             case "● Conectado": return "● Connected";
             case "Editor de controles na tela": return "On-screen controls editor";
             case "Licenças": return "Licenses";
+            case "Versão instalada: ": return "Installed version: ";
+            case "Última release: ": return "Latest release: ";
+            case "Você está na versão mais recente publicada.": return "You are on the latest published version.";
+            case "Nova release: ": return "New release: ";
+            case "Baixe o APK para atualizar pelo instalador do Android.": return "Download the APK to update using the Android installer.";
             case "Este app usa a biblioteca SDL (licença zlib).\n\nA lista completa de componentes está no repositório do projeto.": return "This app uses the SDL library (zlib license).\n\nThe full component list is available in the project repository.";
             case "É necessário ter sua própria cópia do jogo.": return "You must provide your own copy of the game.";
             case "Projeto não oficial, sem afiliação com a Sony.\nÉ necessário ter sua própria cópia do jogo.": return "Unofficial project, not affiliated with Sony.\nYou must provide your own copy of the game.";
@@ -1014,8 +1019,8 @@ public final class LauncherActivity extends Activity {
                 runOnUiThread(() -> {
                     AlertDialog.Builder builder = dialog().setTitle(localized("Verificador de atualizações"))
                             .setMessage(sameVersion
-                                    ? "Versão instalada: " + VERSION + "\nÚltima release: " + tag + "\n\nVocê está na versão mais recente publicada."
-                                    : "Nova release: " + releaseName + " (" + tag + ")\nVersão instalada: " + VERSION + "\n\nBaixe o APK para atualizar pelo instalador do Android.");
+                                    ? localized("Versão instalada: ") + VERSION + "\n" + localized("Última release: ") + tag + "\n\n" + localized("Você está na versão mais recente publicada.")
+                                    : localized("Nova release: ") + releaseName + " (" + tag + ")\n" + localized("Versão instalada: ") + VERSION + "\n\n" + localized("Baixe o APK para atualizar pelo instalador do Android."));
                     if (!sameVersion && apkUrl != null && !apkUrl.isEmpty()) {
                         builder.setPositiveButton(localized("Baixar atualização"), (d, w) -> downloadUpdate(apkUrl, apkName));
                         builder.setNeutralButton(localized("Ver release"), (d, w) -> openUrl(releaseUrl));
@@ -1608,7 +1613,7 @@ public final class LauncherActivity extends Activity {
         new Thread(() -> {
             final boolean ok = copyTree(src, dst);
             runOnUiThread(() -> toast(ok ? localized("Backup criado: backup_saves/") + stamp
-                    : "Falha ao criar o backup."));
+                    : localized("Falha ao criar o backup.")));
         }).start();
     }
 
@@ -1626,7 +1631,7 @@ public final class LauncherActivity extends Activity {
                 .setNegativeButton(localized("CANCELAR"), null)
                 .setPositiveButton(localized("RESTAURAR"), (d, w) -> new Thread(() -> {
                     final boolean ok = copyTree(latest, savesDir());
-                    runOnUiThread(() -> toast(ok ? "Saves restaurados." : "Falha ao restaurar."));
+                    runOnUiThread(() -> toast(ok ? localized("Saves restaurados.") : localized("Falha ao restaurar.")));
                 }).start())
                 .show();
     }
@@ -1651,7 +1656,7 @@ public final class LauncherActivity extends Activity {
 
     private void showLog() {
         String text = readLog(60000);
-        if (text.isEmpty()) text = "Nenhum log encontrado ainda. Inicie o jogo para gerar o registro.";
+        if (text.isEmpty()) text = localized("Nenhum log encontrado ainda. Inicie o jogo para gerar o registro.");
         TextView body = new TextView(this);
         body.setText(text);
         body.setTextColor(TEXT);
@@ -1673,7 +1678,7 @@ public final class LauncherActivity extends Activity {
         send.setType("text/plain");
         send.putExtra(Intent.EXTRA_SUBJECT, "log.txt");
         send.putExtra(Intent.EXTRA_TEXT, text);
-        startActivity(Intent.createChooser(send, "Compartilhar log"));
+        startActivity(Intent.createChooser(send, localized("Compartilhar log")));
     }
 
     private void clearLog() {
