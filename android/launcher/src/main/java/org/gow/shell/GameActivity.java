@@ -472,7 +472,7 @@ public final class GameActivity extends SDLActivity {
      * setas = direcional, Z/X/A/S = cruz/bolinha/quadrado/triangulo, Q/W = L/R,
      * Espaco = Start, V = Select, I/K/J/L = analogico (digital, tudo ou nada).
      */
-    static final class TouchControls extends View {
+    final class TouchControls extends View {
         interface Sink {
             void down(int keyCode);
             void up(int keyCode);
