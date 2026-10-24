@@ -1164,7 +1164,7 @@ public final class LauncherActivity extends Activity {
         e.apply();
         writeArgs();
         String line = readArgsLine();
-        toast(localized("Salvo. Vale ao tocar em JOGAR.\\nargs.txt: ") + (line.isEmpty() ? localized("(vazio)") : line));
+        toast(localized("Salvo. Vale ao tocar em JOGAR.") + "\nargs.txt: " + (line.isEmpty() ? localized("(vazio)") : line));
         showMain();
     }
 
