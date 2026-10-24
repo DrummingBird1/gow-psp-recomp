@@ -98,6 +98,8 @@ jobs:
           "$AR" rc stubs/librt.a
           mkdir -p build/deps
           ln -sfn "$PWD/SDL" "build/deps/SDL3-${SDL_COMMIT}"
+          # Marca o checkout SDL já disponível para o FetchContent reutilizá-lo, sem tentar renomear por cima do symlink.
+          touch "build/deps/SDL3-${SDL_COMMIT}/.gow_complete"
           cmake -S . -B build/cmake_android -G Ninja \
             -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
