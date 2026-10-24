@@ -391,6 +391,7 @@ public final class LauncherActivity extends Activity {
 
             case "Escala de resolução": return "Resolution scale";
             case "Esticada": return "Stretched";
+            case "Limite de FPS": return "FPS limit";
             case "Estilo": return "Style";
             case "Opacidade": return "Opacity";
             case "Salvo. Vale ao tocar em JOGAR.\\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\\nargs.txt: ";
