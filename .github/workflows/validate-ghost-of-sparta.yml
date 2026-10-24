@@ -1,0 +1,51 @@
+name: "Validar ISO Ghost of Sparta (privado)"
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-ghost-of-sparta:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Baixar ISO privada do Drive
+        env:
+          GOW_GOS_DISC_URL: ${{ secrets.GOW_GOS_DISC_URL }}
+        run: |
+          set -euo pipefail
+          test -n "$GOW_GOS_DISC_URL" || { echo "::error::Configure o secret GOW_GOS_DISC_URL antes de executar."; exit 1; }
+          python3 -m pip install --break-system-packages -q --upgrade gdown
+          OK=0
+          for ATTEMPT in 1 2 3; do
+            rm -f ghost-of-sparta.iso
+            if timeout 180s gdown "$GOW_GOS_DISC_URL" -O ghost-of-sparta.iso; then
+              SIZE=$(stat -c%s ghost-of-sparta.iso 2>/dev/null || echo 0)
+              if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
+            fi
+            echo "Download falhou na tentativa $ATTEMPT/3."
+            sleep 5
+          done
+          test "$OK" -eq 1 || { echo "::error::Não foi possível baixar uma ISO válida do Drive."; exit 1; }
+          echo "Download concluído; tamanho: $(stat -c%s ghost-of-sparta.iso) bytes"
+          file ghost-of-sparta.iso
+
+      - name: Compilar ferramenta de validação do disco
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/cmake_tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DGOW_TOOLS_ONLY=ON
+          cmake --build build/cmake_tools --target gow_disc --parallel
+          test -n "$(find build/cmake_tools -name gow_disc -type f -print -quit)"
+
+      - name: Confirmar ID e descriptografar EBOOT para teste
+        run: |
+          set -euo pipefail
+          DISC_TOOL="$(find build/cmake_tools -name gow_disc -type f -print -quit)"
+          mkdir -p build/ghost-test
+          "$DISC_TOOL" --disc ghost-of-sparta.iso --id --decrypt-eboot build/ghost-test/UCUS98737_EBOOT.BIN
+          test -s build/ghost-test/UCUS98737_EBOOT.BIN
+          echo "ISO validada para UCUS98737; EBOOT extraído com sucesso."
