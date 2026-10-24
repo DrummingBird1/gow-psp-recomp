@@ -816,7 +816,7 @@ public final class LauncherActivity extends Activity {
         File iso = new File(gameDir(), "game.iso");
         boolean imageOk = image.isFile() && image.length() > 0;
         boolean isoOk = iso.isFile() && iso.length() > 0;
-        status.setText(localized("Pasta: Android/data/org.gow.shell/files\\n")
+        status.setText(localized("Pasta: Android/data/org.gow.shell/files") + "\n"
                 + (imageOk ? "\u2713 image.bin" : "\u2022 image.bin pendente") + "   "
                 + (isoOk ? "\u2713 game.iso" : "\u2022 game.iso pendente"));
         status.setTextColor(imageOk && isoOk ? GREEN : MUTED);
