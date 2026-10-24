@@ -158,11 +158,11 @@ jobs:
           "$BUILD_TOOLS/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" \
             --ks-pass env:SIGN_PASS --key-pass env:SIGN_PASS \
             --out "$RUNNER_TEMP/GodOfWar-GhostOfSparta-test.apk" "$RUNNER_TEMP/aligned.apk"
-          "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Launcher-test.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-GhostOfSparta-test.apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: GodOfWar-GhostOfSparta-apk-${{ github.run_number }}
-          path: ${{ runner.temp }}/GodOfWar-PSP-Recomp-Launcher-test.apk
+          path: ${{ runner.temp }}/GodOfWar-GhostOfSparta-test.apk
           if-no-files-found: error
           retention-days: 1
