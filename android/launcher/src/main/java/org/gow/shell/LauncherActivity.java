@@ -391,8 +391,6 @@ public final class LauncherActivity extends Activity {
 
             case "Escala de resolução": return "Resolution scale";
             case "Esticada": return "Stretched";
-            case "Esq.": return "Left";
-            case "Dir.": return "Right";
             case "Estilo": return "Style";
             case "Opacidade": return "Opacity";
             case "Salvo. Vale ao tocar em JOGAR.\\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\\nargs.txt: ";
@@ -407,12 +405,10 @@ public final class LauncherActivity extends Activity {
             case "Ver release": return "View release";
             case "Não foi possível baixar o APK: ": return "Could not download APK: ";
             case "O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir.": return "The APK has been downloaded. Allow this app to install APKs in Android settings, then return and tap Check for updates to finish.";
-            case "Ative a permissão de instalação nas configurações do Android.": return "Enable install permission in Android settings.";
             case "Nenhum navegador encontrado.": return "No browser found.";
             case "Salvo. Vale ao tocar em JOGAR.": return "Saved. Takes effect when you tap PLAY.";
             case "Cruz": return "Cross";
             case "Quadrado": return "Square";
-            case "Triângulo": return "Triangle";
             case "Backup": return "Back up";
             case "Ver": return "View";
             case "Compartilhar": return "Share";
@@ -421,7 +417,6 @@ public final class LauncherActivity extends Activity {
             case "Idioma Português selecionado.": return "Portuguese selected.";
             case "Saves restaurados.": return "Save data restored.";
             case "Log apagado.": return "Log deleted.";
-            case "Não foi possível apagar o log.": return "Could not delete the log.";
             case "args.txt salvo.": return "args.txt saved.";
             case "Este app usa a biblioteca SDL (licença zlib).\\n\\n": return "This app uses the SDL library (zlib license).\\n\\n";
             case "Pasta: Android/data/org.gow.shell/files\\n": return "Folder: Android/data/org.gow.shell/files\\n";
@@ -430,7 +425,6 @@ public final class LauncherActivity extends Activity {
             case " pendente": return " missing";
             case "image.bin — ": return "image.bin — ";
             case "Restaurar o backup ": return "Restore backup ";
-            case "Saves restaurados.": return "Save data restored.";
             case "Falha ao importar ": return "Failed to import ";
             case " instalado (": return " installed (";
             case " MB).": return " MB).";
@@ -441,8 +435,15 @@ public final class LauncherActivity extends Activity {
             case "Falha ao baixar o APK: ": return "Failed to download APK: ";
             case "Restaurar o backup": return "Restore backup";
             case "Versão": return "Version";
-            case "Projeto no GitHub": return "Project on GitHub";
             case "O app fará uma cópia na pasta privada dele.": return "The app will copy it to its private folder.";
+
+
+            case "Exibição compacta em uma linha": return "Compact single-line display";
+            case "Posicionar à direita": return "Align right";
+            case "Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar.": return "Enter edit mode and drag the button you want. Tap Finish to save.";
+            case "Salvar": return "Save";
+            case "Backup criado: backup_saves/": return "Backup created: backup_saves/";
+            case "Nenhum log encontrado ainda.": return "No log found yet.";
 
             default: return value;
         }
@@ -855,7 +856,7 @@ public final class LauncherActivity extends Activity {
         try {
             startActivityForResult(pick, requestCode);
         } catch (ActivityNotFoundException e) {
-            toast("Não foi possível abrir o seletor de arquivos.");
+            toast(localized("Não foi possível abrir o seletor de arquivos."));
         }
     }
 
@@ -886,10 +887,10 @@ public final class LauncherActivity extends Activity {
         String pickedName = displayName(uri);
         String requiredExtension = expectedName.endsWith(".iso") ? ".iso" : ".bin";
         if (pickedName == null || !pickedName.toLowerCase(Locale.US).endsWith(requiredExtension)) {
-            toast("Selecione um arquivo " + requiredExtension + " para " + expectedName + ".");
+            toast(localized("Selecione um arquivo ") + requiredExtension + localized(" para ") + expectedName + ".");
             return;
         }
-        toast("Copiando " + pickedName + " para o armazenamento do app...");
+        toast(localized("Copiando ") + pickedName + localized(" para o armazenamento do app..."));
         new Thread(() -> {
             File dir = gameDir();
             File temp = new File(dir, expectedName + ".importing");
@@ -932,14 +933,14 @@ public final class LauncherActivity extends Activity {
                     toast(expectedName + " instalado (" + new File(dir, expectedName).length() / 1048576L + " MB).");
                     if ("main".equals(current) && status != null) refreshStatus();
                 } else {
-                    toast("Falha ao importar " + expectedName + ": " + failure);
+                    toast(localized("Falha ao importar ") + expectedName + ": " + failure);
                 }
             });
         }, "gow-file-import").start();
     }
 
     private void checkForUpdates() {
-        toast("Verificando atualizações...");
+        toast(localized("Verificando atualizações..."));
         new Thread(() -> {
             HttpURLConnection connection = null;
             try {
@@ -1003,7 +1004,7 @@ public final class LauncherActivity extends Activity {
     }
 
     private void downloadUpdate(String apkUrl, String apkName) {
-        toast("Baixando atualização...");
+        toast(localized("Baixando atualização..."));
         new Thread(() -> {
             File target = null;
             HttpURLConnection connection = null;
@@ -1035,7 +1036,7 @@ public final class LauncherActivity extends Activity {
                             .setMessage(localized("O APK foi baixado. Permita que este aplicativo instale APKs nas configurações do Android; depois volte e toque em Verificar atualizações para concluir."))
                             .setPositiveButton(localized("Abrir permissões"), (d, w) -> {
                                 try { startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName()))); }
-                                catch (Exception e) { toast("Ative a permissão de instalação nas configurações do Android."); }
+                                catch (Exception e) { toast(localized("Ative a permissão de instalação nas configurações do Android.")); }
                             }).setNegativeButton(localized("Fechar"), null).show();
                         return;
                     }
@@ -1056,7 +1057,7 @@ public final class LauncherActivity extends Activity {
             install.setDataAndType(uri, "application/vnd.android.package-archive");
             install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(install);
-        } catch (Exception e) { toast("Não foi possível abrir o instalador do Android."); }
+        } catch (Exception e) { toast(localized("Não foi possível abrir o instalador do Android.")); }
     }
     private String normalizeVersion(String version) {
         String value = version == null ? "" : version.trim().toLowerCase(Locale.US);
@@ -1069,7 +1070,7 @@ public final class LauncherActivity extends Activity {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         } catch (ActivityNotFoundException e) {
-            toast("Nenhum navegador encontrado.");
+            toast(localized("Nenhum navegador encontrado."));
         }
     }
 
@@ -1379,7 +1380,7 @@ public final class LauncherActivity extends Activity {
                         }
                     }
                     editor.apply();
-                    toast("Posições originais restauradas.");
+                    toast(localized("Posições originais restauradas."));
                     showControls();
                 } }, false), false));
         showScreen("controls", "Controles", left, right);
@@ -1456,7 +1457,7 @@ public final class LauncherActivity extends Activity {
             SharedPreferences.Editor e = p.edit();
             for (String key : keys) e.remove(key);
             e.apply();
-            toast("Mapeamento padrão restaurado. Vale ao abrir o jogo novamente.");
+            toast(localized("Mapeamento padrão restaurado. Vale ao abrir o jogo novamente."));
             showButtonMapping(p);
         }), withBottom(dp(8)));
 
@@ -1564,14 +1565,14 @@ public final class LauncherActivity extends Activity {
     private void backupSaves() {
         final File src = savesDir();
         if (!src.isDirectory()) {
-            toast("Nenhum save encontrado ainda.");
+            toast(localized("Nenhum save encontrado ainda."));
             return;
         }
         final String stamp = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
         final File dst = new File(backupsDir(), stamp);
         new Thread(() -> {
             final boolean ok = copyTree(src, dst);
-            runOnUiThread(() -> toast(ok ? "Backup criado: backup_saves/" + stamp
+            runOnUiThread(() -> toast(ok ? localized("Backup criado: backup_saves/") + stamp
                     : "Falha ao criar o backup."));
         }).start();
     }
@@ -1579,7 +1580,7 @@ public final class LauncherActivity extends Activity {
     private void restoreSaves() {
         File[] backups = backupsDir().listFiles();
         if (backups == null || backups.length == 0) {
-            toast("Nenhum backup encontrado.");
+            toast(localized("Nenhum backup encontrado."));
             return;
         }
         Arrays.sort(backups);
@@ -1630,7 +1631,7 @@ public final class LauncherActivity extends Activity {
     private void shareLog() {
         String text = readLog(200000);
         if (text.isEmpty()) {
-            toast("Nenhum log encontrado ainda.");
+            toast(localized("Nenhum log encontrado ainda."));
             return;
         }
         Intent send = new Intent(Intent.ACTION_SEND);
@@ -1642,7 +1643,7 @@ public final class LauncherActivity extends Activity {
 
     private void clearLog() {
         if (!logFile().isFile()) {
-            toast("Nenhum log para limpar.");
+            toast(localized("Nenhum log para limpar."));
             return;
         }
         dialog().setTitle(localized("LIMPAR LOG"))
@@ -1669,7 +1670,7 @@ public final class LauncherActivity extends Activity {
                 .setNegativeButton(localized("CANCELAR"), null)
                 .setPositiveButton(localized("SALVAR"), (d, w) -> {
                     saveArgsRaw(input.getText().toString());
-                    toast("args.txt salvo.");
+                    toast(localized("args.txt salvo."));
                     showExtras();
                 })
                 .show();
@@ -1691,7 +1692,7 @@ public final class LauncherActivity extends Activity {
                 13, MUTED, false), withBottom(dp(14)));
         confirm.addView(button("RESTAURAR AGORA", true, () -> {
             resetDefaults();
-            toast("Padrões restaurados.");
+            toast(localized("Padrões restaurados."));
             showExtras();
         }), matchWrap());
         right.addView(confirm, matchWrap());
@@ -1742,7 +1743,7 @@ public final class LauncherActivity extends Activity {
         try {
             startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)));
         } catch (ActivityNotFoundException e) {
-            toast("Nenhum navegador encontrado.");
+            toast(localized("Nenhum navegador encontrado."));
         }
     }
 
