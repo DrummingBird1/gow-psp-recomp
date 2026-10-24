@@ -65,6 +65,22 @@ public final class GameActivity extends SDLActivity {
             case "Salvar": return "Save";
             case "Fechar": return "Close";
             case "Restaurar": return "Restore";
+            case "GAME MENU": return "GAME MENU";
+            case "TOQUE E ARRASTE CADA BOTÃO": return "TAP AND DRAG EACH BUTTON";
+            case "EDITANDO: ": return "EDITING: ";
+            case "CIMA": return "UP";
+            case "BAIXO": return "DOWN";
+            case "ESQUERDA": return "LEFT";
+            case "DIREITA": return "RIGHT";
+            case "CRUZ": return "CROSS";
+            case "CÍRCULO": return "CIRCLE";
+            case "QUADRADO": return "SQUARE";
+            case "TRIÂNGULO": return "TRIANGLE";
+            case "ANALÓGICO": return "ANALOG STICK";
+            case "ANALÓGICO BAIXO": return "ANALOG DOWN";
+            case "ANALÓGICO ESQUERDA": return "ANALOG LEFT";
+            case "ANALÓGICO DIREITA": return "ANALOG RIGHT";
+
             default: return value;
         }
     }
@@ -303,7 +319,7 @@ public final class GameActivity extends SDLActivity {
 
     private android.widget.Switch hudSwitch(String label, String key, boolean defaultValue) {
         android.widget.Switch toggle = new android.widget.Switch(this);
-        toggle.setText(label);
+        toggle.setText(localized(label));
         toggle.setTextColor(Color.WHITE);
         toggle.setChecked(prefs.getBoolean(key, defaultValue));
         return toggle;
@@ -616,13 +632,13 @@ public final class GameActivity extends SDLActivity {
 
         private String controlName(int id) {
             switch (id) {
-                case UP: return "CIMA"; case DOWN: return "BAIXO"; case LEFT: return "ESQUERDA"; case RIGHT: return "DIREITA";
-                case CROSS: return xbox ? "A" : "CRUZ"; case CIRCLE: return xbox ? "B" : "CÍRCULO";
-                case SQUARE: return xbox ? "X" : "QUADRADO"; case TRIANGLE: return xbox ? "Y" : "TRIÂNGULO";
+                case UP: return localized("CIMA"); case DOWN: return localized("BAIXO"); case LEFT: return localized("ESQUERDA"); case RIGHT: return localized("DIREITA");
+                case CROSS: return xbox ? "A" : localized("CRUZ"); case CIRCLE: return xbox ? "B" : localized("CÍRCULO");
+                case SQUARE: return xbox ? "X" : localized("QUADRADO"); case TRIANGLE: return xbox ? "Y" : localized("TRIÂNGULO");
                 case BL: return xbox ? "LB" : "L"; case BR: return xbox ? "RB" : "R";
                 case START: return xbox ? "MENU" : "START"; case SELECT: return xbox ? "VIEW" : "SELECT";
-                case SUP: return "ANALÓGICO"; case SDOWN: return "ANALÓGICO BAIXO";
-                case SLEFT: return "ANALÓGICO ESQUERDA"; default: return "ANALÓGICO DIREITA";
+                case SUP: return localized("ANALÓGICO"); case SDOWN: return localized("ANALÓGICO BAIXO");
+                case SLEFT: return localized("ANALÓGICO ESQUERDA"); default: return localized("ANALÓGICO DIREITA");
             }
         }
 
@@ -847,8 +863,8 @@ public final class GameActivity extends SDLActivity {
             c.save(); c.translate(posX[START],posY[START]); pill(c,rStart,xbox?"MENU":"START",held[START],15*d,11*d); c.restore();
             if(editLayout) {
                 text.setColor(Color.argb(230,255,255,255)); text.setTextSize(12*d);
-                c.drawText("TOQUE E ARRASTE CADA BOTÃO",getWidth()/2f,28*d,text);
-                if(selectedControl>=0) { text.setColor(Color.rgb(235,70,85)); c.drawText("EDITANDO: "+controlName(selectedControl),getWidth()/2f,46*d,text); }
+                c.drawText(localized("TOQUE E ARRASTE CADA BOTÃO"),getWidth()/2f,28*d,text);
+                if(selectedControl>=0) { text.setColor(Color.rgb(235,70,85)); c.drawText(localized("EDITANDO: ")+controlName(selectedControl),getWidth()/2f,46*d,text); }
             }
             c.restore();
         }
