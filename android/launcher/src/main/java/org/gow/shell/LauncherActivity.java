@@ -461,6 +461,25 @@ public final class LauncherActivity extends Activity {
             case "Selecione ": return "Select ";
             case "(vazio)": return "(empty)";
 
+            case "Abra uma partida": return "Start a game";
+            case "Puxe a aba lateral na borda direita": return "Pull the side tab on the right edge";
+            case "Entendi": return "Got it";
+            case "Vale na próxima vez que tocar em JOGAR": return "Takes effect the next time you tap PLAY";
+            case "Não foi possível criar o backup.": return "Could not create the backup.";
+            case "Salvo. Vale ao tocar em JOGAR.\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\nargs.txt: ";
+            case "Quadro": return "Frame time";
+            case "RAM utilizada": return "RAM used";
+            case "● Conectado": return "● Connected";
+            case "Editor de controles na tela": return "On-screen controls editor";
+            case "Licenças": return "Licenses";
+            case "Este app usa a biblioteca SDL (licença zlib).\n\nA lista completa de componentes está no repositório do projeto.": return "This app uses the SDL library (zlib license).\n\nThe full component list is available in the project repository.";
+            case "É necessário ter sua própria cópia do jogo.": return "You must provide your own copy of the game.";
+            case "Projeto não oficial, sem afiliação com a Sony.\nÉ necessário ter sua própria cópia do jogo.": return "Unofficial project, not affiliated with Sony.\nYou must provide your own copy of the game.";
+            case "Folder: Android/data/org.gow.shell/files": return "Folder: Android/data/org.gow.shell/files";
+            case "Português selecionado.": return "Portuguese selected.";
+            case "Este app usa a biblioteca SDL (licença zlib).": return "This app uses the SDL library (zlib license).";
+            case "Este app usa a biblioteca SDL (licença zlib).\n\n": return "This app uses the SDL library (zlib license).\n\n";
+
             default: return value;
         }
     }
@@ -946,7 +965,7 @@ public final class LauncherActivity extends Activity {
             final String failure = error;
             runOnUiThread(() -> {
                 if (failure == null) {
-                    toast(expectedName + " instalado (" + new File(dir, expectedName).length() / 1048576L + " MB).");
+                    toast(localized(expectedName + " instalado (") + new File(dir, expectedName).length() / 1048576L + localized(" MB)."));
                     if ("main".equals(current) && status != null) refreshStatus();
                 } else {
                     toast(localized("Falha ao importar ") + expectedName + ": " + failure);
@@ -1666,7 +1685,7 @@ public final class LauncherActivity extends Activity {
                 .setMessage(localized("Apagar o log.txt da \u00faltima sess\u00e3o?"))
                 .setNegativeButton(localized("CANCELAR"), null)
                 .setPositiveButton(localized("LIMPAR"), (d, w) -> {
-                    toast(logFile().delete() ? "Log apagado." : "N\u00e3o foi poss\u00edvel apagar o log.");
+                    toast(logFile().delete() ? localized("Log apagado.") : localized("N\u00e3o foi poss\u00edvel apagar o log."));
                 })
                 .show();
     }
