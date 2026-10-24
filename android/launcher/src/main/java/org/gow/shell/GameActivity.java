@@ -43,6 +43,33 @@ public final class GameActivity extends SDLActivity {
     private static native double nativeGetFps();
     private static native double nativeGetFrameMs();
 
+    private String localized(String value) {
+        if (!"en".equals(getSharedPreferences("gow_settings", MODE_PRIVATE)
+                .getString("launcher_language", "pt"))) return value;
+        switch (value) {
+            case "MENU DO JOGO": return "GAME MENU";
+            case "Sair do game": return "Exit game";
+            case "Editar controles na tela": return "Edit on-screen controls";
+            case "Editar HUD de FPS": return "Edit FPS HUD";
+            case "Concluir edição": return "Finish editing";
+            case "Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar.": return "Enter edit mode and drag the button you want. Tap Finish to save.";
+            case "Editar": return "Edit";
+            case "Cancelar": return "Cancel";
+            case "Exibição compacta em uma linha": return "Compact single-line display";
+            case "Posicionar à direita": return "Align right";
+            case "Opacidade do HUD": return "HUD opacity";
+            case "Mostrar HUD de desempenho": return "Show performance HUD";
+            case "Tempo de quadro": return "Frame time";
+            case "RAM utilizada": return "RAM used";
+            case "Quadro": return "Frame time";
+            case "Salvar": return "Save";
+            case "Fechar": return "Close";
+            case "Restaurar": return "Restore";
+            default: return value;
+        }
+    }
+
+
     @Override
     protected String[] getLibraries() {
         return new String[] { "SDL3", "main" };
@@ -120,21 +147,21 @@ public final class GameActivity extends SDLActivity {
         gameDrawer.setBackground(drawerBackground());
         gameDrawer.setElevation(dp(41));
         TextView title = new TextView(this);
-        title.setText("MENU DO JOGO");
+        title.setText(localized("MENU DO JOGO"));
         title.setTextColor(Color.rgb(235, 70, 85));
         title.setTextSize(15);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         gameDrawer.addView(title, new LinearLayout.LayoutParams(-1, dp(42)));
-        addDrawerButton("Sair do game", () -> { if (controls != null) controls.releaseAll(); finish(); });
-        addDrawerButton("Editar controles na tela", this::showInGameControlEditor);
-        addDrawerButton("Editar HUD de FPS", this::showInGameHudEditor);
+        addDrawerButton(localized("Sair do game"), () -> { if (controls != null) controls.releaseAll(); finish(); });
+        addDrawerButton(localized("Editar controles na tela"), this::showInGameControlEditor);
+        addDrawerButton(localized("Editar HUD de FPS"), this::showInGameHudEditor);
         FrameLayout.LayoutParams drawerLp = new FrameLayout.LayoutParams(dp(270), -1, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         drawerLp.setMargins(0, dp(12), dp(28), dp(12));
         gameDrawer.setVisibility(View.GONE);
         addContentView(gameDrawer, drawerLp);
 
         finishEditButton = new Button(this);
-        finishEditButton.setText("Concluir edição");
+        finishEditButton.setText(localized("Concluir edição"));
         finishEditButton.setAllCaps(false);
         finishEditButton.setTextColor(Color.WHITE);
         finishEditButton.setBackground(drawerBackground());
@@ -208,22 +235,22 @@ public final class GameActivity extends SDLActivity {
         final String[] profiles = { "PlayStation", "Xbox" };
         int current = "xbox".equals(prefs.getString("ctl_style", "ps")) ? 1 : 0;
         android.app.AlertDialog profileDialog = new android.app.AlertDialog.Builder(this)
-                .setTitle("Editar controles na tela")
+                .setTitle(localized("Editar controles na tela"))
                 .setSingleChoiceItems(profiles, current, (dialog, which) -> {
                     prefs.edit().putString("ctl_style", which == 1 ? "xbox" : "ps").apply();
                     if (controls != null) controls.setControllerStyle(which == 1);
                     dialog.dismiss();
                     android.app.AlertDialog editDialog = new android.app.AlertDialog.Builder(this)
                              .setTitle(profiles[which])
-                            .setMessage("Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar.")
-                            .setPositiveButton("Editar", (d, w) -> {
+                            .setMessage(localized("Entre no modo de edição e arraste o botão desejado. Toque em Concluir para salvar."))
+                            .setPositiveButton(localized("Editar"), (d, w) -> {
                                 if (controls != null) controls.setEditMode(true);
                                 if (finishEditButton != null) finishEditButton.setVisibility(View.VISIBLE);
                             })
-                            .setNegativeButton("Cancelar", null).create();
+                            .setNegativeButton(localized("Cancelar"), null).create();
                     editDialog.show();
                     styleGameDialog(editDialog);
-                }).setNegativeButton("Cancelar", null).create();
+                }).setNegativeButton(localized("Cancelar"), null).create();
         profileDialog.show();
         styleGameDialog(profileDialog);
     }
@@ -238,17 +265,17 @@ public final class GameActivity extends SDLActivity {
         android.widget.Switch frame = hudSwitch("Tempo de quadro", "performance_hud_frame_time", true);
         android.widget.Switch ram = hudSwitch("RAM utilizada", "performance_hud_ram", true);
         android.widget.Switch compact = new android.widget.Switch(this);
-        compact.setText("Exibição compacta em uma linha");
+        compact.setText(localized("Exibição compacta em uma linha"));
         compact.setTextColor(Color.WHITE);
         compact.setChecked(prefs.getInt("performance_hud_style", 0) == 1);
         android.widget.Switch right = new android.widget.Switch(this);
-        right.setText("Posicionar à direita");
+        right.setText(localized("Posicionar à direita"));
         right.setTextColor(Color.WHITE);
         right.setChecked(prefs.getInt("performance_hud_position", 0) == 1);
         box.addView(enabled); box.addView(fps); box.addView(frame); box.addView(ram);
         box.addView(compact); box.addView(right);
         TextView opacityLabel = new TextView(this);
-        opacityLabel.setText("Opacidade do HUD");
+        opacityLabel.setText(localized("Opacidade do HUD"));
         opacityLabel.setTextColor(Color.WHITE);
         box.addView(opacityLabel);
         SeekBar opacity = new SeekBar(this);
@@ -259,8 +286,8 @@ public final class GameActivity extends SDLActivity {
             opacity.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235,70,85)));
         }
         box.addView(opacity);
-        android.app.AlertDialog hudDialog = new android.app.AlertDialog.Builder(this).setTitle("Editar HUD de FPS").setView(box)
-                .setPositiveButton("Salvar", (d, w) -> {
+        android.app.AlertDialog hudDialog = new android.app.AlertDialog.Builder(this).setTitle(localized("Editar HUD de FPS")).setView(box)
+                .setPositiveButton(localized("Salvar"), (d, w) -> {
                     prefs.edit().putBoolean("performance_hud_enabled", enabled.isChecked())
                             .putBoolean("performance_hud_fps", fps.isChecked())
                             .putBoolean("performance_hud_frame_time", frame.isChecked())
@@ -269,7 +296,7 @@ public final class GameActivity extends SDLActivity {
                             .putInt("performance_hud_position", right.isChecked() ? 1 : 0)
                             .putInt("performance_hud_opacity", opacity.getProgress()).apply();
                     refreshPerformanceHud();
-                }).setNegativeButton("Cancelar", null).create();
+                }).setNegativeButton(localized("Cancelar"), null).create();
         hudDialog.show();
         styleGameDialog(hudDialog);
     }
@@ -339,18 +366,18 @@ public final class GameActivity extends SDLActivity {
             ramGb = memory.getTotalPss() / (1024.0 * 1024.0);
         }
         String fpsValue = fps > 0 ? String.format(Locale.US, "%.0f", fps) : "--";
-        String frameValue = frameMs > 0 ? String.format(Locale.forLanguageTag("pt-BR"), "%.1f ms", frameMs) : "-- ms";
-        String ramValue = String.format(Locale.forLanguageTag("pt-BR"), "%.1f GB", ramGb);
+        String frameValue = frameMs > 0 ? String.format("en".equals(prefs.getString("launcher_language", "pt")) ? Locale.US : Locale.forLanguageTag("pt-BR"), "%.1f ms", frameMs) : "-- ms";
+        String ramValue = String.format("en".equals(prefs.getString("launcher_language", "pt")) ? Locale.US : Locale.forLanguageTag("pt-BR"), "%.1f GB", ramGb);
         boolean compact = prefs.getInt("performance_hud_style", 0) == 1;
         StringBuilder value = new StringBuilder();
         if (compact) {
             if (showFps) value.append("FPS ").append(fpsValue);
-            if (showFrame) { if (value.length() > 0) value.append("  ·  "); value.append("Quadro ").append(frameValue); }
+            if (showFrame) { if (value.length() > 0) value.append("  ·  "); value.append(localized("Quadro")).append(" ").append(frameValue); }
             if (showRam) { if (value.length() > 0) value.append("  ·  "); value.append("RAM ").append(ramValue); }
         } else {
             if (showFps) value.append("FPS  ").append(fpsValue);
-            if (showFrame) { if (value.length() > 0) value.append("\n"); value.append("Tempo de quadro  ").append(frameValue); }
-            if (showRam) { if (value.length() > 0) value.append("\n"); value.append("RAM utilizada  ").append(ramValue); }
+            if (showFrame) { if (value.length() > 0) value.append("\n"); value.append(localized("Tempo de quadro")).append("  ").append(frameValue); }
+            if (showRam) { if (value.length() > 0) value.append("\n"); value.append(localized("RAM utilizada")).append("  ").append(ramValue); }
         }
         performanceHud.setText(value.toString());
         performanceHud.setAlpha(Math.max(0.2f, Math.min(1f,
