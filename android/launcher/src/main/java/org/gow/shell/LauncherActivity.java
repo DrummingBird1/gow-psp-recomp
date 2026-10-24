@@ -472,6 +472,8 @@ public final class LauncherActivity extends Activity {
             case "● Conectado": return "● Connected";
             case "Editor de controles na tela": return "On-screen controls editor";
             case "Licenças": return "Licenses";
+            case "Não foi possível ler o log: ": return "Could not read the log: ";
+            case ". Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout.": return ". Choose what each button does. Change the profile on the Controls screen to configure the other layout.";
             case "Versão instalada: ": return "Installed version: ";
             case "Última release: ": return "Latest release: ";
             case "Você está na versão mais recente publicada.": return "You are on the latest published version.";
@@ -1490,7 +1492,7 @@ public final class LauncherActivity extends Activity {
         LinearLayout left = column();
         LinearLayout info = card();
         info.addView(tv("MAPEAMENTO PERSONALIZADO", 12, ROSE, true), withBottom(dp(8)));
-        info.addView(tv("Perfil " + ("xbox".equals(profile) ? "Xbox" : "PlayStation") + ". Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout.",
+        info.addView(tv(localized("Perfil ") + ("xbox".equals(profile) ? "Xbox" : "PlayStation") + localized(". Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout."),
                 14, TEXT, false), matchWrap());
         left.addView(info, withBottom(dp(12)));
         left.addView(button("Restaurar padrão", false, () -> {
@@ -1648,7 +1650,7 @@ public final class LauncherActivity extends Activity {
             String line;
             while ((line = reader.readLine()) != null) out.append(line).append('\n');
         } catch (Exception e) {
-            return "N\u00e3o foi poss\u00edvel ler o log: " + e.getMessage();
+            return localized("Não foi possível ler o log: ") + e.getMessage();
         }
         if (out.length() > maxChars) return out.substring(out.length() - maxChars);
         return out.toString();
