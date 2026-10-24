@@ -476,7 +476,7 @@ public final class LauncherActivity extends Activity {
             case ". Escolha qual ação cada botão representa. Altere o perfil na tela Controles para configurar o outro layout.": return ". Choose what each button does. Change the profile on the Controls screen to configure the other layout.";
             case "Versão instalada: ": return "Installed version: ";
             case "Última release: ": return "Latest release: ";
-            case "Você está na versão mais recente publicada.": return "You are on the latest published version.";
+
             case "Nova release: ": return "New release: ";
             case "Baixe o APK para atualizar pelo instalador do Android.": return "Download the APK to update using the Android installer.";
             case "Este app usa a biblioteca SDL (licença zlib).\n\nA lista completa de componentes está no repositório do projeto.": return "This app uses the SDL library (zlib license).\n\nThe full component list is available in the project repository.";
