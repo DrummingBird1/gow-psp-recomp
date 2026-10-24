@@ -445,6 +445,14 @@ public final class LauncherActivity extends Activity {
             case "Backup criado: backup_saves/": return "Backup created: backup_saves/";
             case "Nenhum log encontrado ainda.": return "No log found yet.";
 
+
+            case "CANCELAR": return "CANCEL";
+            case "RESTAURAR": return "RESTORE";
+            case "LIMPAR": return "CLEAR";
+            case "SALVAR": return "SAVE";
+            case "Os saves atuais serão sobrescritos.": return "Current save data will be overwritten.";
+            case "Compartilhar log": return "Share log";
+
             default: return value;
         }
     }
