@@ -453,6 +453,14 @@ public final class LauncherActivity extends Activity {
             case "Os saves atuais serão sobrescritos.": return "Current save data will be overwritten.";
             case "Compartilhar log": return "Share log";
 
+
+            case "Pendente": return "Missing";
+            case "Pronto (%.1f GB)": return "Ready (%.1f GB)";
+            case "Pronto (%.1f MB)": return "Ready (%.1f MB)";
+            case "image.bin: ": return "image.bin: ";
+            case "Selecione ": return "Select ";
+            case "(vazio)": return "(empty)";
+
             default: return value;
         }
     }
@@ -817,8 +825,8 @@ public final class LauncherActivity extends Activity {
         boolean imageOk = image.isFile() && image.length() > 0;
         boolean isoOk = iso.isFile() && iso.length() > 0;
         status.setText(localized("Pasta: Android/data/org.gow.shell/files") + "\n"
-                + (imageOk ? "\u2713 image.bin" : "\u2022 image.bin pendente") + "   "
-                + (isoOk ? "\u2713 game.iso" : "\u2022 game.iso pendente"));
+                + (imageOk ? "\u2713 image.bin" : "\u2022 image.bin " + localized("Pendente")) + "   "
+                + (isoOk ? "\u2713 game.iso" : "\u2022 game.iso " + localized("Pendente")));
         status.setTextColor(imageOk && isoOk ? GREEN : MUTED);
     }
 
@@ -829,8 +837,8 @@ public final class LauncherActivity extends Activity {
         if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
             dialog().setTitle(localized("Arquivos do jogo"))
                      .setMessage(localized("game.iso: ") + (iso.isFile() && iso.length() > 0 ? localized("pronto") : localized("pendente"))
-                            + "\nimage.bin: " + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
-                            + "\n\nO jogo pode não iniciar sem os arquivos necessários.")
+                            + "\n" + localized("image.bin: ") + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
+                            + "\n\n" + localized("O jogo pode não iniciar sem os arquivos necessários."))
                     .setNegativeButton(localized("Voltar"), null)
                     .setNeutralButton(localized("Instalar arquivos"), (d, w) -> showGameFiles())
                     .setPositiveButton(localized("Tentar jogar"), (d, w) -> startActivity(new Intent(this, GameActivity.class)))
@@ -844,12 +852,12 @@ public final class LauncherActivity extends Activity {
         File iso = new File(gameDir(), "game.iso");
         File image = new File(gameDir(), "image.bin");
         String isoState = iso.isFile() && iso.length() > 0
-                ? String.format(Locale.US, "Pronto (%.1f GB)", iso.length() / 1073741824.0) : "Pendente";
+                ? String.format(Locale.US, localized("Pronto (%.1f GB)"), iso.length() / 1073741824.0) : localized("Pendente");
         String imageState = image.isFile() && image.length() > 0
-                ? String.format(Locale.US, "Pronto (%.1f MB)", image.length() / 1048576.0) : "Pendente";
+                ? String.format(Locale.US, localized("Pronto (%.1f MB)"), image.length() / 1048576.0) : localized("Pendente");
         dialog().setTitle(localized("Instalar arquivos do jogo"))
                 .setMessage(localized("game.iso — ") + isoState + "\n" + localized("image.bin — ") + imageState
-                        + "\n\nSelecione seus próprios arquivos. O app fará uma cópia na pasta privada dele.")
+                        + "\n\n" + localized("Selecione seus próprios arquivos. O app fará uma cópia na pasta privada dele."))
                 .setPositiveButton(localized("Selecionar game.iso"), (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
                 .setNeutralButton(localized("Selecionar image.bin"), (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
                 .setNegativeButton(localized("Fechar"), null)
@@ -860,7 +868,7 @@ public final class LauncherActivity extends Activity {
         Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         pick.addCategory(Intent.CATEGORY_OPENABLE);
         pick.setType("*/*");
-        pick.putExtra(Intent.EXTRA_TITLE, "Selecione " + expectedName);
+        pick.putExtra(Intent.EXTRA_TITLE, localized("Selecione ") + expectedName);
         try {
             startActivityForResult(pick, requestCode);
         } catch (ActivityNotFoundException e) {
