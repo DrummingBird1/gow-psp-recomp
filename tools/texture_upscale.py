@@ -56,7 +56,14 @@ def find_exe(tool_dir):
 def upscale(dump_dir, pack_dir, tool_dir, scale=4, out=print):
     """Upscales every <key>.png of dump_dir into pack_dir (same names). Returns (by the AI, by Lanczos)."""
     from PIL import Image
-    src = sorted(p for p in Path(dump_dir).glob("*.png"))
+    src = []
+    for p in sorted(Path(dump_dir).glob("*.png")):
+        try:
+            with Image.open(p) as im:
+                im.load()
+            src.append(p)
+        except OSError:
+            out(f"{p.name}: not a readable PNG, left out")
     if not src:
         out(f"no dumped textures in {dump_dir}: play with \"Dump textures\" on first")
         return 0, 0
