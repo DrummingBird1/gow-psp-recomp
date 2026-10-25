@@ -1,0 +1,171 @@
+name: "Build Android — Dual God of War PSP"
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  SDL_COMMIT: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+
+jobs:
+  build-dual:
+    name: Compile and package both games in one APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: ${{ env.SDL_COMMIT }}
+          path: SDL
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Download both user-provided disc images
+        env:
+          GOW_DISC_URL: ${{ secrets.GOW_DISC_URL }}
+          GOW_GOS_DISC_URL: ${{ secrets.GOW_GOS_DISC_URL }}
+        run: |
+          test -n "$GOW_DISC_URL" || { echo "::error::Missing GOW_DISC_URL secret for Chains of Olympus"; exit 1; }
+          test -n "$GOW_GOS_DISC_URL" || { echo "::error::Missing GOW_GOS_DISC_URL secret for Ghost of Sparta"; exit 1; }
+          python3 -m pip install --break-system-packages -q --upgrade gdown
+          for ITEM in "UCUS98653:$GOW_DISC_URL" "UCUS98737:$GOW_GOS_DISC_URL"; do
+            ID="${ITEM%%:*}"
+            URL="${ITEM#*:}"
+            echo "::add-mask::$URL"
+            OK=0
+            for ATTEMPT in 1 2 3; do
+              rm -f "$RUNNER_TEMP/$ID.iso"
+              if timeout 120s gdown "$URL" -O "$RUNNER_TEMP/$ID.iso"; then
+                SIZE=$(stat -c%s "$RUNNER_TEMP/$ID.iso" 2>/dev/null || echo 0)
+                if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
+              fi
+              echo "Download $ID attempt $ATTEMPT/3 failed."
+              sleep 10
+            done
+            [ "$OK" -eq 1 ] || { echo "::error::Could not download disc $ID; stopping without substituting another game."; exit 1; }
+            echo "Disc $ID downloaded: $(stat -c%s "$RUNNER_TEMP/$ID.iso") bytes"
+          done
+
+      - name: Build host disc tool
+        run: |
+          cmake -S . -B build/cmake_tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DGOW_TOOLS_ONLY=ON
+          cmake --build build/cmake_tools --target gow_disc --parallel
+          test -n "$(find build/cmake_tools -name gow_disc -type f -print -quit)"
+
+      - name: Decrypt and recompile both games
+        run: |
+          DISC_TOOL="$(find build/cmake_tools -name gow_disc -type f | head -1)"
+          mkdir -p build/eboot
+          for ID in UCUS98653 UCUS98737; do
+            "$DISC_TOOL" --disc "$RUNNER_TEMP/$ID.iso" --id --decrypt-eboot "build/eboot/${ID}_EBOOT.BIN"
+            python3 -I recomp/recomp.py \
+              --elf "build/eboot/${ID}_EBOOT.BIN" \
+              --ghidra "re/out/recomp/${ID}_EBOOT.BIN.recomp.json" \
+              --nids re/out/psp_nids_ppsspp.tsv \
+              --out "build/gen/${ID}_full" \
+              --difftest 0 --boot 0 --all
+            test -d "build/gen/${ID}_full"
+          done
+
+      - name: Build SDL3 ARM64 once
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          cmake -S SDL -B build-sdl -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF \
+            -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build build-sdl --parallel
+          test -s build-sdl/libSDL3.so
+
+      - name: Build and package each native runtime separately
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          AR="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar"
+          mkdir -p stubs build/deps
+          "$AR" rc stubs/libpthread.a
+          "$AR" rc stubs/librt.a
+          ln -sfn "$PWD/SDL" "build/deps/SDL3-${SDL_COMMIT}"
+          touch "build/deps/SDL3-${SDL_COMMIT}/.gow_complete"
+          CPP_SO="$(find "$NDK/toolchains/llvm/prebuilt" -path '*aarch64-linux-android/libc++_shared.so' -type f | head -1)"
+          test -s "$CPP_SO"
+          mkdir -p "$RUNNER_TEMP/coo-apk/lib/arm64-v8a" "$RUNNER_TEMP/gos-apk/lib/arm64-v8a"
+          for ID in UCUS98653 UCUS98737; do
+            OUT="build/cmake_${ID}"
+            cmake -S . -B "$OUT" -G Ninja \
+              -DFETCHCONTENT_SOURCE_DIR_SDL3="$PWD/SDL" \
+              -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 -DANDROID_STL=c++_shared \
+              -DCMAKE_BUILD_TYPE=Release -DGAME="${ID}_full" -DGOW_ANDROID=ON \
+              -DGOW_SDL_SO="$PWD/build-sdl/libSDL3.so" \
+              -DCMAKE_SHARED_LINKER_FLAGS="-L$PWD/stubs"
+            cmake --build "$OUT" --parallel
+            MAIN="$(find "$OUT" -name libmain.so -type f -print -quit)"
+            test -s "$MAIN"
+            if [ "$ID" = "UCUS98653" ]; then DEST="$RUNNER_TEMP/coo-apk"; else DEST="$RUNNER_TEMP/gos-apk"; fi
+            cp "$MAIN" "$DEST/lib/arm64-v8a/libmain.so"
+            cp build-sdl/libSDL3.so "$DEST/lib/arm64-v8a/"
+            cp "$CPP_SO" "$DEST/lib/arm64-v8a/"
+            (cd "$DEST" && zip -qr "$RUNNER_TEMP/$ID-source.apk" lib)
+          done
+          unzip -l "$RUNNER_TEMP/UCUS98653-source.apk"
+          unzip -l "$RUNNER_TEMP/UCUS98737-source.apk"
+
+      - name: Build launcher project
+        run: |
+          printf '#include <SDL3/SDL_main.h>\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\n' > stub.c
+          python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-dual-project"
+          python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-dual-project/org.gow.shell"
+          cd "$RUNNER_TEMP/gow-dual-project/org.gow.shell"
+          for f in app/build.gradle app/build.gradle.kts; do
+            if [ -f "$f" ]; then
+              sed -i -E 's/versionCode([ =]+)[0-9]+/versionCode\1${{ github.run_number }}/' "$f"
+            fi
+          done
+          ./gradlew --no-daemon assembleDebug
+          test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Package both games into one APK and sign
+        env:
+          KS_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          python3 tools/package_dual_game_launcher.py \
+            "$RUNNER_TEMP/gow-dual-project/org.gow.shell/app/build/outputs/apk/debug/app-debug.apk" \
+            "$RUNNER_TEMP/UCUS98653-source.apk" \
+            "$RUNNER_TEMP/UCUS98737-source.apk" \
+            "$RUNNER_TEMP/GodOfWar-PSP-Dual-unsigned.apk"
+          BUILD_TOOLS="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$RUNNER_TEMP/GodOfWar-PSP-Dual-unsigned.apk" "$RUNNER_TEMP/GodOfWar-PSP-Dual-aligned.apk"
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/gow.keystore"
+            KS="$RUNNER_TEMP/gow.keystore"; ALIAS=gow; export SIGN_PASS="$KS_PASS"
+          else
+            keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/test.keystore" \
+              -storepass android -keypass android -alias androiddebugkey \
+              -dname "CN=Android Debug,O=Android,C=US" -validity 10000 -keyalg RSA -keysize 2048
+            KS="$RUNNER_TEMP/test.keystore"; ALIAS=androiddebugkey; export SIGN_PASS=android
+            echo "::warning::Temporary signing key used; updating an installed APK may require uninstalling it."
+          fi
+          "$BUILD_TOOLS/apksigner" sign --ks "$KS" --ks-key-alias "$ALIAS" \
+            --ks-pass env:SIGN_PASS --key-pass env:SIGN_PASS \
+            --out "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Dual.apk" "$RUNNER_TEMP/GodOfWar-PSP-Dual-aligned.apk"
+          "$BUILD_TOOLS/apksigner" verify --verbose "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Dual.apk"
+          unzip -l "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Dual.apk" | grep -E 'libmain_(coo|gos)\.so|libSDL3\.so|libc\+\+_shared\.so'
+          unzip -l "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Dual.apk" | grep -q 'lib/arm64-v8a/libmain_coo.so'
+          unzip -l "$RUNNER_TEMP/GodOfWar-PSP-Recomp-Dual.apk" | grep -q 'lib/arm64-v8a/libmain_gos.so'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GodOfWar-PSP-Dual-apk-${{ github.run_number }}
+          path: ${{ runner.temp }}/GodOfWar-PSP-Recomp-Dual.apk
+          if-no-files-found: error
+          retention-days: 3
