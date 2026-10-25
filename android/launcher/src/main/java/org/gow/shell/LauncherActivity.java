@@ -93,13 +93,27 @@ public final class LauncherActivity extends Activity {
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        getWindow().setStatusBarColor(BG);
-        getWindow().setNavigationBarColor(BG);
-        getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
-        pad = dp(20);
-        if ("FULLSCREEN".equals(prefs().getString("screen_mode", "16:9"))
-                && !readArgTokens().contains("--stretch")) writeArgs();
-        showMain();
+        try {
+            getWindow().setStatusBarColor(BG);
+            getWindow().setNavigationBarColor(BG);
+            getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
+            pad = dp(20);
+            if ("FULLSCREEN".equals(prefs().getString("screen_mode", "16:9"))
+                    && !readArgTokens().contains("--stretch")) writeArgs();
+            showMain();
+        } catch (Throwable error) {
+            android.util.Log.e("GOW_LAUNCHER_STARTUP", "LauncherActivity failed during startup", error);
+            TextView diagnostic = new TextView(this);
+            diagnostic.setTextColor(Color.WHITE);
+            diagnostic.setBackgroundColor(Color.rgb(24, 18, 20));
+            diagnostic.setTextSize(14);
+            diagnostic.setPadding(32, 32, 32, 32);
+            diagnostic.setText("Falha ao abrir o launcher do Ghost of Sparta.\\n\\n"
+                    + error.getClass().getName() + ": " + String.valueOf(error.getMessage())
+                    + "\\n\\nConsulte o logcat pelo marcador GOW_LAUNCHER_STARTUP.");
+            diagnostic.setTextIsSelectable(true);
+            super.setContentView(diagnostic);
+        }
     }
 
     @Override protected void onResume() {
@@ -812,8 +826,8 @@ public final class LauncherActivity extends Activity {
         TextView crest = tv("G O D   O F   W A R", 12, MUTED, false);
         crest.setLetterSpacing(0.1f);
         left.addView(crest, wrapWrap());
-        SpannableStringBuilder name = new SpannableStringBuilder("Chains of Olympus");
-        name.setSpan(new ForegroundColorSpan(ROSE), 10, 17, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        SpannableStringBuilder name = new SpannableStringBuilder("Ghost of Sparta");
+        name.setSpan(new ForegroundColorSpan(ROSE), 9, 15, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView title = tv("", 30, TEXT, true);
         title.setText(name);
         left.addView(title, wrapWrap());
