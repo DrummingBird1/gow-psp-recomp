@@ -98,6 +98,7 @@ public final class LauncherActivity extends Activity {
             getWindow().setNavigationBarColor(BG);
             getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
             pad = dp(20);
+            installBundledImages();
             if ("FULLSCREEN".equals(prefs().getString("screen_mode", "16:9"))
                     && !readArgTokens().contains("--stretch")) writeArgs();
             showMain();
@@ -859,6 +860,40 @@ public final class LauncherActivity extends Activity {
         scroll.addView(body);
         setContentView(scroll);
         refreshStatus();
+    }
+
+    /** Instala o image.bin correspondente à compilação de cada jogo. */
+    private void installBundledImages() {
+        String[] ids = { "UCUS98653", "UCUS98737" };
+        for (String id : ids) {
+            String asset = "gow-games/" + id + "/image.bin";
+            File dir = new File(new File(getExternalFilesDir(null), "gow-games"), id);
+            File target = new File(dir, "image.bin");
+            File temp = new File(dir, "image.bin.bundled.tmp");
+            try (InputStream probe = getAssets().open(asset)) {
+                long expectedSize = probe.available();
+                if (target.isFile() && target.length() == expectedSize) continue;
+                if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("Cannot create " + dir);
+                try (InputStream in = getAssets().open(asset); FileOutputStream out = new FileOutputStream(temp)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                    out.getFD().sync();
+                }
+                if (temp.length() != expectedSize) throw new java.io.IOException("Bundled image.bin size mismatch for " + id);
+                File backup = new File(dir, "image.bin.previous");
+                if (target.exists() && !target.renameTo(backup)) throw new java.io.IOException("Cannot back up old image.bin for " + id);
+                if (!temp.renameTo(target)) {
+                    if (backup.exists()) backup.renameTo(target);
+                    throw new java.io.IOException("Cannot install bundled image.bin for " + id);
+                }
+                if (backup.exists()) backup.delete();
+                android.util.Log.i("GOW_ASSETS", "Installed matching image.bin for " + id + " (" + expectedSize + " bytes)");
+            } catch (Exception error) {
+                if (temp.exists()) temp.delete();
+                android.util.Log.e("GOW_ASSETS", "Could not install bundled image.bin for " + id, error);
+            }
+        }
     }
 
     private void refreshStatus() {
