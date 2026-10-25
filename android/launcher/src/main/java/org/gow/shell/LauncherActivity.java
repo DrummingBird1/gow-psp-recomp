@@ -481,7 +481,6 @@ public final class LauncherActivity extends Activity {
             case "Entendi": return "Got it";
             case "Vale na próxima vez que tocar em JOGAR": return "Takes effect the next time you tap PLAY";
             case "Não foi possível criar o backup.": return "Could not create the backup.";
-            case "Salvo. Vale ao tocar em JOGAR.\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\nargs.txt: ";
             case "Quadro": return "Frame time";
             case "RAM utilizada": return "RAM used";
             case "● Conectado": return "● Connected";
@@ -500,7 +499,6 @@ public final class LauncherActivity extends Activity {
             case "Folder: Android/data/org.gow.shell/files": return "Folder: Android/data/org.gow.shell/files";
             case "Português selecionado.": return "Portuguese selected.";
             case "Este app usa a biblioteca SDL (licença zlib).": return "This app uses the SDL library (zlib license).";
-            case "Este app usa a biblioteca SDL (licença zlib).\n\n": return "This app uses the SDL library (zlib license).\n\n";
 
             default: return value;
         }
@@ -826,11 +824,14 @@ public final class LauncherActivity extends Activity {
         TextView crest = tv("G O D   O F   W A R", 12, MUTED, false);
         crest.setLetterSpacing(0.1f);
         left.addView(crest, wrapWrap());
-        SpannableStringBuilder name = new SpannableStringBuilder("Ghost of Sparta");
-        name.setSpan(new ForegroundColorSpan(ROSE), 9, 15, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        SpannableStringBuilder name = new SpannableStringBuilder("Chains of Olympus");
+        name.setSpan(new ForegroundColorSpan(ROSE), 10, 17, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView title = tv("", 30, TEXT, true);
         title.setText(name);
         left.addView(title, wrapWrap());
+        TextView secondTitle = tv("Ghost of Sparta", 20, ROSE, true);
+        secondTitle.setPadding(0, dp(2), 0, dp(5));
+        left.addView(secondTitle, wrapWrap());
         left.addView(tv("Launcher oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
         TextView by = tv("By: flavinxs0", 15, ROSE, true);
         by.setPadding(0, dp(2), 0, dp(14));
