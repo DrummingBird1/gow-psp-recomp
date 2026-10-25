@@ -88,7 +88,19 @@ public final class GameActivity extends SDLActivity {
 
     @Override
     protected String[] getLibraries() {
-        return new String[] { "SDL3", "main" };
+        String id = getIntent() == null ? "coo" : getIntent().getStringExtra("gow_game_id");
+        return new String[] { "SDL3", "gos".equals(id) ? "main_gos" : "main_coo" };
+    }
+
+    @Override
+    public java.io.File getExternalFilesDir(String type) {
+        java.io.File base = super.getExternalFilesDir(type);
+        if (base == null) return null;
+        String id = getIntent() == null ? "coo" : getIntent().getStringExtra("gow_game_id");
+        java.io.File dir = new java.io.File(new java.io.File(base, "gow-games"),
+                "gos".equals(id) ? "UCUS98737" : "UCUS98653");
+        if (!dir.isDirectory()) dir.mkdirs();
+        return dir;
     }
 
     @Override
