@@ -33,6 +33,8 @@ REPO_URL = "https://github.com/DrummingBird1/gow-psp-recomp"
 
 PRESETS = {
     "Original": {"res_scale": 1, "msaa": 1, "fxaa": False, "aniso": 1},
+    # integrated GPUs: x4 took 21 ms per frame on an Intel UHD 770, x2 14 ms (docs/roadmap.md, issue #3)
+    "Light": {"res_scale": 2, "msaa": 1, "fxaa": False, "aniso": 4},
     "Balanced": {"res_scale": 4, "msaa": 1, "fxaa": False, "aniso": 8},
     "High": {"res_scale": 6, "msaa": 4, "fxaa": False, "aniso": 4},
     "Ultra": {"res_scale": 8, "msaa": 4, "fxaa": False, "aniso": 4},
@@ -1386,7 +1388,7 @@ class Window(QWidget):
 
     def auto_preset(self):
         discrete, hz = detect_pc()
-        self.apply_preset("High" if discrete else "Balanced")
+        self.apply_preset("High" if discrete else "Light")
         self.applying = True
         self.combo["hdr"][0].setCurrentText("Auto")
         # the frame rate stays at the original 60 even on a high-refresh display: above 60, a PC that can't hold the
