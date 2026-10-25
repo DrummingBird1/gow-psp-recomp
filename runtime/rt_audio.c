@@ -43,6 +43,7 @@ typedef struct {
     uint64_t end;          /* frame position where this channel's queued data ends */
     uint64_t blocks;
     uint64_t gaps, gap_frames;  /* the channel ran dry between two blocks for a moment (a click): diagnostics */
+    int music;             /* it has output a block sceAtrac decoded: --music-volume applies, else --sfx-volume */
 } AudioCh;
 
 static AudioCh g_ch[NCH];
@@ -51,6 +52,22 @@ static uint64_t g_flushed;     /* frames before this are final and have gone to 
 static uint64_t g_nonzero, g_clipped;   /* nonzero / clipped output samples */
 static FILE *g_wav;
 static uint64_t g_wav_frames;
+static int g_music_vol = 100, g_sfx_vol = 100;  /* percent */
+static struct { uint32_t addr, bytes; } g_music_bufs[8];  /* the latest sceAtrac outputs */
+static int g_music_next;
+
+void rt_audio_note_music(uint32_t addr, uint32_t bytes) {
+    for (int i = 0; i < 8; i++) if (g_music_bufs[i].addr == addr) { g_music_bufs[i].bytes = bytes; return; }
+    g_music_bufs[g_music_next].addr = addr;
+    g_music_bufs[g_music_next].bytes = bytes;
+    g_music_next = (g_music_next + 1) & 7;
+}
+
+static int is_music(uint32_t addr, uint32_t bytes) {
+    for (int i = 0; i < 8; i++)
+        if (g_music_bufs[i].bytes && addr < g_music_bufs[i].addr + g_music_bufs[i].bytes && g_music_bufs[i].addr < addr + bytes) return 1;
+    return 0;
+}
 
 static uint64_t us_to_pos(uint64_t us) { return us * 441 / 10000; }
 static uint64_t pos_to_us(uint64_t pos) { return (pos * 10000 + 440) / 441; }
@@ -145,6 +162,9 @@ static void sdl_close(void) {}
 #endif
 
 int rt_audio_init(const AudioOptions *o) {
+    if (o->music_vol) g_music_vol = o->music_vol < 0 ? 0 : o->music_vol > 200 ? 200 : o->music_vol;
+    if (o->sfx_vol) g_sfx_vol = o->sfx_vol < 0 ? 0 : o->sfx_vol > 200 ? 200 : o->sfx_vol;
+    if (g_music_vol != 100 || g_sfx_vol != 100) printf("[audio] volume: music %d%%, everything else %d%%\n", g_music_vol, g_sfx_vol);
     if (o->wav) {
         g_wav = fopen(o->wav, "wb");
         if (!g_wav) { fprintf(stderr, "[audio] cannot write %s\n", o->wav); return 0; }
@@ -219,6 +239,12 @@ static uint64_t ch_queue(AudioCh *ch, uint32_t addr) {
     if (addr && n) {
         int mono = ch->format == FMT_MONO;
         int64_t lv = ch->lvol, rv = ch->rvol;  /* 0x8000 = unity; Output2 allows up to 0xFFFFF */
+        if (!ch->music && is_music(addr, n * (mono ? 2u : 4u))) {
+            ch->music = 1;
+            printf("[audio] channel %d plays music (sceAtrac output)\n", (int)(ch - g_ch));
+        }
+        int vol = ch->music ? g_music_vol : g_sfx_vol;
+        if (vol != 100) { lv = lv * vol / 100; rv = rv * vol / 100; }
         const int16_t *s = (const int16_t *)rt_ptr(addr);
         if (start + n > g_flushed + RING) n = (uint32_t)(g_flushed + RING - start);
         for (uint32_t i = 0; i < n; i++) {
@@ -272,6 +298,7 @@ static void hle_AudioChReserve(RtCtx *c) {
     a->samples = A1;
     a->format = A2;
     a->lvol = a->rvol = 0;
+    a->music = 0;
     RET(ch);
 }
 

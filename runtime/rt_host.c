@@ -468,7 +468,8 @@ void rt_host_movie_playing(int on) {
  * skips the same movie at the same point; a replay takes the recording's skips. */
 int rt_host_take_movie_skip(void) {
     if (replay_movie_skip()) return 1;
-    int r = g_skip_req;
+    int r = g_skip_req || g_o.skip_movies;  /* --skip-movies: every movie ends as it starts */
+    if (r && !g_skip_req) printf("[host] movie skipped (--skip-movies)\n");
     g_skip_req = 0;
     if (r && g_rec) {
         fprintf(g_rec, "movie=%llu\n", (unsigned long long)k_now);

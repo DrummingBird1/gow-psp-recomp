@@ -16,6 +16,7 @@ typedef struct {
     const char *icon;        /* --icon file.png: window icon (the launcher passes the disc's ICON0.PNG) */
     const char *controls;    /* --controls file: keyboard and gamepad bindings (the launcher's Controls page) */
     int no_stick_evade;      /* --no-stick-evade: the gamepad's right stick does not evade (L + R + left stick) */
+    int skip_movies;         /* --skip-movies: movies (cutscene videos) end at once, as if skipped */
 } HostOptions;
 
 /* PSP controller buttons (SceCtrlData.Buttons) */

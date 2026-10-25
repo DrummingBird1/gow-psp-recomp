@@ -30,6 +30,7 @@ extern const HleEntry rt_hle_savedata[]; /* rt_savedata.c: sceUtilitySavedata */
 #define RET64(v) do { uint64_t r64_ = (uint64_t)(v); c->r[2] = (uint32_t)r64_; c->r[3] = (uint32_t)(r64_ >> 32); return; } while (0)
 
 extern int rt_hle_verbose;  /* 0: important events only, 1: every call */
+extern int rt_language;     /* --language: the PSP's system language (sceImpose): 1 English (default), 2 French, 3 Spanish... */
 void rt_log(const char *fmt, ...);
 
 /* --- Error codes (PSP kernel) --------------------------------------------- */

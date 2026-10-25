@@ -7,6 +7,8 @@
 typedef struct {
     const char *wav;   /* --wav: the whole mix, in game time from virtual time 0 */
     int realtime;      /* play through the default SDL audio device (window mode) */
+    int music_vol;     /* --music-volume: percent for the channels that play ATRAC music (0: 100) */
+    int sfx_vol;       /* --sfx-volume: percent for every other channel: effects, voices, movies (0: 100) */
 } AudioOptions;
 
 int rt_audio_init(const AudioOptions *o);  /* 0 on failure */
@@ -22,6 +24,8 @@ void rt_audio_pause(int on);
 /* How far virtual time may skip ahead (us) past from_us without a channel running dry: the least audio any
  * channel still has queued after from_us (UINT64_MAX when none has). rt_host_idle caps its skips with it. */
 uint64_t rt_audio_skip_budget_us(uint64_t from_us);
+/* sceAtrac decoded n bytes of music to addr (rt_atrac.c): a channel that outputs that block plays music. */
+void rt_audio_note_music(uint32_t addr, uint32_t bytes);
 void rt_sas_report(void);    /* rt_sas.c */
 void rt_atrac_report(void);  /* rt_atrac.c */
 

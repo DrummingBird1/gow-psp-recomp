@@ -190,8 +190,9 @@ static void hle_RtcGetCurrentClockLocalTime(RtCtx *c) {
     rt_w32(A0 + 12, (uint32_t)(us % 1000000u));
     RET(0);
 }
+int rt_language = 1;
 static void hle_ImposeGetLanguageMode(RtCtx *c) {
-    if (A0) rt_w32(A0, 1);  /* English */
+    if (A0) rt_w32(A0, (uint32_t)rt_language);  /* English unless --language */
     if (A1) rt_w32(A1, 1);  /* cross confirms */
     RET(0);
 }
