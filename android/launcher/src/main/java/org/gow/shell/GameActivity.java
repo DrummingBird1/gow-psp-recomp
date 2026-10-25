@@ -89,7 +89,10 @@ public final class GameActivity extends SDLActivity {
     @Override
     protected String[] getLibraries() {
         String id = getIntent() == null ? "coo" : getIntent().getStringExtra("gow_game_id");
-        return new String[] { "SDL3", "gos".equals(id) ? "main_gos" : "main_coo" };
+        String selected = "gos".equals(id) ? "main_gos" : "main_coo";
+        // Keep older single-game builds launchable; the dual APK contains both named runtimes.
+        java.io.File selectedLibrary = new java.io.File(getApplicationInfo().nativeLibraryDir, "lib" + selected + ".so");
+        return new String[] { "SDL3", selectedLibrary.isFile() ? selected : "main" };
     }
 
     @Override
