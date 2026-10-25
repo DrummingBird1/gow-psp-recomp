@@ -51,7 +51,7 @@ DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "crt": False,
-    "language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -130,7 +130,26 @@ ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_sca
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
            "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
-BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "crt", "skip_movies", "god")
+BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord")
+
+
+# --- per-game graphics ------------------------------------------------------------------------------------------
+# With "Separate graphics settings for each game" on, these keys are kept per game (cfg["game_settings"][game]).
+GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
+             "crt", "show_fps", "preset")
+
+
+def settings_for(cfg, game):
+    """The settings a game plays with: the shared ones, with that game's own graphics when they are kept apart."""
+    own = (cfg.get("game_settings") or {}).get(game) if cfg.get("per_game") else None
+    if not isinstance(own, dict):
+        return cfg
+    out = dict(cfg)
+    for k in GAME_KEYS:
+        if k in own:
+            out[k] = own[k]
+    validate_config(out)
+    return out
 
 
 def validate_config(cfg):
@@ -166,6 +185,9 @@ def validate_config(cfg):
     if cfg.get("game") not in GAMES:
         fixed.append(f"game={cfg.get('game')!r} -> 'coo'")
         cfg["game"] = "coo"
+    if cfg.get("game_settings") is not None and not isinstance(cfg.get("game_settings"), dict):
+        fixed.append("game_settings -> {}")
+        cfg["game_settings"] = {}
     if cfg.get("controls") is not None and not isinstance(cfg.get("controls"), dict):
         fixed.append("controls -> defaults")
         cfg["controls"] = {}
@@ -285,6 +307,7 @@ def check_disc(cfg, game):
 def play_command(cfg, game):
     """The gow_rt command line for these settings."""
     g = GAMES[game]
+    cfg = settings_for(cfg, game)
     cmd = [str(exe_path(game)), "--image", str(gen_dir(game) / "image.bin"), "--boot", "--disc", cfg["disc"].get(game, ""),
            "--ms0", str(ROOT / g["ms0"]), "--window", "--scale", str(cfg["window_scale"]), "--shots", str(ROOT / "build" / "screenshots"),
            "--renderer", cfg["renderer"]]
@@ -341,6 +364,10 @@ def play_command(cfg, game):
         cmd.append("--skip-movies")
     if cfg.get("god"):
         cmd.append("--god")
+    if cfg.get("rumble", True):
+        cmd.append("--rumble")
+    if cfg.get("confirm_circle"):
+        cmd += ["--confirm", "circle"]
     return cmd
 
 
@@ -644,8 +671,12 @@ def start_game(cfg, game):
     log = open(game_log(game), "w", encoding="utf-8", errors="replace")
     # every Play also records the button presses (a few KB), so a bug report can include them without a command line
     cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game))]
-    return subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if cfg.get("discord"):  # "Playing <title>" on Discord while the game runs (off by default)
+        import discord_presence
+        discord_presence.show_while_running(proc, GAMES[game]["title"])
+    return proc
 
 
 def game_log(game):

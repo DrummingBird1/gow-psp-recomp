@@ -1098,7 +1098,8 @@ class Window(QWidget):
         self.combo["fps"][0].setToolTip("Above 60 the game runs smoother if your PC holds that rate every frame. If it can't, "
                                         "the game skips ahead to keep time and the sound gets choppy: go back to 60.")
         self.chk = {}
-        for key, text in (("fullscreen", "Fullscreen"), ("show_fps", "Show the frame rate (F3)"), ("crt", "CRT filter (scanlines)")):
+        for key, text in (("fullscreen", "Fullscreen"), ("show_fps", "Show the frame rate (F3)"), ("crt", "CRT filter (scanlines)"),
+                          ("per_game", "Separate graphics settings for each game")):
             ch = QCheckBox(text)
             ch.setChecked(bool(c.get(key)))
             ch.toggled.connect(self.on_option)
@@ -1136,10 +1137,16 @@ class Window(QWidget):
         for key, text, tip in (("skip_movies", "Skip the movies (cutscene videos)", "Every movie ends as it starts, as if skipped (without this, any movie "
                                 "can be skipped with Enter, Space, a click or Start)."),
                                ("god", "Infinite health (cheat)", "Kratos's health stays full. Falling into a pit still "
-                                "sends you back to the last checkpoint.")):
+                                "sends you back to the last checkpoint."),
+                               ("rumble", "Gamepad rumble when Kratos is hit", "The PSP has no rumble: the port adds it, "
+                                "stronger for a bigger hit."),
+                               ("confirm_circle", "Circle confirms, Cross cancels (Japanese layout)",
+                                "Swaps the two buttons in the game's menus, as on a Japanese PSP."),
+                               ("discord", "Show what I play on Discord", "\"Playing God of War: ...\" in your Discord "
+                                "status while a game runs (needs the Discord app; nothing else is sent).")):
             ch = QCheckBox(text)
             ch.setToolTip(tip)
-            ch.setChecked(bool(c.get(key)))
+            ch.setChecked(bool(c.get(key, key == "rumble")))
             ch.toggled.connect(lambda *_: self.collect())
             v.addWidget(ch)
             self.chk[key] = ch
@@ -1356,6 +1363,8 @@ class Window(QWidget):
         if hasattr(self, "tpack_lbl"):
             self.update_tpack()
         c["preset"] = self.preset
+        if c.get("per_game"):
+            c.setdefault("game_settings", {})[c.get("game", "coo")] = {k: c[k] for k in self.L.GAME_KEYS}
         c["game_folder"] = self.folder.text()
         c["reduce_motion"] = self.reduce_motion
         self.L.save_config(c)
@@ -1415,8 +1424,27 @@ class Window(QWidget):
         c.pix = QPixmap(str(files["PIC1.PNG"])) if "PIC1.PNG" in files else None
         c.icon = QPixmap(str(files["ICON0.PNG"])) if "ICON0.PNG" in files else None
 
+    def show_settings(self, s):
+        """Puts these graphics settings into the option widgets (per-game settings, when the game changes)."""
+        self.applying = True
+        self.combo["res"][0].setCurrentText(label_of(RES, int(s["res_scale"])))
+        self.combo["aa"][0].setCurrentText(label_of(AA, (1, True) if s["fxaa"] else (int(s["msaa"]), False)))
+        for key, table, k in (("fps", FPS, "fps"), ("aspect", ASPECT, "aspect"), ("hdr", HDR, "hdr"),
+                              ("renderer", RENDERER, "renderer"), ("aniso", ANISO, "aniso")):
+            self.combo[key][0].setCurrentText(label_of(table, s[k]))
+        self.combo["fx"][0].setCurrentText(label_of(FX, 1 if int(s["fx_scale"]) == 1 else 0))
+        self.sharpen.setValue(int(round(float(s["sharpen"]) * 100)))
+        for k in ("vsync", "crt", "show_fps"):
+            self.chk[k].setChecked(bool(s.get(k)))
+        self.applying = False
+        self.preset = s.get("preset") or "Custom"
+        self.update_presets()
+
     def pick(self, g):
+        self.collect()  # the game being left keeps what the options show
         self.cfg["game"] = g
+        if self.cfg.get("per_game") and g in (self.cfg.get("game_settings") or {}):
+            self.show_settings(self.L.settings_for(self.cfg, g))
         self.collect()
         self.set_bg_game(g)
         self.refresh()
