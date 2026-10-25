@@ -62,11 +62,12 @@ typedef struct {
     int crt;                   /* --crt: scanlines and a shadow mask over the picture in the window */
     int show_fps;              /* --show-fps: frame rate in a corner of the window (F3 switches it) */
     int low_power;             /* --gpu-power low: the integrated GPU of a PC with two (default: the fast one) */
+    int hud_edges;             /* --hud-edges: wider than 16:9, the HUD at the window's edges (experimental) */
 } GpuOptions;
 extern GpuOptions rt_gpu_opt;  /* read by rt_gpu_init */
 /* parses --res-scale N, --fx-scale N, --msaa N, --aniso N, --lod-bias F, --hdr [auto|scrgb|hdr10],
  * --paper-white NITS, --peak-nits NITS, --vsync, --fxaa, --sharpen F, --fps N, --texture-dump DIR,
- * --texture-pack DIR, --aspect W:H, --crt, --show-fps, --gpu-power low|high at argv[*i]: 1 if it was one */
+ * --texture-pack DIR, --aspect W:H, --crt, --show-fps, --hud-edges, --gpu-power low|high at argv[*i]: 1 if it was one */
 int rt_gpu_option(int argc, char **argv, int *i);
 int rt_gpu_scale(void);        /* internal resolution scale in use */
 /* --aspect: how much narrower the 3D view is drawn horizontally (480:272 over the aspect; 1: off),

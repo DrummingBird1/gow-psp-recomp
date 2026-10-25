@@ -49,6 +49,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     if (!strcmp(a, "--vsync")) { o->vsync = 1; return 1; }
     if (!strcmp(a, "--crt")) { o->crt = 1; return 1; }
     if (!strcmp(a, "--show-fps")) { o->show_fps = 1; return 1; }
+    if (!strcmp(a, "--hud-edges")) { o->hud_edges = 1; return 1; }
     if (!strcmp(a, "--hdr")) {
         o->hdr = 1;
         if (v && (!strcmp(v, "scrgb") || !strcmp(v, "hdr10") || !strcmp(v, "auto"))) {
@@ -1322,7 +1323,13 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
     if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && bx1 - bx0 < DISP_W - 8 && rt_gpu_shown_fb(t->addr)) {
         float cx = (float)ox + DISP_W / 2.0f, cy = (float)oy + DISP_H / 2.0f;
         if (sq < 1.0f) {
-            for (uint32_t i = 0; i < n; i++) o[i].x = cx + (o[i].x - cx) * sq;
+            /* --hud-edges (experimental): 2D wholly in the left or right 35% keeps its shape at that edge of the wide
+             * window instead of in the 16:9 area in the middle; the rest stays centred. A text whose letters are
+             * separate draws across that line comes apart, so it is off by default. */
+            float ax = cx;
+            if (rt_gpu_opt.hud_edges && bx1 < (float)ox + DISP_W * 0.35f) ax = (float)ox;
+            else if (rt_gpu_opt.hud_edges && bx0 > (float)ox + DISP_W * 0.65f) ax = (float)ox + DISP_W;
+            for (uint32_t i = 0; i < n; i++) o[i].x = ax + (o[i].x - ax) * sq;
         } else {
             /* a narrower window (4:3): the 3D view is cropped at the sides, and the HUD is drawn
              * lower in height by the same factor instead, so that it keeps its shape and stays whole */

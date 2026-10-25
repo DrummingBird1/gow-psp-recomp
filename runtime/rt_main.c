@@ -309,7 +309,7 @@ int main(int argc, char **argv) {
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--res-scale 1-8] [--fx-scale 1-8] [--msaa 2|4|8] [--aniso 2-16] [--lod-bias F] [--fxaa] [--sharpen 0-1]\n"
                         "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"
-                        "              [--aspect W:H] [--texture-dump dir] [--texture-pack dir]\n"
+                        "              [--aspect W:H [--hud-edges]] [--crt] [--show-fps] [--gpu-power low|high] [--texture-dump dir] [--texture-pack dir]\n"
                         "              [--wav out.wav] [--mute] [--music-volume 0-200] [--sfx-volume 0-200]\n"
                         "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--rumble] [--level-log] [--load-level NAME@FRAME]\n"
                         "              [--dump-ram N,N,...|stop:prefix])\n"
