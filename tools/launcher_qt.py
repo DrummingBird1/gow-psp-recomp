@@ -41,13 +41,15 @@ RES = [("x1 480x272 (PSP)", 1), ("x2 960x544", 2), ("x3 1440x816", 3), ("x4 1920
        ("x8 3840x2176 (4K)", 8)]
 AA = [("Off", (1, False)), ("MSAA 2x", (2, False)), ("MSAA 4x", (4, False)), ("MSAA 8x", (8, False)), ("FXAA", (1, True))]
 FPS = [("60 (original)", 60), ("120", 120), ("144", 144), ("165", 165), ("240", 240), ("Unlimited (VRR)", 1000)]
-ASPECT = [("Original", "native"), ("21:9", "21:9"), ("32:9", "32:9")]
+ASPECT = [("Original", "native"), ("21:9", "21:9"), ("32:9", "32:9"), ("4:3 (crops the sides)", "4:3")]
 HDR = [("Auto", True), ("Off", False)]
 WINDOW = [("x1 480x272", 1), ("x2 960x544", 2), ("x3 1440x816", 3), ("x4 1920x1088", 4)]
 RENDERER = [("Hardware", "gpu"), ("Software (accurate, slow)", "soft")]
 FX = [("Match resolution", 0), ("Original glow", 1)]
 ANISO = [("Off", 1), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 GPU_API = [("Auto (Direct3D 12)", ""), ("Direct3D 12", "direct3d12"), ("Vulkan", "vulkan")]
+GPU_POWER = [("Fast (dedicated)", "high"), ("Power saving (integrated)", "low")]
+LANGUAGE = [("English", "en"), ("French", "fr"), ("Spanish", "es")]
 
 
 def label_of(table, value):
@@ -416,7 +418,7 @@ class KeyButton(QPushButton):
             pass
         elif e.key() == Qt.Key.Key_Backspace:
             self.key = ""
-        elif name and name not in ("Escape", "F11", "F12"):
+        elif name and name not in ("Escape", "F11", "F12", "F3"):
             self.key = name
         self.setText(self.key or "\u2014")
         self.changed.emit()
@@ -449,7 +451,7 @@ class ControlsDialog(QDialog):
         self.setWindowTitle("Controls")
         self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
         v = QVBoxLayout(self)
-        l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F11, F12 and "
+        l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F3, F11, F12 and "
                    "Alt+F4 stay fixed; Enter/Space/click/Start still skip movies. The gamepad's left stick is always the "
                    "PSP stick, and its right stick evades (L + R + stick) unless that is turned off below.")
         l.setObjectName("dim")
@@ -1094,10 +1096,49 @@ class Window(QWidget):
         self.combo["fps"][0].setToolTip("Above 60 the game runs smoother if your PC holds that rate every frame. If it can't, "
                                         "the game skips ahead to keep time and the sound gets choppy: go back to 60.")
         self.chk = {}
-        for key, text in (("fullscreen", "Fullscreen"),):
+        for key, text in (("fullscreen", "Fullscreen"), ("show_fps", "Show the frame rate (F3)"), ("crt", "CRT filter (scanlines)")):
             ch = QCheckBox(text)
-            ch.setChecked(bool(c[key]))
+            ch.setChecked(bool(c.get(key)))
             ch.toggled.connect(self.on_option)
+            v.addWidget(ch)
+            self.chk[key] = ch
+        v.addSpacing(8)
+        l = QLabel("Game")
+        l.setObjectName("head")
+        v.addWidget(l)
+        g = QGridLayout()
+        g.setColumnStretch(1, 1)
+        g.addWidget(QLabel("Language"), 0, 0)
+        cb = QComboBox()
+        cb.addItems([t[0] for t in LANGUAGE])
+        cb.setCurrentText(label_of(LANGUAGE, c.get("language", "en")))
+        cb.setToolTip("The US disc of Ghost of Sparta has English, French and Spanish; Chains of Olympus's has English only.")
+        cb.currentTextChanged.connect(lambda *_: self.collect())  # game options leave the graphics preset as it is
+        g.addWidget(cb, 0, 1)
+        self.combo["language"] = (cb, LANGUAGE)
+        self.vol = {}
+        for i, (key, text) in enumerate((("music_volume", "Music volume"), ("sfx_volume", "Effects and voices")), 1):
+            g.addWidget(QLabel(text), i, 0)
+            hl = QHBoxLayout()
+            s = QSlider(Qt.Orientation.Horizontal)
+            s.setRange(0, 100)
+            s.setValue(int(c.get(key, 100)))
+            lab = QLabel(f"{s.value()}%")
+            lab.setMinimumWidth(38)
+            s.valueChanged.connect(lambda x, lab=lab: (lab.setText(f"{x}%"), self.collect()))
+            hl.addWidget(s, 1)
+            hl.addWidget(lab)
+            g.addLayout(hl, i, 1)
+            self.vol[key] = s
+        v.addLayout(g)
+        for key, text, tip in (("skip_movies", "Skip the movies (cutscene videos)", "Every movie ends as it starts, as if skipped (without this, any movie "
+                                "can be skipped with Enter, Space, a click or Start)."),
+                               ("god", "Infinite health (cheat)", "Kratos's health stays full. Falling into a pit still "
+                                "sends you back to the last checkpoint.")):
+            ch = QCheckBox(text)
+            ch.setToolTip(tip)
+            ch.setChecked(bool(c.get(key)))
+            ch.toggled.connect(lambda *_: self.collect())
             v.addWidget(ch)
             self.chk[key] = ch
         v.addSpacing(8)
@@ -1110,7 +1151,8 @@ class Window(QWidget):
         a.setContentsMargins(0, 6, 0, 0)
         a.setColumnStretch(1, 1)
         arows = [("Renderer", "renderer", RENDERER, c["renderer"]), ("Effects resolution", "fx", FX, 1 if int(c["fx_scale"]) == 1 else 0),
-                 ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"])), ("Graphics API", "api", GPU_API, c.get("gpu_api", ""))]
+                 ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"])), ("Graphics API", "api", GPU_API, c.get("gpu_api", "")),
+                 ("Graphics card", "power", GPU_POWER, c.get("gpu_power", "high"))]
         for i, (lab, key, table, val) in enumerate(arows):
             a.addWidget(QLabel(lab), i, 0)
             cb = QComboBox()
@@ -1121,7 +1163,9 @@ class Window(QWidget):
             self.combo[key] = (cb, table)
         self.combo["api"][0].setToolTip("Which graphics API the Hardware renderer uses. If the game crashes or draws wrongly "
                                         "on your graphics card, try the other one.")
-        a.addWidget(QLabel("Sharpening"), 4, 0)
+        self.combo["power"][0].setToolTip("On a PC with two graphics cards (a laptop): the fast one, or the integrated one, "
+                                          "which uses less power. Windows' graphics settings can override this.")
+        a.addWidget(QLabel("Sharpening"), 5, 0)
         sh = QHBoxLayout()
         self.sharpen = QSlider(Qt.Orientation.Horizontal)
         self.sharpen.setRange(0, 100)
@@ -1131,8 +1175,8 @@ class Window(QWidget):
         self.sharpen.valueChanged.connect(lambda x: (self.sharpen_lbl.setText(f"{x / 100:.2f}"), self.on_option()))
         sh.addWidget(self.sharpen, 1)
         sh.addWidget(self.sharpen_lbl)
-        a.addLayout(sh, 4, 1)
-        r = 5
+        a.addLayout(sh, 5, 1)
+        r = 6
         for key, text in (("vsync", "V-Sync"), ("mute", "Mute")):
             ch = QCheckBox(text)
             ch.setChecked(bool(c[key]))
@@ -1166,6 +1210,10 @@ class Window(QWidget):
         cb.setToolTip("Keyboard and gamepad bindings")
         cb.clicked.connect(lambda: ControlsDialog(self).exec())
         a.addWidget(cb, r + 5, 0, 1, 2)
+        ib = QPushButton("Import PPSSPP saves…")
+        ib.setToolTip("Copies your PPSSPP saves of both games (unencrypted ones) next to this port's saves")
+        ib.clicked.connect(self.import_saves)
+        a.addWidget(ib, r + 4, 0, 1, 2)
         self.upd = QCheckBox("Check for launcher updates at start")
         self.upd.setChecked(bool(c.get("check_updates", True)))
         self.upd.toggled.connect(lambda on: (self.cfg.__setitem__("check_updates", on), self.collect()))
@@ -1280,6 +1328,15 @@ class Window(QWidget):
         self.page_anim = grp
 
     # --- options state -----------------------------------------------------------------------------------
+    def import_saves(self):
+        folder = QFileDialog.getExistingDirectory(self, "PPSSPP's memstick folder (it holds PSP\\SAVEDATA)")
+        if not folder:
+            return
+        lines = self.L.import_ppsspp_saves(folder)
+        for line in lines:
+            self.log("saves: " + line)
+        QMessageBox.information(self, "Import PPSSPP saves", "\n".join(lines))
+
     def collect(self):
         c = self.cfg
         get = lambda k: value_of(self.combo[k][1], self.combo[k][0].currentText())
@@ -1287,7 +1344,9 @@ class Window(QWidget):
         c["msaa"], c["fxaa"] = get("aa")
         c["fps"], c["aspect"], c["hdr"], c["window_scale"] = get("fps"), get("aspect"), get("hdr"), get("window")
         c["renderer"], c["fx_scale"], c["aniso"] = get("renderer"), get("fx"), get("aniso")
-        c["gpu_api"] = get("api")
+        c["gpu_api"], c["gpu_power"], c["language"] = get("api"), get("power"), get("language")
+        for k, sl in getattr(self, "vol", {}).items():
+            c[k] = sl.value()
         c["sharpen"] = round(self.sharpen.value() / 100, 2)
         for k, ch in self.chk.items():
             c[k] = ch.isChecked()
