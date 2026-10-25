@@ -365,7 +365,7 @@ def sfo_values(data):
 
 def ppsspp_saves(folder):
     """Save folders of the two games in a PPSSPP memory stick (the memstick folder, its PSP or SAVEDATA folder):
-    [(game, path, encrypted)]. PPSSPP encrypts saves unless "Encrypt save data" is off; the port reads plain ones."""
+    [(game, path, encrypted)]. PPSSPP encrypts saves unless EncryptSave is off in its ppsspp.ini; the port reads plain ones."""
     d = Path(folder)
     for sub in ("PSP/SAVEDATA", "SAVEDATA", ""):
         if (d / sub).is_dir() and any((d / sub).glob("UCUS987*")):
@@ -393,8 +393,9 @@ def import_ppsspp_saves(folder):
     for game, src, encrypted in found:
         dst = ROOT / GAMES[game]["ms0"] / "PSP" / "SAVEDATA" / src.name
         if encrypted:
-            lines.append(f"{src.name}: encrypted, not copied. In PPSSPP turn off Settings > System > \"Encrypt save "
-                         "data\", load this save and save again, then import it.")
+            lines.append(f"{src.name}: encrypted, not copied. Turn off PPSSPP's save encryption (with PPSSPP closed, "
+                         "EncryptSave = False in memstick\\PSP\\SYSTEM\\ppsspp.ini), load this save in PPSSPP and save "
+                         "again, then import it.")
         elif dst.exists():
             lines.append(f"{src.name}: already here, kept as it is.")
         else:
