@@ -1761,8 +1761,8 @@ public final class LauncherActivity extends Activity {
         LinearLayout left = column();
         LinearLayout brand = card();
         brand.addView(tv("G O D   O F   W A R", 12, MUTED, false), wrapWrap());
-        SpannableStringBuilder name = new SpannableStringBuilder("Chains of Olympus");
-        name.setSpan(new ForegroundColorSpan(ROSE), 10, 17, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        SpannableStringBuilder name = new SpannableStringBuilder("Ghost of Sparta");
+        name.setSpan(new ForegroundColorSpan(ROSE), 9, 15, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView title = tv("", 26, TEXT, true);
         title.setText(name);
         brand.addView(title, wrapWrap());
