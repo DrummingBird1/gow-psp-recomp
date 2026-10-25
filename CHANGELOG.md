@@ -1,5 +1,30 @@
 # Changelog
 
+## v1.3.0 (unreleased)
+
+- **Fix: custom controls that seemed not to work** (issue #3). A key put on a PSP button stayed on the button it had
+  by default, so WASD for moving still blocked (W = R) and attacked (A, S). Now a key or gamepad button goes to one
+  button only: the Controls page moves it and says so, and settings saved by older versions are fixed when the game
+  starts. The game log names any key that is still on two buttons.
+- **Mouse buttons can be bound** (left, right, middle, 4, 5) on the Controls page (issue #3).
+- **The gamepad's right stick evades** (L + R + the stick, as in the PS2 games); the Controls page turns it off.
+- **Language** (Discussion #19): English, French or Spanish. Ghost of Sparta's US disc has all three; Chains of
+  Olympus's has English only.
+- **4:3 aspect ratio** (Discussion #20): the 3D view is cropped at the sides and the HUD scaled to fit, for CRTs and
+  4:3 handhelds. **CRT filter:** scanlines and a shadow mask.
+- **Frame rate counter:** F3 in the game, or *Show the frame rate* in Options (issue #3).
+- **Graphics card** choice for PCs with two (issue #3): the fast one (default) or the power-saving one.
+- **Music and effects volume**, separately: the channels that play the game's ATRAC music follow the music volume.
+- **Skip the movies:** every cutscene video ends as it starts (any movie could already be skipped by hand).
+- **Light preset** (x2) for integrated GPUs, and the starting preset on PCs without a dedicated one (issue #3: x3/x4
+  stuttered). Balanced (x4) took 21 ms of GPU time per frame on an Intel UHD 770, more than 60 FPS allows; x2 takes 14.
+- **Infinite health** (a cheat, off by default).
+- **Import PPSSPP saves** (Options > Advanced): copies the saves of both games from a PPSSPP memory stick. Encrypted
+  ones are named, with how to save them unencrypted in PPSSPP.
+- For contributors: `RT_TEST_KEYS` simulates held keys to test bindings without a focused window; new options
+  `--no-stick-evade`, `--language`, `--crt`, `--show-fps`, `--gpu-power`, `--music-volume`, `--sfx-volume`,
+  `--skip-movies`.
+
 ## v1.2.1 (2026-10-23)
 
 - **Fix: crash at launch or a black screen with MSAA on Vulkan** (issue #3), at every MSAA level, with or without

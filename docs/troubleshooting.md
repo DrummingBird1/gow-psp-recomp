@@ -41,7 +41,8 @@ Download the new ZIP and extract it over the old `GoW_PSP` folder (or copy the n
 
 ## The game stutters
 
-- Try the **Original** or **Balanced** preset, a lower internal resolution, or the original 60 FPS.
+- Try the **Light** preset (x2, the starting preset without a dedicated GPU) or **Original**, a lower internal
+  resolution, or the original 60 FPS. F3 shows the frame rate in the game.
 - The launcher minimizes itself while a game runs; if you restored it, minimize it again.
 - V-Sync on gives the most even frame pacing on a 60 Hz display.
 
@@ -74,6 +75,17 @@ Texture packs need the Hardware renderer.
 See [Controls](../README.md#controls) in the README. In short: Enter, Space, a click or gamepad Start/Cross skips a
 movie; Esc asks before quitting; Alt+F4, the close button or holding gamepad Back+Start quits. The game saves only at
 its own save points.
+
+**My custom controls don't work.** Before v1.3.0 a key you gave to a button stayed on its default button too (WASD
+for moving also blocked with W and attacked with A and S). v1.3.0 moves the key and fixes older settings when the
+game starts; open *Controls…* once to see the result. The game's log names a key that is on two buttons.
+
+## Bringing saves over from PPSSPP
+
+Options > Advanced > *Import PPSSPP saves…*, then choose PPSSPP's `memstick` folder (the one with `PSP\SAVEDATA`).
+The saves of both games are copied next to this port's own. PPSSPP encrypts saves by default, and the port reads only
+unencrypted ones: turn off PPSSPP's save encryption (with PPSSPP closed, set `EncryptSave = False` in
+`memstick\PSP\SYSTEM\ppsspp.ini`), load your save in PPSSPP and save again, then import it.
 
 ## Reporting a bug
 
