@@ -1,6 +1,13 @@
 name: "Build Android — Dual God of War PSP"
 on:
   workflow_dispatch:
+  push:
+    branches: [android]
+    paths:
+      - ".github/workflows/android-dual-game.yml"
+      - "tools/package_dual_game_launcher.py"
+      - "android/launcher/src/main/java/org/gow/shell/LauncherActivity.java"
+      - "android/launcher/src/main/java/org/gow/shell/GameActivity.java"
 
 permissions:
   contents: read
@@ -59,6 +66,10 @@ jobs:
           cmake -S . -B build/cmake_tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DGOW_TOOLS_ONLY=ON
           cmake --build build/cmake_tools --target gow_disc --parallel
           test -n "$(find build/cmake_tools -name gow_disc -type f -print -quit)"
+
+      - name: Install recompilation dependencies
+        run: |
+          if [ -f recomp/requirements.txt ]; then python3 -m pip install --break-system-packages -q -r recomp/requirements.txt; fi
 
       - name: Decrypt and recompile both games
         run: |
