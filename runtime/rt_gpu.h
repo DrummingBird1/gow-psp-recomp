@@ -58,12 +58,15 @@ typedef struct {
     float fps;          /* --fps: display refresh (vblank rate) in Hz; 0: the PSP's 59.94 (rt_host.c, rt_hle.c) */
     const char *texture_dump;  /* --texture-dump DIR: every new texture's picture as DIR/<key>.png */
     const char *texture_pack;  /* --texture-pack DIR: DIR/<key>.png replaces that texture (any size) */
-    float aspect;              /* --aspect W:H: a wider picture (e.g. 21:9); 0: the PSP's 480:272 */
+    float aspect;              /* --aspect W:H: a wider picture (e.g. 21:9) or a narrower one (4:3); 0: the PSP's 480:272 */
+    int crt;                   /* --crt: scanlines and a shadow mask over the picture in the window */
+    int show_fps;              /* --show-fps: frame rate in a corner of the window (F3 switches it) */
+    int low_power;             /* --gpu-power low: the integrated GPU of a PC with two (default: the fast one) */
 } GpuOptions;
 extern GpuOptions rt_gpu_opt;  /* read by rt_gpu_init */
 /* parses --res-scale N, --fx-scale N, --msaa N, --aniso N, --lod-bias F, --hdr [auto|scrgb|hdr10],
  * --paper-white NITS, --peak-nits NITS, --vsync, --fxaa, --sharpen F, --fps N, --texture-dump DIR,
- * --texture-pack DIR, --aspect W:H at argv[*i]: 1 if it was one */
+ * --texture-pack DIR, --aspect W:H, --crt, --show-fps, --gpu-power low|high at argv[*i]: 1 if it was one */
 int rt_gpu_option(int argc, char **argv, int *i);
 int rt_gpu_scale(void);        /* internal resolution scale in use */
 /* --aspect: how much narrower the 3D view is drawn horizontally (480:272 over the aspect; 1: off),

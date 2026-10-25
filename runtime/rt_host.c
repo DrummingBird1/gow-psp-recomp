@@ -579,6 +579,7 @@ static void pump(void) {
                 g_fullscreen = !g_fullscreen;
                 SDL_SetWindowFullscreen(g_win, g_fullscreen);
             } else if (e.key.key == SDLK_F12) screenshot();
+            else if (e.key.key == SDLK_F3) rt_gpu_opt.show_fps = !rt_gpu_opt.show_fps;  /* the frame rate in the corner */
             else {
                 /* a movie skips on the keys bound to Start or Cross, and on Enter and Space; the press is kept
                  * from the game only for the buttons that key is bound to */
@@ -642,7 +643,7 @@ int rt_host_init(const HostOptions *o) {
         if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-               "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
+               "IJKL = stick, F11 fullscreen, F12 screenshot, F3 frame rate, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
         g_title_t = now_us();
         pump();
         return 1;
@@ -659,7 +660,7 @@ int rt_host_init(const HostOptions *o) {
     SDL_RenderClear(g_ren);
     SDL_RenderPresent(g_ren);
     printf("[host] window %dx%d (%s renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-           "IJKL = stick, F11 fullscreen, F12 screenshot, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
+           "IJKL = stick, F11 fullscreen, F12 screenshot, F3 frame rate, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
     g_title_t = now_us();
     pump();
     return 1;
