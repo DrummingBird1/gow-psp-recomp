@@ -108,9 +108,9 @@ public final class LauncherActivity extends Activity {
             diagnostic.setBackgroundColor(Color.rgb(24, 18, 20));
             diagnostic.setTextSize(14);
             diagnostic.setPadding(32, 32, 32, 32);
-            diagnostic.setText("Falha ao abrir o launcher do Ghost of Sparta.\\n\\n"
+            diagnostic.setText("Falha ao abrir o launcher do Ghost of Sparta.\n\n"
                     + error.getClass().getName() + ": " + String.valueOf(error.getMessage())
-                    + "\\n\\nConsulte o logcat pelo marcador GOW_LAUNCHER_STARTUP.");
+                    + "\n\nConsulte o logcat pelo marcador GOW_LAUNCHER_STARTUP.");
             diagnostic.setTextIsSelectable(true);
             super.setContentView(diagnostic);
         }
@@ -408,7 +408,7 @@ public final class LauncherActivity extends Activity {
             case "Limite de FPS": return "FPS limit";
             case "Estilo": return "Style";
             case "Opacidade": return "Opacity";
-            case "Salvo. Vale ao tocar em JOGAR.\\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\\nargs.txt: ";
+            case "Salvo. Vale ao tocar em JOGAR.\nargs.txt: ": return "Saved. Takes effect when you tap PLAY.\nargs.txt: ";
             case "pronto": return "ready";
             case "pendente": return "missing";
             case "Tentar jogar": return "Try to play";
@@ -433,8 +433,8 @@ public final class LauncherActivity extends Activity {
             case "Saves restaurados.": return "Save data restored.";
             case "Log apagado.": return "Log deleted.";
             case "args.txt salvo.": return "args.txt saved.";
-            case "Este app usa a biblioteca SDL (licença zlib).\\n\\n": return "This app uses the SDL library (zlib license).\\n\\n";
-            case "Pasta: Android/data/org.gow.shell/files\\n": return "Folder: Android/data/org.gow.shell/files\\n";
+            case "Este app usa a biblioteca SDL (licença zlib).\n\n": return "This app uses the SDL library (zlib license).\n\n";
+            case "Pasta: Android/data/org.gow.shell/files\n": return "Folder: Android/data/org.gow.shell/files\n";
             case "game.iso: ": return "game.iso: ";
             case " pronto": return " ready";
             case " pendente": return " missing";
@@ -1806,7 +1806,7 @@ public final class LauncherActivity extends Activity {
 
     private void showLicenses() {
         dialog().setTitle(localized("LICEN\\u00c7AS"))
-                .setMessage(localized("Este app usa a biblioteca SDL (licen\\u00e7a zlib).\\n\\nA lista completa de componentes est\\u00e1 no reposit\\u00f3rio do projeto."))
+                .setMessage(localized("Este app usa a biblioteca SDL (licen\\u00e7a zlib).\n\nA lista completa de componentes est\\u00e1 no reposit\\u00f3rio do projeto."))
                 .setPositiveButton(localized("OK"), null)
                 .show();
     }
