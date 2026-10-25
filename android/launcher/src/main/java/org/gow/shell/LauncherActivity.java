@@ -288,6 +288,9 @@ public final class LauncherActivity extends Activity {
             case "Ver e editar o args.txt": return "View and edit args.txt";
             case "Arquivos do jogo": return "Game files";
             case "Importar ou substituir game.iso e image.bin": return "Import or replace game.iso and image.bin";
+            case "Importar somente a ISO; image.bin vem no APK": return "Import only the ISO; image.bin is included in the APK";
+            case "image.bin — incluído no APK e instalado automaticamente": return "image.bin — included in APK and installed automatically";
+            case "Para jogar, importe somente a ISO do jogo escolhido. O image.bin correto já vem no APK.": return "To play, import only the ISO for the selected game. The matching image.bin is included in the APK.";
             case "Gerenciar": return "Manage";
             case "Volta todas as configurações ao original": return "Reset all settings to defaults";
             case "Português": return "Portuguese";
@@ -949,10 +952,10 @@ public final class LauncherActivity extends Activity {
         String imageState = image.isFile() && image.length() > 0
                 ? String.format(Locale.US, localized("Pronto (%.1f MB)"), image.length() / 1048576.0) : localized("Pendente");
         dialog().setTitle(localized("Instalar arquivos do jogo"))
-                .setMessage(localized("game.iso — ") + isoState + "\n" + localized("image.bin — ") + imageState
-                        + "\n\n" + localized("Selecione seus próprios arquivos. O app fará uma cópia na pasta privada dele."))
+                .setMessage(localized("game.iso — ") + isoState + "\n"
+                        + localized("image.bin — incluído no APK e instalado automaticamente")
+                        + "\n\n" + localized("Para jogar, importe somente a ISO do jogo escolhido. O image.bin correto já vem no APK."))
                 .setPositiveButton(localized("Selecionar game.iso"), (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
-                .setNeutralButton(localized("Selecionar image.bin"), (d, w) -> pickGameFile(PICK_IMAGE_BIN, "image.bin"))
                 .setNegativeButton(localized("Fechar"), null)
                 .show();
     }
@@ -1628,7 +1631,7 @@ public final class LauncherActivity extends Activity {
                         new Runnable[] { this::showLog, this::shareLog, this::clearLog }, false), false));
         right.addView(row("Argumentos avan\u00e7ados", "Ver e editar o args.txt",
                 actions(new String[] { localized("Editar") }, new Runnable[] { this::editArgs }, false), false));
-        right.addView(row("Arquivos do jogo", "Importar ou substituir game.iso e image.bin",
+        right.addView(row("Arquivos do jogo", "Importar somente a ISO; image.bin vem no APK",
                 actions(new String[] { "Gerenciar" }, new Runnable[] { this::showGameFiles }, false), false));
         right.addView(row("Restaurar padr\u00f5es", "Volta todas as configura\u00e7\u00f5es ao original",
                 actions(new String[] { localized("Restaurar") }, new Runnable[] { this::confirmReset }, true), false));
