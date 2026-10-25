@@ -431,6 +431,26 @@ def import_ppsspp_saves(folder):
     return lines
 
 
+def ai_pack_dir(game):
+    """Where "Upscale dumped textures (AI)" writes its texture pack for this game."""
+    return ROOT / "build" / "texture_pack_ai" / game
+
+
+def upscale_textures(game, ask, out=print):
+    """Real-ESRGAN over this game's dumped textures into ai_pack_dir(game) (texture_upscale.py; the upscaler is
+    downloaded once, after ask() says yes). Returns the pack folder, or None when there was nothing to upscale."""
+    import texture_upscale as T
+    tools = ROOT / "build" / "tools"
+    if not T.find_exe(tools):
+        if ask(T.consent_text()):
+            if not toolchain.download_archive(T.REALESRGAN, tools, out):
+                out("The download failed: the textures are scaled with Lanczos only.")
+        else:
+            out("Without the download the textures are scaled with Lanczos only.")
+    ai, lz = T.upscale(texture_dump_dir(game), ai_pack_dir(game), tools, out=out)
+    return ai_pack_dir(game) if ai + lz else None
+
+
 def texture_dump_dir(game):
     """Where "Dump textures" writes each new texture of this game as <16 hex digits>.png (the pack format)."""
     return ROOT / "build" / "texture_dump" / game

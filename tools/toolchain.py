@@ -86,45 +86,54 @@ def download_portable(root, out=print):
     """Downloads, checks (SHA-256) and unpacks the portable toolchain into root. True when complete."""
     root = Path(root)
     for p in PORTABLE:
-        dest = root / p["dir"]
-        if (dest / ".complete").is_file() and (dest / ".complete").read_text().strip() == p["sha256"]:
-            continue
-        archive = root / (p["dir"] + ".zip.part")
-        root.mkdir(parents=True, exist_ok=True)
-        out(f"downloading {p['name']} ({p['size'] / 1e6:.0f} MB) from {p['url']}")
-        h, done, shown = hashlib.sha256(), 0, -1
-        try:
-            req = urllib.request.Request(p["url"], headers={"User-Agent": "GoWLauncher"})
-            with urllib.request.urlopen(req, timeout=60) as r, open(archive, "wb") as f:
-                while True:
-                    block = r.read(1 << 20)
-                    if not block:
-                        break
-                    f.write(block)
-                    h.update(block)
-                    done += len(block)
-                    pct = done * 100 // max(p["size"], 1)
-                    if pct // 10 != shown:
-                        shown = pct // 10
-                        out(f"  {p['dir']}: {min(pct, 100)}% ({done / 1e6:.0f} MB)")
-        except OSError as e:
-            out(f"download failed: {e}")
+        if not download_archive(p, root, out):
             return False
-        if h.hexdigest() != p["sha256"]:
-            archive.unlink(missing_ok=True)
-            out(f"{p['name']}: wrong SHA-256 ({h.hexdigest()}), expected {p['sha256']}; not used")
-            return False
-        out(f"  checked SHA-256, unpacking into {dest}")
-        shutil.rmtree(dest, ignore_errors=True)
-        with zipfile.ZipFile(archive) as z:
-            for m in z.infolist():
-                rel = m.filename.split("/", 1)[1] if "/" in m.filename.rstrip("/") else ""
-                if rel and rel.startswith(p["skip"]):
-                    continue
-                z.extract(m, dest)
-        archive.unlink(missing_ok=True)
-        (dest / ".complete").write_text(p["sha256"])
     return find_portable(root) is not None
+
+
+def download_archive(p, root, out=print):
+    """Downloads one pinned archive (an entry like those of PORTABLE: name, dir, url, sha256, size, skip), checks its
+    SHA-256 and unpacks it into root/dir; a folder already unpacked from the same archive is kept. True when there."""
+    root = Path(root)
+    dest = root / p["dir"]
+    if (dest / ".complete").is_file() and (dest / ".complete").read_text().strip() == p["sha256"]:
+        return True
+    archive = root / (p["dir"] + ".zip.part")
+    root.mkdir(parents=True, exist_ok=True)
+    out(f"downloading {p['name']} ({p['size'] / 1e6:.0f} MB) from {p['url']}")
+    h, done, shown = hashlib.sha256(), 0, -1
+    try:
+        req = urllib.request.Request(p["url"], headers={"User-Agent": "GoWLauncher"})
+        with urllib.request.urlopen(req, timeout=60) as r, open(archive, "wb") as f:
+            while True:
+                block = r.read(1 << 20)
+                if not block:
+                    break
+                f.write(block)
+                h.update(block)
+                done += len(block)
+                pct = done * 100 // max(p["size"], 1)
+                if pct // 10 != shown:
+                    shown = pct // 10
+                    out(f"  {p['dir']}: {min(pct, 100)}% ({done / 1e6:.0f} MB)")
+    except OSError as e:
+        out(f"download failed: {e}")
+        return False
+    if h.hexdigest() != p["sha256"]:
+        archive.unlink(missing_ok=True)
+        out(f"{p['name']}: wrong SHA-256 ({h.hexdigest()}), expected {p['sha256']}; not used")
+        return False
+    out(f"  checked SHA-256, unpacking into {dest}")
+    shutil.rmtree(dest, ignore_errors=True)
+    with zipfile.ZipFile(archive) as z:
+        for m in z.infolist():
+            rel = m.filename.split("/", 1)[1] if "/" in m.filename.rstrip("/") else ""
+            if rel and rel.startswith(p["skip"]):
+                continue
+            z.extract(m, dest)
+    archive.unlink(missing_ok=True)
+    (dest / ".complete").write_text(p["sha256"])
+    return True
 
 
 def portable_consent_text():

@@ -1219,6 +1219,11 @@ class Window(QWidget):
         cb.setToolTip("Keyboard and gamepad bindings")
         cb.clicked.connect(lambda: ControlsDialog(self).exec())
         a.addWidget(cb, r + 5, 0, 1, 2)
+        ub = QPushButton("Upscale dumped textures (AI)…")
+        ub.setToolTip("Makes a texture pack from the dumped textures of the selected game with Real-ESRGAN, an AI "
+                      "upscaler (downloaded once, about 45 MB), and chooses it as the texture pack folder")
+        ub.clicked.connect(self.upscale_textures)
+        a.addWidget(ub, r + 6, 0, 1, 2)
         ib = QPushButton("Import PPSSPP saves…")
         ib.setToolTip("Copies your PPSSPP saves of both games (unencrypted ones) next to this port's saves")
         ib.clicked.connect(self.import_saves)
@@ -1226,11 +1231,11 @@ class Window(QWidget):
         self.upd = QCheckBox("Check for launcher updates at start")
         self.upd.setChecked(bool(c.get("check_updates", True)))
         self.upd.toggled.connect(lambda on: (self.cfg.__setitem__("check_updates", on), self.collect()))
-        a.addWidget(self.upd, r + 6, 0, 1, 2)
+        a.addWidget(self.upd, r + 7, 0, 1, 2)
         self.rm = QCheckBox("Reduce motion (launcher animations)")
         self.rm.setChecked(self.reduce_motion)
         self.rm.toggled.connect(self.set_reduce_motion)
-        a.addWidget(self.rm, r + 4, 0, 1, 2)
+        a.addWidget(self.rm, r + 8, 0, 1, 2)
         self.update_tpack()
         self.adv.hide()
         v.addWidget(self.adv)
@@ -1337,6 +1342,26 @@ class Window(QWidget):
         self.page_anim = grp
 
     # --- options state -----------------------------------------------------------------------------------
+    def upscale_textures(self):
+        g = self.cfg.get("game", "coo")
+        if not any(self.L.texture_dump_dir(g).glob("*.png")):
+            QMessageBox.information(self, "Upscale textures", "No dumped textures for this game yet: turn on \"Dump "
+                                    "textures\", play the parts you want upscaled, then come back.")
+            return
+        self.log(f"upscaling the dumped textures of {self.L.GAMES[g]['title']}")
+
+        def work():
+            pack = self.L.upscale_textures(g, self.ask, self.log)
+
+            def done():
+                if pack:
+                    self.tpack.setText(str(pack))
+                    self.on_option()
+                QMessageBox.information(self, "Upscale textures", f"Texture pack ready: {pack}" if pack else
+                                        "Nothing was upscaled: see Show log.")
+            self.bridge.call.emit(done)
+        threading.Thread(target=work, daemon=True).start()
+
     def import_saves(self):
         folder = QFileDialog.getExistingDirectory(self, "PPSSPP's memstick folder (it holds PSP\\SAVEDATA)")
         if not folder:
