@@ -888,9 +888,9 @@ public final class LauncherActivity extends Activity {
         if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
             dialog().setTitle(localized("Arquivos do jogo"))
                     .setMessage(localized("Jogo: ") + ("gos".equals(gameId) ? "Ghost of Sparta" : "Chains of Olympus")
-                            + "\\n" + localized("game.iso: ") + (iso.isFile() && iso.length() > 0 ? localized("pronto") : localized("pendente"))
-                            + "\\n" + localized("image.bin: ") + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
-                            + "\\n\\n" + localized("O jogo pode não iniciar sem os arquivos necessários."))
+                            + "\n" + localized("game.iso: ") + (iso.isFile() && iso.length() > 0 ? localized("pronto") : localized("pendente"))
+                            + "\n" + localized("image.bin: ") + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
+                            + "\n\n" + localized("O jogo pode não iniciar sem os arquivos necessários."))
                     .setNegativeButton(localized("Voltar"), null)
                     .setNeutralButton(localized("Instalar arquivos"), (d, w) -> showGameFiles())
                     .setPositiveButton(localized("Tentar jogar"), (d, w) -> startSelectedGame(gameId))
