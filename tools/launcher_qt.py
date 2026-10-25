@@ -374,6 +374,12 @@ def sdl_key_name(e):
     return names.get(k)
 
 
+# mouse buttons, as --controls names them (a key box takes a click while it waits for a key)
+MOUSE_NAMES = {Qt.MouseButton.LeftButton: "Mouse Left", Qt.MouseButton.RightButton: "Mouse Right",
+               Qt.MouseButton.MiddleButton: "Mouse Middle", Qt.MouseButton.BackButton: "Mouse 4",
+               Qt.MouseButton.ForwardButton: "Mouse 5"}
+
+
 PSP_LABELS = [("up", "D-pad up"), ("down", "D-pad down"), ("left", "D-pad left"), ("right", "D-pad right"),
               ("cross", "Cross \u2715"), ("circle", "Circle \u25cb"), ("square", "Square \u25a1"), ("triangle", "Triangle \u25b3"),
               ("l", "L"), ("r", "R"), ("start", "Start"), ("select", "Select"), ("stick_up", "Stick up (keyboard)"),
@@ -415,6 +421,16 @@ class KeyButton(QPushButton):
         self.setText(self.key or "\u2014")
         self.changed.emit()
 
+    def mousePressEvent(self, e):
+        name = MOUSE_NAMES.get(e.button()) if self.waiting else None
+        if not name:
+            return super().mousePressEvent(e)
+        self.waiting = False
+        self.releaseKeyboard()
+        self.key = name
+        self.setText(name)
+        self.changed.emit()
+
     def focusOutEvent(self, e):
         if self.waiting:
             self.waiting = False
@@ -433,8 +449,9 @@ class ControlsDialog(QDialog):
         self.setWindowTitle("Controls")
         self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
         v = QVBoxLayout(self)
-        l = QLabel("Click a key box, then press the key (Backspace clears it). Esc, F11, F12 and Alt+F4 stay fixed; "
-                   "Enter/Space/click/Start still skip movies. The gamepad's left stick is always the PSP stick.")
+        l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F11, F12 and "
+                   "Alt+F4 stay fixed; Enter/Space/click/Start still skip movies. The gamepad's left stick is always the "
+                   "PSP stick, and its right stick evades (L + R + stick) unless that is turned off below.")
         l.setObjectName("dim")
         l.setWordWrap(True)
         v.addWidget(l)
@@ -450,7 +467,7 @@ class ControlsDialog(QDialog):
             grid.addWidget(QLabel(label), r, 0)
             kb = [KeyButton(keys[i] if i < len(keys) else "") for i in range(2)]
             for i, w in enumerate(kb):
-                w.changed.connect(self.check)
+                w.changed.connect(lambda w=w: self.key_set(w))
                 grid.addWidget(w, r, 1 + i)
             pc = []
             for i in range(2):
@@ -459,11 +476,18 @@ class ControlsDialog(QDialog):
                 cb.addItems([t for t, _ in PAD_LABELS])
                 cb.setCurrentText(label_of(PAD_LABELS, pads[i] if i < len(pads) else ""))
                 cb.setEnabled(not b.startswith("stick"))
-                cb.currentTextChanged.connect(self.check)
+                cb.currentTextChanged.connect(lambda _t, cb=cb: self.pad_set(cb))
                 grid.addWidget(cb, r, 3 + i)
                 pc.append(cb)
             self.rows[b] = (kb, pc)
         v.addLayout(grid)
+        self.evade = QCheckBox("Gamepad right stick evades (L + R + stick, as in the PS2 games)")
+        self.evade.setChecked(bool(win.cfg.get("stick_evade", True)))
+        v.addWidget(self.evade)
+        self.moved = QLabel("")
+        self.moved.setObjectName("dim")
+        self.moved.setWordWrap(True)
+        v.addWidget(self.moved)
         self.warn = QLabel("")
         self.warn.setWordWrap(True)
         self.warn.setStyleSheet(f"color: {GOLD};")
@@ -490,6 +514,34 @@ class ControlsDialog(QDialog):
             out[b] = (keys, [p for p in pads if p])
         return out
 
+    def label(self, widget):
+        for b, (kb, pc) in self.rows.items():
+            if widget in kb or widget in pc:
+                return dict(PSP_LABELS)[b]
+        return ""
+
+    def key_set(self, w):
+        """A key (or mouse button) goes to one PSP button only: it leaves the row that had it. (Before, the old
+        binding stayed, so e.g. WASD for moving still blocked and attacked through W, A and S: issue #3.)"""
+        if w.key:
+            for kb, _ in self.rows.values():
+                for o in kb:
+                    if o is not w and o.key == w.key:
+                        o.key = ""
+                        o.setText("—")
+                        self.moved.setText(f"{w.key} was on {self.label(o)}: moved to {self.label(w)}.")
+        self.check()
+
+    def pad_set(self, cb):
+        p = value_of(PAD_LABELS, cb.currentText())
+        if p and cb.isEnabled():
+            for _, pc in self.rows.values():
+                for o in pc:
+                    if o is not cb and o.isEnabled() and value_of(PAD_LABELS, o.currentText()) == p:
+                        o.setCurrentText(label_of(PAD_LABELS, ""))
+                        self.moved.setText(f"Gamepad {cb.currentText()} was on {self.label(o)}: moved to {self.label(cb)}.")
+        self.check()
+
     def check(self):
         probs = self.L.controls_problems(self.current())
         self.warn.setText("\n".join(probs[:6]))
@@ -512,6 +564,7 @@ class ControlsDialog(QDialog):
         # when a row is edited: the dialog shows two per column)
         self.win.cfg["controls"] = {b: {"keys": k, "pad": p} for b, (k, p) in cur.items()
                                     if (k, p) != tuple(dflt[b]) and (k, p) != (dflt[b][0][:2], dflt[b][1][:2])}
+        self.win.cfg["stick_evade"] = self.evade.isChecked()
         self.win.collect()
         self.accept()
 

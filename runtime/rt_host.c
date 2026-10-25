@@ -337,15 +337,18 @@ static uint64_t now_us(void) { return SDL_GetTicksNS() / 1000; }
  *   cross = Z, pad:a        keys by SDL name (Z, Up, Space, Return, Left Shift...), gamepad buttons
  *   stick_up = I            as pad:<SDL name> (a b x y back start leftshoulder rightshoulder
  *                           lefttrigger righttrigger dpup dpdown dpleft dpright leftstick rightstick)
+ *   l = Q, Mouse Right      mouse buttons as Mouse Left, Mouse Right, Mouse Middle, Mouse 4, Mouse 5
  * '#' starts a comment; the comma key is "Comma". Unknown names are reported and skipped; the game keeps running. */
 enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, NBIND };
 #define PAD_LT 100  /* the triggers are axes: pseudo button numbers */
 #define PAD_RT 101
+#define MOUSE_KEY 1000  /* mouse buttons are "keys" MOUSE_KEY + SDL button number (1 left .. 5 X2) */
 static const char *const b_names[NBIND] = { "up", "down", "left", "right", "cross", "circle", "square", "triangle",
                                             "l", "r", "start", "select", "stick_up", "stick_down", "stick_left", "stick_right" };
 static const uint32_t b_bits[12] = { PSP_UP, PSP_DOWN, PSP_LEFT, PSP_RIGHT, PSP_CROSS, PSP_CIRCLE, PSP_SQUARE, PSP_TRIANGLE,
                                      PSP_LTRIGGER, PSP_RTRIGGER, PSP_START, PSP_SELECT };
-static struct { int nk, np; SDL_Scancode k[4]; int p[4]; } g_bind[NBIND] = {
+static const char *const mouse_names[6] = { NULL, "Mouse Left", "Mouse Middle", "Mouse Right", "Mouse 4", "Mouse 5" };
+static struct { int nk, np; int k[4]; int p[4]; } g_bind[NBIND] = {
     { 1, 1, { SDL_SCANCODE_UP }, { SDL_GAMEPAD_BUTTON_DPAD_UP } },
     { 1, 1, { SDL_SCANCODE_DOWN }, { SDL_GAMEPAD_BUTTON_DPAD_DOWN } },
     { 1, 1, { SDL_SCANCODE_LEFT }, { SDL_GAMEPAD_BUTTON_DPAD_LEFT } },
@@ -393,7 +396,8 @@ static void load_controls(const char *path) {
                 if (p == SDL_GAMEPAD_BUTTON_INVALID) { fprintf(stderr, "[host] --controls: unknown gamepad button '%s'\n", t); bad++; }
                 else if (g_bind[b].np < 4) g_bind[b].p[g_bind[b].np++] = p;
             } else {
-                SDL_Scancode sc = !SDL_strcasecmp(t, "Comma") ? SDL_SCANCODE_COMMA : SDL_GetScancodeFromName(t);  /* "," would split the line */
+                int sc = !SDL_strcasecmp(t, "Comma") ? SDL_SCANCODE_COMMA : SDL_GetScancodeFromName(t);  /* "," would split the line */
+                for (int m = 1; m < 6; m++) if (!SDL_strcasecmp(t, mouse_names[m])) sc = MOUSE_KEY + m;
                 if (sc == SDL_SCANCODE_UNKNOWN) { fprintf(stderr, "[host] --controls: unknown key '%s'\n", t); bad++; }
                 else if (g_bind[b].nk < 4) g_bind[b].k[g_bind[b].nk++] = sc;
             }
@@ -402,6 +406,13 @@ static void load_controls(const char *path) {
     }
     fclose(f);
     printf("[host] controls from %s: %d buttons set%s\n", path, n, bad ? " (some names were unknown: see above)" : "");
+    /* a key on two buttons presses both (in a bug report, the likely reason why "the controls don't work") */
+    for (int a = 0; a < NBIND; a++)
+        for (int i = 0; i < g_bind[a].nk; i++)
+            for (int b2 = a + 1; b2 < NBIND; b2++)
+                for (int j = 0; j < g_bind[b2].nk; j++)
+                    if (g_bind[a].k[i] == g_bind[b2].k[j])
+                        printf("[host] controls: one key is on both %s and %s: it presses both\n", b_names[a], b_names[b2]);
 }
 
 static int pad_down(SDL_Gamepad *gp, int p) {
@@ -473,8 +484,8 @@ static void movie_skip_press(uint32_t bits) {
     printf("[host] movie skipped by the player\n");
 }
 
-/* the PSP buttons a key or gamepad button is bound to (--controls), for the movie skip */
-static uint32_t key_bits(SDL_Scancode sc) {
+/* the PSP buttons a key (or MOUSE_KEY + mouse button) or gamepad button is bound to (--controls), for the movie skip */
+static uint32_t key_bits(int sc) {
     uint32_t b = 0;
     for (int i = 0; i < 12; i++)
         for (int j = 0; j < g_bind[i].nk; j++) if (g_bind[i].k[j] == sc) b |= b_bits[i];
@@ -579,7 +590,8 @@ static void pump(void) {
         case SDL_EVENT_WINDOW_FOCUS_GAINED: g_focus_t = now_us(); break;
         case SDL_EVENT_MOUSE_BUTTON_DOWN:
             g_mouse_t = now_us();
-            if (g_mouse_t - g_focus_t > 300000) movie_skip_press(0);  /* not the click that brought the window to the front */
+            if (g_mouse_t - g_focus_t > 300000) movie_skip_press(key_bits(MOUSE_KEY + e.button.button));  /* not the click that brought the window to the front */
+            else g_eat |= key_bits(MOUSE_KEY + e.button.button);  /* nor does that click reach the game */
             break;
         case SDL_EVENT_MOUSE_MOTION: g_mouse_t = now_us(); break;
         case SDL_EVENT_GAMEPAD_BUTTON_DOWN: {
@@ -775,16 +787,45 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
     return g_quit;
 }
 
+/* RT_TEST_KEYS="FRAME:NAME[:N],...": for tests of the bindings without a focused window, key NAME (an SDL key
+ * name or Mouse Left...) counts as held from shown frame FRAME for N frames (default 6), as if it were pressed. */
+static void test_keys(const bool **k, SDL_MouseButtonFlags *mb) {
+    static bool keys[SDL_SCANCODE_COUNT];
+    static const char *spec;
+    static int checked;
+    if (!checked) { checked = 1; spec = getenv("RT_TEST_KEYS"); }
+    if (!spec) return;
+    memcpy(keys, *k, sizeof(keys));
+    char buf[512];
+    SDL_strlcpy(buf, spec, sizeof(buf));
+    for (char *tok = strtok(buf, ","); tok; tok = strtok(NULL, ",")) {
+        char name[64] = "";
+        unsigned long long f = 0;
+        int n = 6;
+        if (sscanf(tok, "%llu:%63[^:]:%d", &f, name, &n) < 2 || g_last_frame < f || g_last_frame >= f + (unsigned)n) continue;
+        int m = 0;
+        for (int i = 1; i < 6; i++) if (!SDL_strcasecmp(name, mouse_names[i])) m = i;
+        if (m) *mb |= SDL_BUTTON_MASK(m);
+        else if (SDL_GetScancodeFromName(name) != SDL_SCANCODE_UNKNOWN) keys[SDL_GetScancodeFromName(name)] = true;
+    }
+    *k = keys;
+}
+
 static int live_input(uint32_t *out_b, int *lx, int *ly) {
     if (!g_win) return 0;
     uint32_t b = 0;
     int ax = 128, ay = 128;
     {
         const bool *k = SDL_GetKeyboardState(NULL);
+        SDL_MouseButtonFlags mb = SDL_GetWindowFlags(g_win) & SDL_WINDOW_INPUT_FOCUS ? SDL_GetMouseState(NULL, NULL) : 0;
+        test_keys(&k, &mb);
         int stick[4] = { 0 };
         for (int i = 0; i < NBIND; i++) {
             int on = 0;
-            for (int j = 0; j < g_bind[i].nk; j++) on |= k[g_bind[i].k[j]];
+            for (int j = 0; j < g_bind[i].nk; j++) {
+                int sc = g_bind[i].k[j];
+                on |= sc >= MOUSE_KEY ? (mb & SDL_BUTTON_MASK(sc - MOUSE_KEY)) != 0 : k[sc];
+            }
             for (int p = 0; p < 8; p++)
                 if (g_pads[p]) for (int j = 0; j < g_bind[i].np; j++) on |= pad_down(g_pads[p], g_bind[i].p[j]);
             if (!on) continue;
@@ -801,6 +842,15 @@ static int live_input(uint32_t *out_b, int *lx, int *ly) {
             if (!gp) continue;
             int x = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY);
             if (abs(x) > 6000 || abs(y) > 6000) { ax = (x + 32768) >> 8; ay = (y + 32768) >> 8; }
+            /* the right stick evades, as in the PS2 games: the PSP's evade is L + R + the stick in that direction */
+            if (!g_o.no_stick_evade) {
+                int rx = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX), ry = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY);
+                if (rx * rx + ry * ry > 16000 * 16000) {
+                    b |= PSP_LTRIGGER | PSP_RTRIGGER;
+                    ax = (rx + 32768) >> 8;
+                    ay = (ry + 32768) >> 8;
+                }
+            }
         }
     }
     g_eat &= b;  /* a released button is the game's again */

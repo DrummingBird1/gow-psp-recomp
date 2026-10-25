@@ -250,6 +250,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc) o.host.scale = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--icon") && i + 1 < argc) o.host.icon = argv[++i];
         else if (!strcmp(argv[i], "--controls") && i + 1 < argc) o.host.controls = argv[++i];
+        else if (!strcmp(argv[i], "--no-stick-evade")) o.host.no_stick_evade = 1;
         else if (!strcmp(argv[i], "--fullscreen")) o.host.fullscreen = 1;
         else if (!strcmp(argv[i], "--nearest")) o.host.nearest = 1;
         else if (!strcmp(argv[i], "--input") && i + 1 < argc) o.host.input = argv[++i];
@@ -293,7 +294,7 @@ int main(int argc, char **argv) {
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
                         "              [--perf-csv frames.csv] [--profile] [--max-frames N] [--fast-forward N]\n"
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...|file]\n"
-                        "              [--record-input file] [--save-slot NAME] [--icon file.png] [--controls file]\n"
+                        "              [--record-input file] [--save-slot NAME] [--icon file.png] [--controls file] [--no-stick-evade]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--res-scale 1-8] [--fx-scale 1-8] [--msaa 2|4|8] [--aniso 2-16] [--lod-bias F] [--fxaa] [--sharpen 0-1]\n"
                         "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"

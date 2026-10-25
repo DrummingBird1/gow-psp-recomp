@@ -75,9 +75,16 @@ RESERVED_KEYS = {"Escape", "F11", "F12", "F4"}  # quit box, fullscreen, screensh
 def controls_of(cfg):
     """{button: (keys, pads)}: the defaults with the player's changes."""
     out = {b: (list(k), list(p)) for b, (k, p) in CONTROLS.items()}
-    for b, v in (cfg.get("controls") or {}).items():
-        if b in out and isinstance(v, dict):
-            out[b] = ([str(x) for x in v.get("keys", [])][:4], [x for x in v.get("pad", []) if x in PAD_BUTTONS][:4])
+    mine = {b: v for b, v in (cfg.get("controls") or {}).items() if b in out and isinstance(v, dict)}
+    for b, v in mine.items():
+        out[b] = ([str(x) for x in v.get("keys", [])][:4], [x for x in v.get("pad", []) if x in PAD_BUTTONS][:4])
+    # a key or gamepad button the player put on a button leaves the defaults of the others: WASD for moving no
+    # longer also blocks (W = R) and attacks (A, S), which made custom controls look broken (issue #3)
+    taken_k = {k for b in mine for k in out[b][0]}
+    taken_p = {p for b in mine for p in out[b][1]}
+    for b in out:
+        if b not in mine:
+            out[b] = ([k for k in out[b][0] if k not in taken_k], [p for p in out[b][1] if p not in taken_p])
     return out
 
 
@@ -88,6 +95,8 @@ def controls_problems(controls):
     for b, (keys, pads) in controls.items():
         if not keys and not pads:
             out.append(f"{b}: nothing assigned")
+        elif not keys:
+            out.append(f"{b}: no key (gamepad only)")
         for k in keys:
             if k in RESERVED_KEYS:
                 out.append(f"{k} is reserved (Esc quit box, F11 fullscreen, F12 screenshot, Alt+F4)")
@@ -119,7 +128,7 @@ def write_controls(cfg):
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9"),
            "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan")}
-BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates")
+BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade")
 
 
 def validate_config(cfg):
@@ -313,6 +322,8 @@ def play_command(cfg, game):
         cmd += ["--fps", str(cfg["fps"])]
     if cfg.get("controls"):
         cmd += ["--controls", str(ROOT / "build" / "controls.ini")]
+    if not cfg.get("stick_evade", True):
+        cmd.append("--no-stick-evade")
     return cmd
 
 
