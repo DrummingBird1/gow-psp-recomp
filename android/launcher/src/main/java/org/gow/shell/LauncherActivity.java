@@ -830,10 +830,14 @@ public final class LauncherActivity extends Activity {
         left.addView(crest, wrapWrap());
         SpannableStringBuilder name = new SpannableStringBuilder("Chains of Olympus");
         name.setSpan(new ForegroundColorSpan(ROSE), 10, 17, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        TextView title = tv("", 30, TEXT, true);
+        TextView title = tv("", 27, TEXT, true);
         title.setText(name);
         left.addView(title, wrapWrap());
-        TextView secondTitle = tv("Ghost of Sparta", 20, ROSE, true);
+        TextView plus = tv("+", 25, ROSE, true);
+        plus.setGravity(Gravity.CENTER);
+        plus.setPadding(0, dp(1), 0, dp(1));
+        left.addView(plus, wrapWrap());
+        TextView secondTitle = tv("Ghost of Sparta", 25, ROSE, true);
         secondTitle.setPadding(0, dp(2), 0, dp(5));
         left.addView(secondTitle, wrapWrap());
         left.addView(tv("Launcher oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
