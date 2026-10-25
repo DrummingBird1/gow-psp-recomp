@@ -45,7 +45,8 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 - 60, 120, 144 FPS and more (both games step by elapsed time), V-Sync.
 - 21:9, 32:9 and 4:3, and a CRT filter (scanlines).
 - Keyboard, mouse buttons and gamepads (PSP layout, the right stick evades), saves, texture dump and replacement packs.
-- Ghost of Sparta in English, French or Spanish; separate music and effects volume; import of PPSSPP saves.
+- Ghost of Sparta in English, French or Spanish; separate music and effects volume; gamepad rumble; import of PPSSPP
+  saves; AI-upscaled texture packs made on your PC; the launcher in English, Spanish, French or Hebrew.
 - A one-download launcher: finds your disc images, builds each game, graphics presets, Play.
 
 ![Launcher tour](docs/images/launcher-tour.gif)

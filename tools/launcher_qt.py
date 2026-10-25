@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFil
                                QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QVBoxLayout, QWidget)
 
 import launcher_art as art
+import launcher_i18n
+from launcher_i18n import T
 
 BG, PANEL, PANEL2, TEXT, TEXT2 = "#121212", "#1c1c1c", "#262626", "#f0efec", "#a8a69e"
 RED, RED_HI, GOLD = "#b3261e", "#c8372e", "#c9a227"
@@ -55,11 +57,12 @@ LANGUAGE = [("English", "en"), ("French", "fr"), ("Spanish", "es")]
 
 
 def label_of(table, value):
-    return next((lab for lab, v in table if v == value), table[0][0])
+    """The (translated) label of value in a table of (English label, value)"""
+    return T(next((lab for lab, v in table if v == value), table[0][0]))
 
 
 def value_of(table, label):
-    return next((v for lab, v in table if lab == label), table[0][1])
+    return next((v for lab, v in table if T(lab) == label), table[0][1])
 
 
 def env_on(name):
@@ -281,7 +284,7 @@ class Card(QWidget):
         p.setFont(f2)
         col = {"Ready to play": QColor("#9fd18b"), "Needs building": QColor(GOLD)}.get(self.status, QColor(TEXT2))
         p.setPen(col)
-        p.drawText(QRectF(r.left() + 18, r.bottom() - 34, r.width() - 36, 22), Qt.AlignmentFlag.AlignLeft, "\u25cf  " + self.status)
+        p.drawText(QRectF(r.left() + 18, r.bottom() - 34, r.width() - 36, 22), Qt.AlignmentFlag.AlignLeft, "\u25cf  " + T(self.status))
         if self.selected:
             p.setPen(QPen(QColor(GOLD), 2))
             p.setBrush(Qt.BrushStyle.NoBrush)
@@ -450,7 +453,7 @@ class ControlsDialog(QDialog):
     def __init__(self, win):
         super().__init__(win)
         self.win, self.L = win, win.L
-        self.setWindowTitle("Controls")
+        self.setWindowTitle(T("Controls"))
         self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
         v = QVBoxLayout(self)
         l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F3, F11, F12 and "
@@ -461,14 +464,14 @@ class ControlsDialog(QDialog):
         v.addWidget(l)
         grid = QGridLayout()
         for c, t in enumerate(("PSP button", "Key", "Key 2", "Gamepad", "Gamepad 2")):
-            h = QLabel(t)
+            h = QLabel(T(t))
             h.setObjectName("head")
             grid.addWidget(h, 0, c)
         self.rows = {}
         cur = self.L.controls_of(win.cfg)
         for r, (b, label) in enumerate(PSP_LABELS, 1):
             keys, pads = cur[b]
-            grid.addWidget(QLabel(label), r, 0)
+            grid.addWidget(QLabel(T(label)), r, 0)
             kb = [KeyButton(keys[i] if i < len(keys) else "") for i in range(2)]
             for i, w in enumerate(kb):
                 w.changed.connect(lambda w=w: self.key_set(w))
@@ -485,26 +488,26 @@ class ControlsDialog(QDialog):
                 pc.append(cb)
             self.rows[b] = (kb, pc)
         v.addLayout(grid)
-        self.evade = QCheckBox("Gamepad right stick evades (L + R + stick, as in the PS2 games)")
+        self.evade = QCheckBox(T("Gamepad right stick evades (L + R + stick, as in the PS2 games)"))
         self.evade.setChecked(bool(win.cfg.get("stick_evade", True)))
         v.addWidget(self.evade)
-        self.moved = QLabel("")
+        self.moved = QLabel(T(""))
         self.moved.setObjectName("dim")
         self.moved.setWordWrap(True)
         v.addWidget(self.moved)
-        self.warn = QLabel("")
+        self.warn = QLabel(T(""))
         self.warn.setWordWrap(True)
         self.warn.setStyleSheet(f"color: {GOLD};")
         v.addWidget(self.warn)
         h = QHBoxLayout()
-        b = QPushButton("Defaults")
+        b = QPushButton(T("Defaults"))
         b.clicked.connect(self.defaults)
         h.addWidget(b)
         h.addStretch()
-        self.ok = QPushButton("Save")
+        self.ok = QPushButton(T("Save"))
         self.ok.clicked.connect(self.save)
         h.addWidget(self.ok)
-        b = QPushButton("Cancel")
+        b = QPushButton(T("Cancel"))
         b.clicked.connect(self.reject)
         h.addWidget(b)
         v.addLayout(h)
@@ -578,6 +581,9 @@ class Window(QWidget):
         super().__init__()
         self.L = L
         self.cfg = L.load_config()
+        launcher_i18n.set_language(self.cfg.get("ui_language", "en"))
+        if launcher_i18n.language() in launcher_i18n.RTL:
+            QApplication.instance().setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.no_art = env_on("GOW_NO_DISC_ART")
         self.app_icon = QPixmap(str(assets_dir() / "icon.png"))
         self.no_menu = self.no_art or env_on("GOW_NO_MENU_BG")
@@ -594,7 +600,7 @@ class Window(QWidget):
         self._meander = {}
         self.parallax = QPointF(0, 0)
         self.cache, self.cache_dirty, self.cache_t = None, True, 0.0
-        self.setWindowTitle("God of War PSP: launcher")
+        self.setWindowTitle(T("God of War PSP: launcher"))
         self.setMinimumSize(1000, 680)
         self.restore_geometry()
         self.setStyleSheet(STYLE)
@@ -893,7 +899,7 @@ class Window(QWidget):
         v = QVBoxLayout(self.p_welcome)
         v.addStretch(2)
         for text, name in (("Step 1 of 3", "dim"), ("Choose the folder with your games", "bigq")):
-            l = QLabel(text)
+            l = QLabel(T(text))
             l.setObjectName(name)
             l.setAlignment(Qt.AlignmentFlag.AlignCenter)
             v.addWidget(l)
@@ -904,7 +910,7 @@ class Window(QWidget):
         v.addSpacing(8)
         v.addWidget(l)
         v.addSpacing(22)
-        b = QPushButton("Choose game folder\u2026")
+        b = QPushButton(T("Choose game folder\u2026"))
         b.setObjectName("big")
         b.clicked.connect(self.choose_folder)
         self.b_choose = b
@@ -918,11 +924,11 @@ class Window(QWidget):
         self.p_prep = QWidget(self.pages)
         v = QVBoxLayout(self.p_prep)
         v.addStretch(2)
-        l = QLabel("Step 2 of 3")
+        l = QLabel(T("Step 2 of 3"))
         l.setObjectName("dim")
         l.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(l)
-        self.prep_title = QLabel("")
+        self.prep_title = QLabel(T(""))
         self.prep_title.setObjectName("bigq")
         self.prep_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(self.prep_title)
@@ -934,7 +940,7 @@ class Window(QWidget):
         h.addWidget(self.prep_prog, 3)
         h.addStretch()
         v.addLayout(h)
-        lb = QPushButton("Show log")
+        lb = QPushButton(T("Show log"))
         lb.setObjectName("link")
         lb.clicked.connect(self.show_log)
         h = QHBoxLayout()
@@ -959,19 +965,19 @@ class Window(QWidget):
         v.addLayout(cards, 5)
         v.addSpacing(12)
         fr = QHBoxLayout()
-        l = QLabel("Game folder")
+        l = QLabel(T("Game folder"))
         l.setObjectName("head")
         fr.addWidget(l)
         self.folder = QLineEdit(self.cfg.get("game_folder", ""))
         self.folder.setReadOnly(True)
         self.folder.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         fr.addWidget(self.folder, 1)
-        b = QPushButton("Change\u2026")
+        b = QPushButton(T("Change\u2026"))
         b.clicked.connect(self.choose_folder)
         fr.addWidget(b)
         v.addLayout(fr)
         v.addStretch(1)
-        self.play = QPushButton("PLAY")
+        self.play = QPushButton(T("PLAY"))
         self.play.setObjectName("play")
         self.play.clicked.connect(self.do_play)
         h = QHBoxLayout()
@@ -981,12 +987,12 @@ class Window(QWidget):
         v.addLayout(h)
         h = QHBoxLayout()
         h.addStretch()
-        self.b_steam = QPushButton("Add to Steam")
+        self.b_steam = QPushButton(T("Add to Steam"))
         self.b_steam.setObjectName("link")
         self.b_steam.setToolTip("Adds the selected game to Steam as a non-Steam game that starts it directly. Close Steam first.")
         self.b_steam.clicked.connect(self.do_add_steam)
         h.addWidget(self.b_steam)
-        self.b_lnk = QPushButton("Create desktop shortcut")
+        self.b_lnk = QPushButton(T("Create desktop shortcut"))
         self.b_lnk.setObjectName("link")
         self.b_lnk.setToolTip("A desktop shortcut that starts the selected game directly, with the launcher's settings.")
         self.b_lnk.clicked.connect(self.do_shortcut)
@@ -996,13 +1002,13 @@ class Window(QWidget):
         v.addSpacing(4)
         h = QHBoxLayout()
         h.addStretch()
-        self.b_build = QPushButton("Build")
+        self.b_build = QPushButton(T("Build"))
         self.b_build.clicked.connect(lambda: self.do_build())
         h.addWidget(self.b_build)
         self.prog = Progress(self)
         self.prog.hide()
         h.addWidget(self.prog)
-        lb = QPushButton("Show log")
+        lb = QPushButton(T("Show log"))
         lb.setObjectName("link")
         lb.clicked.connect(self.show_log)
         h.addWidget(lb)
@@ -1021,7 +1027,7 @@ class Window(QWidget):
                          ("Report a bug", self.report_bug), ("Open logs folder", self.open_logs),
                          ("GitHub", lambda: webbrowser.open(REPO_URL)), ("License (GPL-3.0)", self.open_license),
                          ("Third-party notices", self.open_notices)):
-            b = QPushButton(text)
+            b = QPushButton(T(text))
             b.setObjectName("link")
             b.clicked.connect(fn)
             foot.addWidget(b)
@@ -1029,7 +1035,7 @@ class Window(QWidget):
         # gear + options panel
         self.gear = QPushButton("\u2699", self)
         self.gear.setObjectName("gear")
-        self.gear.setToolTip("Options (F1)")
+        self.gear.setToolTip(T("Options (F1)"))
         self.gear.setFixedSize(42, 42)
         self.gear.clicked.connect(self.toggle_options)
         self.build_options()
@@ -1047,7 +1053,7 @@ class Window(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         head = QHBoxLayout()
         head.setContentsMargins(20, 16, 12, 6)
-        l = QLabel("Options")
+        l = QLabel(T("Options"))
         l.setObjectName("bigq")
         head.addWidget(l)
         head.addStretch()
@@ -1061,22 +1067,22 @@ class Window(QWidget):
         outer.addWidget(sc, 1)
         v = QVBoxLayout(body)
         v.setContentsMargins(20, 4, 20, 20)
-        l = QLabel("Preset")
+        l = QLabel(T("Preset"))
         l.setObjectName("head")
         v.addWidget(l)
         row = QGridLayout()
         self.preset_btn = {}
         for i, name in enumerate(PRESETS):
-            b = QPushButton(name)
+            b = QPushButton(T(name))
             b.setObjectName("preset")
             b.clicked.connect(lambda _=False, n=name: self.apply_preset(n))
             row.addWidget(b, 0, i)
             self.preset_btn[name] = b
         v.addLayout(row)
-        self.custom_lbl = QLabel("Custom")
+        self.custom_lbl = QLabel(T("Custom"))
         v.addWidget(self.custom_lbl)
         v.addSpacing(8)
-        l = QLabel("Display")
+        l = QLabel(T("Display"))
         l.setObjectName("head")
         v.addWidget(l)
         grid = QGridLayout()
@@ -1087,9 +1093,9 @@ class Window(QWidget):
                 ("Frame rate", "fps", FPS, int(c["fps"])), ("Aspect ratio", "aspect", ASPECT, c["aspect"]),
                 ("HDR", "hdr", HDR, bool(c["hdr"])), ("Window size", "window", WINDOW, int(c["window_scale"]))]
         for i, (lab, key, table, val) in enumerate(rows):
-            grid.addWidget(QLabel(lab), i, 0)
+            grid.addWidget(QLabel(T(lab)), i, 0)
             cb = QComboBox()
-            cb.addItems([t[0] for t in table])
+            cb.addItems([T(t[0]) for t in table])
             cb.setCurrentText(label_of(table, val))
             cb.currentTextChanged.connect(self.on_option)
             grid.addWidget(cb, i, 1)
@@ -1099,21 +1105,22 @@ class Window(QWidget):
                                         "the game skips ahead to keep time and the sound gets choppy: go back to 60.")
         self.chk = {}
         for key, text in (("fullscreen", "Fullscreen"), ("show_fps", "Show the frame rate (F3)"), ("crt", "CRT filter (scanlines)"),
+                          ("hud_edges", "HUD at the screen edges at 21:9 / 32:9 (experimental)"),
                           ("per_game", "Separate graphics settings for each game")):
-            ch = QCheckBox(text)
+            ch = QCheckBox(T(text))
             ch.setChecked(bool(c.get(key)))
             ch.toggled.connect(self.on_option)
             v.addWidget(ch)
             self.chk[key] = ch
         v.addSpacing(8)
-        l = QLabel("Game")
+        l = QLabel(T("Game"))
         l.setObjectName("head")
         v.addWidget(l)
         g = QGridLayout()
         g.setColumnStretch(1, 1)
-        g.addWidget(QLabel("Language"), 0, 0)
+        g.addWidget(QLabel(T("Language")), 0, 0)
         cb = QComboBox()
-        cb.addItems([t[0] for t in LANGUAGE])
+        cb.addItems([T(t[0]) for t in LANGUAGE])
         cb.setCurrentText(label_of(LANGUAGE, c.get("language", "en")))
         cb.setToolTip("The US disc of Ghost of Sparta has English, French and Spanish; Chains of Olympus's has English only.")
         cb.currentTextChanged.connect(lambda *_: self.collect())  # game options leave the graphics preset as it is
@@ -1121,7 +1128,7 @@ class Window(QWidget):
         self.combo["language"] = (cb, LANGUAGE)
         self.vol = {}
         for i, (key, text) in enumerate((("music_volume", "Music volume"), ("sfx_volume", "Effects and voices")), 1):
-            g.addWidget(QLabel(text), i, 0)
+            g.addWidget(QLabel(T(text)), i, 0)
             hl = QHBoxLayout()
             s = QSlider(Qt.Orientation.Horizontal)
             s.setRange(0, 100)
@@ -1144,14 +1151,14 @@ class Window(QWidget):
                                 "Swaps the two buttons in the game's menus, as on a Japanese PSP."),
                                ("discord", "Show what I play on Discord", "\"Playing God of War: ...\" in your Discord "
                                 "status while a game runs (needs the Discord app; nothing else is sent).")):
-            ch = QCheckBox(text)
+            ch = QCheckBox(T(text))
             ch.setToolTip(tip)
             ch.setChecked(bool(c.get(key, key == "rumble")))
             ch.toggled.connect(lambda *_: self.collect())
             v.addWidget(ch)
             self.chk[key] = ch
         v.addSpacing(8)
-        self.adv_btn = QPushButton("Advanced  \u25b8")
+        self.adv_btn = QPushButton(T("Advanced  \u25b8"))
         self.adv_btn.setCheckable(True)
         self.adv_btn.toggled.connect(self.toggle_adv)
         v.addWidget(self.adv_btn)
@@ -1163,9 +1170,9 @@ class Window(QWidget):
                  ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"])), ("Graphics API", "api", GPU_API, c.get("gpu_api", "")),
                  ("Graphics card", "power", GPU_POWER, c.get("gpu_power", "high"))]
         for i, (lab, key, table, val) in enumerate(arows):
-            a.addWidget(QLabel(lab), i, 0)
+            a.addWidget(QLabel(T(lab)), i, 0)
             cb = QComboBox()
-            cb.addItems([t[0] for t in table])
+            cb.addItems([T(t[0]) for t in table])
             cb.setCurrentText(label_of(table, val))
             cb.currentTextChanged.connect(self.on_option)
             a.addWidget(cb, i, 1)
@@ -1174,7 +1181,7 @@ class Window(QWidget):
                                         "on your graphics card, try the other one.")
         self.combo["power"][0].setToolTip("On a PC with two graphics cards (a laptop): the fast one, or the integrated one, "
                                           "which uses less power. Windows' graphics settings can override this.")
-        a.addWidget(QLabel("Sharpening"), 5, 0)
+        a.addWidget(QLabel(T("Sharpening")), 5, 0)
         sh = QHBoxLayout()
         self.sharpen = QSlider(Qt.Orientation.Horizontal)
         self.sharpen.setRange(0, 100)
@@ -1187,55 +1194,63 @@ class Window(QWidget):
         a.addLayout(sh, 5, 1)
         r = 6
         for key, text in (("vsync", "V-Sync"), ("mute", "Mute")):
-            ch = QCheckBox(text)
+            ch = QCheckBox(T(text))
             ch.setChecked(bool(c[key]))
             ch.toggled.connect(self.on_option)
             a.addWidget(ch, r, 0, 1, 2)
             self.chk[key] = ch
             r += 1
-        a.addWidget(QLabel("Texture pack folder"), r, 0, 1, 2)
+        a.addWidget(QLabel(T("Texture pack folder")), r, 0, 1, 2)
         tp = QHBoxLayout()
         self.tpack = QLineEdit(c["texture_pack"])
         self.tpack.editingFinished.connect(self.on_option)
         tp.addWidget(self.tpack, 1)
-        b = QPushButton("\u2026")
+        b = QPushButton(T("\u2026"))
         b.clicked.connect(lambda: (self.tpack.setText(QFileDialog.getExistingDirectory(self, "Texture pack folder") or self.tpack.text()),
                                    self.on_option()))
         tp.addWidget(b)
         a.addLayout(tp, r + 1, 0, 1, 2)
-        self.tpack_lbl = QLabel("")
+        self.tpack_lbl = QLabel(T(""))
         self.tpack_lbl.setObjectName("dim")
         self.tpack_lbl.setWordWrap(True)
         self.tpack_lbl.setStyleSheet("font-size: 8pt;")
         a.addWidget(self.tpack_lbl, r + 2, 0, 1, 2)
-        ch = QCheckBox("Dump textures (to make a pack)")
+        ch = QCheckBox(T("Dump textures (to make a pack)"))
         ch.setToolTip("Writes each new texture as a .png into build/texture_dump/<game>. Edit or upscale them, put them in a "
                       "folder and choose it as the texture pack folder. PPSSPP texture packs don't work here.")
         ch.setChecked(bool(c.get("texture_dump")))
         ch.toggled.connect(self.on_option)
         a.addWidget(ch, r + 3, 0, 1, 2)
         self.chk["texture_dump"] = ch
-        cb = QPushButton("Controls\u2026")
+        cb = QPushButton(T("Controls\u2026"))
         cb.setToolTip("Keyboard and gamepad bindings")
         cb.clicked.connect(lambda: ControlsDialog(self).exec())
         a.addWidget(cb, r + 5, 0, 1, 2)
-        ub = QPushButton("Upscale dumped textures (AI)…")
+        ub = QPushButton(T("Upscale dumped textures (AI)…"))
         ub.setToolTip("Makes a texture pack from the dumped textures of the selected game with Real-ESRGAN, an AI "
                       "upscaler (downloaded once, about 45 MB), and chooses it as the texture pack folder")
         ub.clicked.connect(self.upscale_textures)
         a.addWidget(ub, r + 6, 0, 1, 2)
-        ib = QPushButton("Import PPSSPP saves…")
+        ib = QPushButton(T("Import PPSSPP saves…"))
         ib.setToolTip("Copies your PPSSPP saves of both games (unencrypted ones) next to this port's saves")
         ib.clicked.connect(self.import_saves)
         a.addWidget(ib, r + 4, 0, 1, 2)
-        self.upd = QCheckBox("Check for launcher updates at start")
+        self.upd = QCheckBox(T("Check for launcher updates at start"))
         self.upd.setChecked(bool(c.get("check_updates", True)))
         self.upd.toggled.connect(lambda on: (self.cfg.__setitem__("check_updates", on), self.collect()))
         a.addWidget(self.upd, r + 7, 0, 1, 2)
-        self.rm = QCheckBox("Reduce motion (launcher animations)")
+        self.rm = QCheckBox(T("Reduce motion (launcher animations)"))
         self.rm.setChecked(self.reduce_motion)
         self.rm.toggled.connect(self.set_reduce_motion)
         a.addWidget(self.rm, r + 8, 0, 1, 2)
+        a.addWidget(QLabel(T("Launcher language")), r + 9, 0)
+        ul = QComboBox()
+        ul.addItems([t for t, _ in launcher_i18n.LANGS])
+        ul.setToolTip("Applies from the next start of the launcher")
+        ul.setCurrentText(next((t for t, v in launcher_i18n.LANGS if v == c.get("ui_language", "en")), "English"))
+        ul.currentTextChanged.connect(lambda t: (self.cfg.__setitem__("ui_language", dict(launcher_i18n.LANGS)[t]),
+                                                 self.collect()))
+        a.addWidget(ul, r + 9, 1)
         self.update_tpack()
         self.adv.hide()
         v.addWidget(self.adv)
@@ -1255,7 +1270,7 @@ class Window(QWidget):
 
     def toggle_adv(self, on):
         self.adv.setVisible(on)
-        self.adv_btn.setText("Advanced  \u25be" if on else "Advanced  \u25b8")
+        self.adv_btn.setText(T("Advanced  \u25be") if on else T("Advanced  \u25b8"))
 
     def panel_rect(self, open_):
         w = min(440, int(self.width() * 0.42))
@@ -1424,7 +1439,7 @@ class Window(QWidget):
         discrete, hz = detect_pc()
         self.apply_preset("High" if discrete else "Light")
         self.applying = True
-        self.combo["hdr"][0].setCurrentText("Auto")
+        self.combo["hdr"][0].setCurrentText(label_of(HDR, True))
         # the frame rate stays at the original 60 even on a high-refresh display: above 60, a PC that can't hold the
         # rate makes the game skip ahead, which costs sound (issue #3); players can raise it themselves
         self.applying = False
@@ -1459,7 +1474,7 @@ class Window(QWidget):
             self.combo[key][0].setCurrentText(label_of(table, s[k]))
         self.combo["fx"][0].setCurrentText(label_of(FX, 1 if int(s["fx_scale"]) == 1 else 0))
         self.sharpen.setValue(int(round(float(s["sharpen"]) * 100)))
-        for k in ("vsync", "crt", "show_fps"):
+        for k in ("vsync", "crt", "show_fps", "hud_edges"):
             self.chk[k].setChecked(bool(s.get(k)))
         self.applying = False
         self.preset = s.get("preset") or "Custom"
@@ -1505,7 +1520,7 @@ class Window(QWidget):
         self.play.setToolTip(reason or f"Play {self.L.GAMES[sel]['title']} (Enter)")
         st = self.game_state(sel)
         self.b_build.setEnabled(st != "No disc image found" and not self.busy)
-        self.b_build.setText("Rebuild" if st == "Ready to play" else "Build")
+        self.b_build.setText(T("Rebuild") if st == "Ready to play" else T("Build"))
         self.b_build.setVisible(not self.busy)
         self.prog.setVisible(self.busy)
         for b in (self.b_steam, self.b_lnk):
@@ -1521,7 +1536,7 @@ class Window(QWidget):
     def show_log(self):
         if self.log_win is None:
             self.log_win = QWidget()
-            self.log_win.setWindowTitle("Launcher log")
+            self.log_win.setWindowTitle(T("Launcher log"))
             self.log_win.setStyleSheet(STYLE + f"QWidget {{ background: {BG}; }}")
             self.log_win.resize(1000, 600)
             lay = QVBoxLayout(self.log_win)
@@ -1806,10 +1821,10 @@ class Window(QWidget):
         self.upd_prog.hide()
         lay.addWidget(self.upd_prog)
         h = QHBoxLayout()
-        skip = QPushButton("Skip this version")
+        skip = QPushButton(T("Skip this version"))
         h.addWidget(skip)
         h.addStretch()
-        later = QPushButton("Later")
+        later = QPushButton(T("Later"))
         h.addWidget(later)
         go = QPushButton("Update now" if self.L.FROZEN else "Open the release page")
         go.setObjectName("big")

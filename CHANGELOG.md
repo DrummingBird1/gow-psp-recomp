@@ -21,9 +21,19 @@
 - **Infinite health** (a cheat, off by default).
 - **Import PPSSPP saves** (Options > Advanced): copies the saves of both games from a PPSSPP memory stick. Encrypted
   ones are named, with how to save them unencrypted in PPSSPP.
+- **Gamepad rumble when Kratos is hit**, stronger for a bigger hit (on by default; the PSP has none).
+- **Circle confirms, Cross cancels** as an option (the Japanese layout).
+- **Separate graphics settings for each game**, as an option: e.g. Ultra for one game and Light for the other.
+- **AI-upscaled textures:** *Upscale dumped textures (AI)* (Options > Advanced) turns the dumped textures into a
+  texture pack with Real-ESRGAN, downloaded once (about 45 MB) after asking. It all runs on your PC.
+- **Discord:** *Show what I play on Discord* (off by default) shows the game and the time played in your status.
+- **The launcher in Spanish, French and Hebrew** (Options > Advanced > Launcher language): the window's labels,
+  buttons and options; longer help texts stay in English.
+- **HUD at the screen edges** at 21:9 and 32:9 (experimental, off by default): the HUD keeps its shape at the sides
+  of the screen instead of in the middle. Text drawn across the middle can come apart; please report what you see.
 - For contributors: `RT_TEST_KEYS` simulates held keys to test bindings without a focused window; new options
   `--no-stick-evade`, `--language`, `--crt`, `--show-fps`, `--gpu-power`, `--music-volume`, `--sfx-volume`,
-  `--skip-movies`.
+  `--skip-movies`, `--rumble`, `--confirm`, `--hud-edges`; `tools/texture_upscale.py`, `tools/regression_check.py`.
 
 ## v1.2.1 (2026-10-23)
 

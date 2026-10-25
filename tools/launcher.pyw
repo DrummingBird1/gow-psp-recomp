@@ -51,7 +51,7 @@ DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "crt": False,
-    "language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -128,15 +128,15 @@ def write_controls(cfg):
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
-           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "es", "fr", "he"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
-BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord")
+BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
 
 
 # --- per-game graphics ------------------------------------------------------------------------------------------
 # With "Separate graphics settings for each game" on, these keys are kept per game (cfg["game_settings"][game]).
 GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
-             "crt", "show_fps", "preset")
+             "crt", "show_fps", "hud_edges", "preset")
 
 
 def settings_for(cfg, game):
@@ -345,6 +345,8 @@ def play_command(cfg, game):
             cmd.append("--vsync")
         if cfg["aspect"] != "native":
             cmd += ["--aspect", cfg["aspect"]]
+            if cfg.get("hud_edges") and cfg["aspect"] in ("21:9", "32:9"):
+                cmd.append("--hud-edges")
         if cfg["texture_pack"]:
             cmd += ["--texture-pack", cfg["texture_pack"]]
         if cfg.get("texture_dump"):
