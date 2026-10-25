@@ -833,7 +833,7 @@ public final class LauncherActivity extends Activity {
         TextView title = tv("", 27, TEXT, true);
         title.setText(name);
         left.addView(title, wrapWrap());
-        TextView plus = tv("+", 25, ROSE, true);
+        TextView plus = tv("+", 27, ROSE, true);
         plus.setGravity(Gravity.CENTER);
         plus.setPadding(0, dp(1), 0, dp(1));
         left.addView(plus, wrapWrap());
