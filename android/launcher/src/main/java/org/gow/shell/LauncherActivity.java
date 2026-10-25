@@ -873,21 +873,37 @@ public final class LauncherActivity extends Activity {
     }
 
     private void launchGame() {
+        final String[] games = { "Chains of Olympus", "Ghost of Sparta" };
+        dialog().setTitle(localized("Escolher jogo"))
+                .setItems(games, (d, which) -> launchGameFor(which == 0 ? "coo" : "gos"))
+                .setNegativeButton(localized("Cancelar"), null)
+                .show();
+    }
+
+    private void launchGameFor(String gameId) {
+        prefs().edit().putString("selected_game", gameId).apply();
         writeArgs();
         File iso = new File(gameDir(), "game.iso");
         File image = new File(gameDir(), "image.bin");
         if (!iso.isFile() || iso.length() == 0 || !image.isFile() || image.length() == 0) {
             dialog().setTitle(localized("Arquivos do jogo"))
-                     .setMessage(localized("game.iso: ") + (iso.isFile() && iso.length() > 0 ? localized("pronto") : localized("pendente"))
-                            + "\n" + localized("image.bin: ") + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
-                            + "\n\n" + localized("O jogo pode não iniciar sem os arquivos necessários."))
+                    .setMessage(localized("Jogo: ") + ("gos".equals(gameId) ? "Ghost of Sparta" : "Chains of Olympus")
+                            + "\\n" + localized("game.iso: ") + (iso.isFile() && iso.length() > 0 ? localized("pronto") : localized("pendente"))
+                            + "\\n" + localized("image.bin: ") + (image.isFile() && image.length() > 0 ? localized("pronto") : localized("pendente"))
+                            + "\\n\\n" + localized("O jogo pode não iniciar sem os arquivos necessários."))
                     .setNegativeButton(localized("Voltar"), null)
                     .setNeutralButton(localized("Instalar arquivos"), (d, w) -> showGameFiles())
-                    .setPositiveButton(localized("Tentar jogar"), (d, w) -> startActivity(new Intent(this, GameActivity.class)))
+                    .setPositiveButton(localized("Tentar jogar"), (d, w) -> startSelectedGame(gameId))
                     .show();
             return;
         }
-        startActivity(new Intent(this, GameActivity.class));
+        startSelectedGame(gameId);
+    }
+
+    private void startSelectedGame(String gameId) {
+        Intent intent = new Intent(this, GameActivity.class);
+        intent.putExtra("gow_game_id", gameId);
+        startActivity(intent);
     }
 
     private void showGameFiles() {
@@ -1819,8 +1835,12 @@ public final class LauncherActivity extends Activity {
     }
 
     private File gameDir() {
-        File dir = getExternalFilesDir(null);
-        return dir == null ? getFilesDir() : dir;
+        String id = prefs().getString("selected_game", "coo");
+        File base = getExternalFilesDir(null);
+        if (base == null) base = getFilesDir();
+        File dir = new File(new File(base, "gow-games"), "gos".equals(id) ? "UCUS98737" : "UCUS98653");
+        if (!dir.isDirectory()) dir.mkdirs();
+        return dir;
     }
 
     private List<String> tokenize(String text) {
