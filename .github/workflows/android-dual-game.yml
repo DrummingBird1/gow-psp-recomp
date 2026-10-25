@@ -135,6 +135,13 @@ jobs:
           printf '#include <SDL3/SDL_main.h>\nint main(int argc, char **argv) { (void)argc; (void)argv; return 0; }\n' > stub.c
           python3 SDL/build-scripts/create-android-project.py org.gow.shell stub.c --output "$RUNNER_TEMP/gow-dual-project"
           python3 tools/install_android_launcher.py "$RUNNER_TEMP/gow-dual-project/org.gow.shell"
+          ASSETS="$RUNNER_TEMP/gow-dual-project/org.gow.shell/app/src/main/assets/gow-games"
+          mkdir -p "$ASSETS/UCUS98653" "$ASSETS/UCUS98737"
+          cp build/gen/UCUS98653_full/image.bin "$ASSETS/UCUS98653/image.bin"
+          cp build/gen/UCUS98737_full/image.bin "$ASSETS/UCUS98737/image.bin"
+          test "$(stat -c%s "$ASSETS/UCUS98653/image.bin")" -gt 0
+          test "$(stat -c%s "$ASSETS/UCUS98737/image.bin")" -gt 0
+          echo "Bundled matching image.bin sizes: CoO=$(stat -c%s "$ASSETS/UCUS98653/image.bin") GoS=$(stat -c%s "$ASSETS/UCUS98737/image.bin")"
           cd "$RUNNER_TEMP/gow-dual-project/org.gow.shell"
           for f in app/build.gradle app/build.gradle.kts; do
             if [ -f "$f" ]; then
