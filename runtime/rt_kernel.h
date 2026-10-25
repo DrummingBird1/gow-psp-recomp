@@ -31,6 +31,7 @@ extern const HleEntry rt_hle_savedata[]; /* rt_savedata.c: sceUtilitySavedata */
 
 extern int rt_hle_verbose;  /* 0: important events only, 1: every call */
 extern int rt_language;     /* --language: the PSP's system language (sceImpose): 1 English (default), 2 French, 3 Spanish... */
+extern int rt_confirm_cross; /* --confirm circle: 0, the button swap of Japanese PSPs (circle confirms); default 1 */
 void rt_log(const char *fmt, ...);
 
 /* --- Error codes (PSP kernel) --------------------------------------------- */

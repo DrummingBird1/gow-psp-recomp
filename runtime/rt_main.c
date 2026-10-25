@@ -252,6 +252,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--controls") && i + 1 < argc) o.host.controls = argv[++i];
         else if (!strcmp(argv[i], "--no-stick-evade")) o.host.no_stick_evade = 1;
         else if (!strcmp(argv[i], "--skip-movies")) o.host.skip_movies = 1;
+        else if (!strcmp(argv[i], "--confirm") && i + 1 < argc) rt_confirm_cross = strcmp(argv[++i], "circle") != 0;
         else if (!strcmp(argv[i], "--language") && i + 1 < argc) {
             /* the PSP's language codes; a disc has only some of them (the US Ghost of Sparta: en, fr, es) */
             static const char *const codes[] = { "ja", "en", "fr", "es", "de", "it", "nl", "pt", "ru" };
@@ -304,13 +305,13 @@ int main(int argc, char **argv) {
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
                         "              [--perf-csv frames.csv] [--profile] [--max-frames N] [--fast-forward N]\n"
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...|file]\n"
-                        "              [--record-input file] [--save-slot NAME] [--icon file.png] [--controls file] [--no-stick-evade] [--skip-movies] [--language en|fr|es|...]\n"
+                        "              [--record-input file] [--save-slot NAME] [--icon file.png] [--controls file] [--no-stick-evade] [--skip-movies] [--language en|fr|es|...] [--confirm cross|circle]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--res-scale 1-8] [--fx-scale 1-8] [--msaa 2|4|8] [--aniso 2-16] [--lod-bias F] [--fxaa] [--sharpen 0-1]\n"
                         "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"
                         "              [--aspect W:H] [--texture-dump dir] [--texture-pack dir]\n"
                         "              [--wav out.wav] [--mute] [--music-volume 0-200] [--sfx-volume 0-200]\n"
-                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--level-log] [--load-level NAME@FRAME]\n"
+                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--rumble] [--level-log] [--load-level NAME@FRAME]\n"
                         "              [--dump-ram N,N,...|stop:prefix])\n"
                         "       %s --disc game.chd|.iso --extract disc0:/path out.file (a directory is listed)\n"
                         "       %s --movie-test movie.pmf out_prefix [audio channel]\n",

@@ -27,6 +27,8 @@ enum {
 };
 
 int rt_host_init(const HostOptions *o);  /* 0 on failure */
+/* Rumbles every open gamepad: strength 0..1 for ms milliseconds (--rumble, rt_debug.c). */
+void rt_host_rumble(float strength, int ms);
 void rt_host_shutdown(void);
 /* A frame is shown (sceDisplaySetFrameBuf). Returns nonzero when the user closed the window. */
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format);

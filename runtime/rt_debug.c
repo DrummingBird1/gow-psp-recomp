@@ -45,6 +45,7 @@
 #include <string.h>
 
 #include "rt_debug.h"
+#include "rt_host.h"
 #include "rt_kernel.h"
 
 /* The two games' level managers and game objects have the same layout, at other offsets. */
@@ -105,7 +106,7 @@ static const Game *g;  /* this build's game, or NULL */
 static const char *g_warp, *g_warp_via;
 static uint32_t g_warp_frame = 1000;
 static int g_warp_spawn = -1;
-static int g_warp_done, g_level_log, g_god;
+static int g_warp_done, g_level_log, g_god, g_rumble;
 static int g_gos_stage;           /* GoS warp: 1 waiting for the start, 4 for --warp-via's level change,
                                      2 placing Kratos at SPAWN, 3 done */
 static uint32_t g_gos_menu;
@@ -141,6 +142,7 @@ int rt_debug_option(int argc, char **argv, int *i) {
     if (!strcmp(a, "--warp-via") && *i + 1 < argc) { g_warp_via = argv[++*i]; return 1; }
     if (!strcmp(a, "--level-log")) { g_level_log = 1; return 1; }
     if (!strcmp(a, "--god")) { g_god = 1; return 1; }
+    if (!strcmp(a, "--rumble")) { g_rumble = 1; return 1; }
     if (!strcmp(a, "--load-level") && *i + 1 < argc) {
         snprintf(g_load_name, sizeof(g_load_name), "%s", argv[++*i]);
         char *at = strchr(g_load_name, '@');
@@ -352,34 +354,59 @@ static void load_level(void) {
     rt_call_guest(&k_cur->ctx, g->load_level, 4, args);
 }
 
-/* --god: Kratos's health back to its maximum at every controller read. */
-static void god(void) {
-    if (!g->health_vtable) return;
+/* Kratos's health component (in the hero's component list), or 0 while there is no hero */
+static uint32_t health_component(void) {
+    if (!g->health_vtable) return 0;
     uint32_t game = rt_r32(g->game_ptr), hero = ram_ptr(game) ? rt_r32(game + g->game_hero) : 0;
     uint32_t comps = ram_ptr(hero) ? rt_r32(hero + 0x24) : 0;
-    if (!ram_ptr(comps)) return;
+    if (!ram_ptr(comps)) return 0;
     for (uint32_t k = 0; k < 64; k++) {
         uint32_t c = rt_r32(comps + 4 * k);
-        if (!ram_ptr(c) || rt_r32(c + 0xC) != g->health_vtable) continue;
-        float cur = rt_rf(c + g->health_cur), max = rt_rf(c + g->health_max);
-        if (cur <= 0.0f && max > 0.0f && !g_deaths++) rt_log("[debug] Kratos died (health %.1f) despite --god\n", cur);
-        if (max > 0.0f && cur < max) {
-            memcpy(rt_ptr(c + g->health_cur), &max, 4);
-            if (!g_god_refills++) rt_log("[debug] god mode: health %.1f -> %.1f (component %08X)\n", cur, max, c);
-        }
-        return;
+        if (ram_ptr(c) && rt_r32(c + 0xC) == g->health_vtable) return c;
     }
+    return 0;
+}
+
+/* --god: Kratos's health back to its maximum at every controller read. */
+static void god(void) {
+    uint32_t c = health_component();
+    if (!c) return;
+    float cur = rt_rf(c + g->health_cur), max = rt_rf(c + g->health_max);
+    if (cur <= 0.0f && max > 0.0f && !g_deaths++) rt_log("[debug] Kratos died (health %.1f) despite --god\n", cur);
+    if (max > 0.0f && cur < max) {
+        memcpy(rt_ptr(c + g->health_cur), &max, 4);
+        if (!g_god_refills++) rt_log("[debug] god mode: health %.1f -> %.1f (component %08X)\n", cur, max, c);
+    }
+}
+
+/* --rumble: the gamepads rumble when Kratos loses health, harder and longer for a bigger hit (the PSP has no
+ * rumble). A new level or hero component starts afresh. */
+static uint32_t g_rumbles;
+static void rumble(void) {
+    static uint32_t last_c;
+    static float last_hp;
+    uint32_t c = health_component();
+    float cur = c ? rt_rf(c + g->health_cur) : 0.0f, max = c ? rt_rf(c + g->health_max) : 0.0f;
+    if (c && c == last_c && max > 0.0f && cur < last_hp - 0.01f) {
+        float f = (last_hp - cur) / max;  /* the hit as a part of the whole bar */
+        float strength = f > 0.25f ? 1.0f : 0.35f + f * 2.6f;
+        rt_host_rumble(strength, f > 0.25f ? 450 : 200);
+        if (!g_rumbles++) rt_log("[debug] rumble: health %.1f -> %.1f of %.1f\n", last_hp, cur, max);
+    }
+    last_c = c;
+    last_hp = cur;
 }
 
 void rt_debug_input(uint64_t frame) {
     if (!g) {
-        if ((g_warp || g_god || g_level_log || g_load_name[0]) && !g_warp_done) {
+        if ((g_warp || g_god || g_rumble || g_level_log || g_load_name[0]) && !g_warp_done) {
             rt_log("[debug] --warp, --god, --level-log and --load-level are not known for %s; ignored\n", RT_GAME_ID);
             g_warp_done = 1;
         }
         if (g_dump_frames) dump_ram(frame);
         return;
     }
+    if (g_rumble) rumble();  /* before god mode refills what the hit took */
     if (g_god) god();
     if (g_warp && !g_warp_done && frame >= g_warp_frame) {
         if (is_coo()) warp_coo();
@@ -401,5 +428,6 @@ void rt_debug_report(void) {
                g_gos_stage == 1 ? "the game never started there" :
                g_gos_stage == 4 ? "the level change never happened" : "Kratos never appeared");
     else if (g_warp && !g_warp_done) printf("[debug] the warp to %s never ran (frame %u not reached)\n", g_warp, g_warp_frame);
+    if (g_rumble) printf("[debug] rumble: %u hits\n", g_rumbles);
     if (g_god) printf("[debug] god mode refilled Kratos's health %u times; health reached 0 %u times\n", g_god_refills, g_deaths);
 }

@@ -431,6 +431,11 @@ static void update_cursor(void) {
     if (hide) SDL_HideCursor(); else SDL_ShowCursor();
 }
 
+void rt_host_rumble(float strength, int ms) {
+    Uint16 lo = (Uint16)(strength * 0xFFFF), hi = (Uint16)(strength * 0xC000);
+    for (int i = 0; i < 8; i++) if (g_pads[i]) SDL_RumbleGamepad(g_pads[i], lo, hi, (Uint32)ms);
+}
+
 static void open_pad(SDL_JoystickID id) {
     for (int i = 0; i < 8; i++)
         if (!g_pads[i]) {
@@ -879,4 +884,5 @@ int rt_host_idle(uint64_t now_us, uint64_t next_us) { replay_skips(now_us, next_
 static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
 void rt_host_movie_playing(int on) { (void)on; }
 int rt_host_take_movie_skip(void) { return replay_movie_skip(); }
+void rt_host_rumble(float strength, int ms) { (void)strength; (void)ms; }
 #endif
