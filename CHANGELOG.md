@@ -1,6 +1,16 @@
 # Changelog
 
-## v1.3.0 (2026-10-26)
+## v1.3.1 (2026-10-26)
+
+The first release with the v1.3.0 changes below. v1.3.0 was tagged but never published: found while releasing it,
+its launcher would have started a game built by v1.2 with an option that build doesn't know (`--rumble`, on by
+default), and the game would have closed at once.
+
+- **After an update, the launcher asks for one Build before Play** when the game was built from older code: the
+  game's state says *Needs building* and Play says why (a shortcut or Steam shows it in a message). Each build
+  records which runtime it was made from (`build/runtime_<game>.txt`).
+
+## v1.3.0 (2026-10-26, not released)
 
 - **Fix: custom controls that seemed not to work** (issue #3). A key put on a PSP button stayed on the button it had
   by default, so WASD for moving still blocked (W = R) and attacked (A, S). Now a key or gamepad button goes to one

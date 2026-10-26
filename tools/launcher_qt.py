@@ -1450,7 +1450,7 @@ class Window(QWidget):
         disc = self.cfg["disc"].get(g, "")
         if not disc or not Path(disc).is_file():
             return "No disc image found"
-        return "Ready to play" if self.L.exe_path(g).exists() else "Needs building"
+        return "Ready to play" if self.L.exe_path(g).exists() and self.L.build_is_current(g) else "Needs building"
 
     def load_found_discs(self):
         for g in self.L.GAMES:
@@ -1505,6 +1505,8 @@ class Window(QWidget):
             return "The game is running."
         if st == "No disc image found":
             return f"No disc image of {self.L.GAMES[g]['title']} in the game folder."
+        if st == "Needs building" and self.L.exe_path(g).exists():
+            return "This launcher version brings newer game code: press Build once (a few minutes)."
         if st == "Needs building":
             return "Press Build first (one time, about 10 minutes)."
         return ""
