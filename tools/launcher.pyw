@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.
@@ -236,6 +236,32 @@ def newest(paths):
     """The most recently built of these files, or the first when none exists yet."""
     have = [p for p in paths if p.exists()]
     return max(have, key=lambda p: p.stat().st_mtime) if have else paths[0]
+
+
+def runtime_stamp():
+    """What a game build is built from: the launcher's bundled sources (frozen) or the runtime sources (from git).
+    A game built from other sources may not know the options this launcher passes (v1.3.0 added --rumble, on by
+    default: a v1.2 build stopped at once with "unknown argument"), so it must be built again first."""
+    h = hashlib.sha256()
+    if FROZEN:
+        h.update((Path(sys._MEIPASS) / "src" / "manifest.txt").read_bytes())
+    else:
+        for p in sorted((ROOT / "runtime").rglob("*")) + [ROOT / "CMakeLists.txt"]:
+            if p.is_file():
+                h.update(p.relative_to(ROOT).as_posix().encode() + b"\0" + p.read_bytes())
+    return h.hexdigest()
+
+
+def stamp_file(game):
+    return ROOT / "build" / f"runtime_{game}.txt"
+
+
+def build_is_current(game):
+    """True when this game's build was made from this launcher's runtime (False: missing or older)."""
+    try:
+        return stamp_file(game).read_text(encoding="utf-8").strip() == runtime_stamp()
+    except OSError:
+        return False
 
 
 def exe_path(game):
@@ -682,6 +708,7 @@ def build_with(cfg, game, tools, out=print):
             return False
         if cond is not None:  # the recompile step
             stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())
+    stamp_file(game).write_text(runtime_stamp(), encoding="utf-8")
     out(f"built {exe_path(game)}")
     return True
 
@@ -689,6 +716,9 @@ def build_with(cfg, game, tools, out=print):
 def start_game(cfg, game):
     if not exe_path(game).exists():
         raise ValueError("Not built yet: choose the disc image and press Build.")
+    if not build_is_current(game):
+        raise ValueError("This launcher brings a newer version of the game's code: press Build in the launcher once "
+                         "(a few minutes) before playing.")
     check_disc(cfg, game)
     (ROOT / GAMES[game]["ms0"]).mkdir(parents=True, exist_ok=True)
     (ROOT / "build" / "screenshots").mkdir(parents=True, exist_ok=True)
