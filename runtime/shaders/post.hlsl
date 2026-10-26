@@ -9,7 +9,7 @@
 //     neighbourhood already has contrast);
 //   - present: the picture into the window (bilinear, or point sampling, or an area filter when the
 //     internal resolution is larger than the window), as SDR or as HDR (scRGB or HDR10/ST 2084)
-//     with inverse tone mapping of the SDR picture.
+//     with inverse tone mapping of the SDR picture, optionally with scanlines and a shadow mask (--crt).
 // Bindings follow SDL_gpu.h: fragment sampler set 2 / (t0, s0, space2), fragment uniforms set 3 / (b0, space3).
 
 struct VSOut {
@@ -32,7 +32,7 @@ VSOut vs_main(uint id : SV_VertexID) {
 [[vk::binding(0, 3)]] cbuffer PostUniforms : register(b0, space3) {
     float4 u_src;    // source rectangle in texels: x0, y0, x1, y1
     float4 u_size;   // source texture: width, height, 1/width, 1/height
-    uint4 u_mode;    // x: pass, y: box ratio / present taps, z: output (0 SDR, 1 scRGB, 2 HDR10)
+    uint4 u_mode;    // x: pass, y: box ratio / present taps, z: output (0 SDR, 1 scRGB, 2 HDR10), w: present: 1 CRT
     float4 u_p0;     // cas: sharpness; present: paper white (nits), peak (nits), knee
     float4 u_p1;     // present: source texels per window pixel
 };
@@ -120,13 +120,24 @@ float3 pq(float3 nits) {
     return pow((0.8359375 + 18.8515625 * l) / (1.0 + 18.6875 * l), 78.84375);
 }
 
-float4 present(float2 t) {
+// --crt: the PSP's 272 lines as scanlines (bright in the middle of a line, dark between lines) and an
+// aperture-grille mask across the window's pixel columns; the gain keeps the average brightness
+float3 crt(float3 c, float2 t, float2 pos) {
+    float beam = pow(sin(3.14159265 * frac(t.y * 272.0)), 2.0);
+    float scan = lerp(0.55, 1.0, lerp(beam, 1.0, 0.5 * dot(c, 1.0 / 3.0)));  // bright lines bloom over the gaps
+    uint col = (uint)pos.x % 3u;
+    float3 mask = col == 0u ? float3(1.0, 0.82, 0.82) : col == 1u ? float3(0.82, 1.0, 0.82) : float3(0.82, 0.82, 1.0);
+    return saturate(c * scan * mask * 1.4);
+}
+
+float4 present(float2 t, float2 pos) {
     float2 p = u_src.xy + t * (u_src.zw - u_src.xy);
     float3 c = 0;
     uint n = u_mode.y;  // taps per axis: more than one when the picture is made smaller (u_p1: texels per pixel)
     for (uint j = 0; j < n; j++)
         for (uint i = 0; i < n; i++) c += tap(p + u_p1.xy * (float2(i + 0.5, j + 0.5) / n - 0.5));
     c /= n * n;
+    if (u_mode.w & 1u) c = crt(c, t, pos);
     if (u_mode.z == 0u) return float4(c, 1.0);
     float3 nits = inverse_tonemap(c);
     if (u_mode.z == 1u) return float4(nits / 80.0, 1.0);  // scRGB: 1.0 = 80 nits, BT.709 primaries
@@ -143,7 +154,7 @@ float4 fs_main(VSOut i) : SV_Target {
     case P_BOX: return float4(box(t), 1.0);
     case P_FXAA: return float4(fxaa(p), 1.0);
     case P_CAS: return float4(cas(p), 1.0);
-    case P_PRESENT: return present(t);
+    case P_PRESENT: return present(t, i.pos.xy);
     default: return u_tex.SampleLevel(u_smp, p * u_size.zw, 0);  // copy, with alpha
     }
 }

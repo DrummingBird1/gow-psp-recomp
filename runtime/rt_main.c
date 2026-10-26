@@ -154,7 +154,7 @@ typedef struct {
     HostOptions host;
     int profile, cpu_set, wall_set;
     const char *wav;
-    int mute;
+    int mute, music_vol, sfx_vol;
 } BootOptions;
 
 static void boot_report(void) {
@@ -210,7 +210,7 @@ static int run_boot(const BootOptions *o) {
     g_prev_filter = SetUnhandledExceptionFilter(on_crash);  /* before the window and GPU start: drivers crash there too */
 #endif
     if (!rt_host_init(&o->host)) return 1;
-    AudioOptions ao = { o->wav, o->host.window && !o->mute };
+    AudioOptions ao = { o->wav, o->host.window && !o->mute, o->music_vol, o->sfx_vol };
     if (!rt_audio_init(&ao)) return 1;
     /* An interactive window runs until it is closed, unless limits were given explicitly. */
     uint32_t cpu_ms = o->host.window && !o->cpu_set ? 0xFFFFFFFFu : o->cpu_ms;
@@ -250,6 +250,16 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--scale") && i + 1 < argc) o.host.scale = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--icon") && i + 1 < argc) o.host.icon = argv[++i];
         else if (!strcmp(argv[i], "--controls") && i + 1 < argc) o.host.controls = argv[++i];
+        else if (!strcmp(argv[i], "--no-stick-evade")) o.host.no_stick_evade = 1;
+        else if (!strcmp(argv[i], "--skip-movies")) o.host.skip_movies = 1;
+        else if (!strcmp(argv[i], "--confirm") && i + 1 < argc) rt_confirm_cross = strcmp(argv[++i], "circle") != 0;
+        else if (!strcmp(argv[i], "--language") && i + 1 < argc) {
+            /* the PSP's language codes; a disc has only some of them (the US Ghost of Sparta: en, fr, es) */
+            static const char *const codes[] = { "ja", "en", "fr", "es", "de", "it", "nl", "pt", "ru" };
+            const char *v = argv[++i];
+            rt_language = atoi(v) > 0 ? atoi(v) : 1;
+            for (int k = 0; k < 9; k++) if (!strcmp(v, codes[k])) rt_language = k;
+        }
         else if (!strcmp(argv[i], "--fullscreen")) o.host.fullscreen = 1;
         else if (!strcmp(argv[i], "--nearest")) o.host.nearest = 1;
         else if (!strcmp(argv[i], "--input") && i + 1 < argc) o.host.input = argv[++i];
@@ -272,6 +282,8 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--fast-forward") && i + 1 < argc) rt_fast_forward = (uint32_t)strtoul(argv[++i], NULL, 0);
         else if (!strcmp(argv[i], "--wav") && i + 1 < argc) o.wav = argv[++i];
         else if (!strcmp(argv[i], "--mute")) o.mute = 1;
+        else if (!strcmp(argv[i], "--music-volume") && i + 1 < argc) o.music_vol = atoi(argv[++i]) > 0 ? atoi(argv[i]) : -1;
+        else if (!strcmp(argv[i], "--sfx-volume") && i + 1 < argc) o.sfx_vol = atoi(argv[++i]) > 0 ? atoi(argv[i]) : -1;
         else if (!strcmp(argv[i], "--extract") && i + 2 < argc) { extract = argv[++i]; extract_to = argv[++i]; }
         else if (!strcmp(argv[i], "--vfpu-selftest")) { rt_mem_init(); return rt_vfpu_selftest(); }
         else if (!strcmp(argv[i], "--movie-test") && i + 2 < argc) {
@@ -293,13 +305,13 @@ int main(int argc, char **argv) {
                         "              [--frames-dir dir (--frames-every N | --frames-at N,N,...)] [--record out.mp4] [--record-host out.mp4] [--ffmpeg exe]\n"
                         "              [--perf-csv frames.csv] [--profile] [--max-frames N] [--fast-forward N]\n"
                         "              [--window [--scale N] [--fullscreen] [--nearest] [--shots dir]] [--input frame:buttons[:frames],...|file]\n"
-                        "              [--record-input file] [--save-slot NAME] [--icon file.png] [--controls file]\n"
+                        "              [--record-input file] [--save-slot NAME] [--icon file.png] [--controls file] [--no-stick-evade] [--skip-movies] [--language en|fr|es|...] [--confirm cross|circle]\n"
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--res-scale 1-8] [--fx-scale 1-8] [--msaa 2|4|8] [--aniso 2-16] [--lod-bias F] [--fxaa] [--sharpen 0-1]\n"
                         "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"
-                        "              [--aspect W:H] [--texture-dump dir] [--texture-pack dir]\n"
-                        "              [--wav out.wav] [--mute]\n"
-                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--level-log] [--load-level NAME@FRAME]\n"
+                        "              [--aspect W:H [--hud-edges]] [--crt] [--show-fps] [--gpu-power low|high] [--texture-dump dir] [--texture-pack dir]\n"
+                        "              [--wav out.wav] [--mute] [--music-volume 0-200] [--sfx-volume 0-200]\n"
+                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--rumble] [--level-log] [--load-level NAME@FRAME]\n"
                         "              [--dump-ram N,N,...|stop:prefix])\n"
                         "       %s --disc game.chd|.iso --extract disc0:/path out.file (a directory is listed)\n"
                         "       %s --movie-test movie.pmf out_prefix [audio channel]\n",

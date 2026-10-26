@@ -15,6 +15,7 @@
 #include <string.h>
 
 #include "rt_at3dec.h"
+#include "rt_audio.h"
 #include "rt_kernel.h"
 
 #define CODEC_AT3PLUS 0x1000
@@ -542,6 +543,7 @@ static void hle_AtracDecodeData(RtCtx *c) {
     uint32_t r = 0;
     for (int t = a->info.numSkipFrames + 1; t > 0 && !r; t--) r = decode_internal(a, out, &n, &finish);
     if (r) n = 0;
+    if (n > 0) rt_audio_note_music(out, (uint32_t)n * (uint32_t)(a->outChannels > 0 ? a->outChannels : 2) * 2u);
     if (num_addr) rt_w32(num_addr, (uint32_t)n);
     if (finish_addr) rt_w32(finish_addr, (uint32_t)finish);
     if (!r && remain_addr) rt_w32(remain_addr, (uint32_t)remaining_frames(&a->info));

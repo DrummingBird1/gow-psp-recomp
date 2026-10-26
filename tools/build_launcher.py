@@ -47,6 +47,7 @@ def main():
            "--paths", str(ROOT / "tools"), "--paths", str(ROOT / "recomp"),
            "--hidden-import", "recomp", "--hidden-import", "toolchain", "--hidden-import", "launcher_qt",
            "--hidden-import", "launcher_art", "--hidden-import", "launcher_update", "--hidden-import", "steam_shortcuts",
+           "--hidden-import", "discord_presence", "--hidden-import", "texture_upscale", "--hidden-import", "launcher_i18n",
            "--exclude-module", "tkinter",
            "--add-data", f"{ROOT / 'tools' / 'launcher_assets'}{sep}launcher_assets",
            "--exclude-module", "unicorn", "--exclude-module", "difftest", "--exclude-module", "numpy",

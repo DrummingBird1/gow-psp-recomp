@@ -47,6 +47,9 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     GpuOptions *o = &rt_gpu_opt;
     if (!strcmp(a, "--fxaa")) { o->fxaa = 1; return 1; }
     if (!strcmp(a, "--vsync")) { o->vsync = 1; return 1; }
+    if (!strcmp(a, "--crt")) { o->crt = 1; return 1; }
+    if (!strcmp(a, "--show-fps")) { o->show_fps = 1; return 1; }
+    if (!strcmp(a, "--hud-edges")) { o->hud_edges = 1; return 1; }
     if (!strcmp(a, "--hdr")) {
         o->hdr = 1;
         if (v && (!strcmp(v, "scrgb") || !strcmp(v, "hdr10") || !strcmp(v, "auto"))) {
@@ -67,6 +70,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     else if (!strcmp(a, "--fps")) o->fps = (float)atof(v);
     else if (!strcmp(a, "--texture-dump")) o->texture_dump = v;
     else if (!strcmp(a, "--texture-pack")) o->texture_pack = v;
+    else if (!strcmp(a, "--gpu-power")) o->low_power = !strcmp(v, "low");
     else if (!strcmp(a, "--aspect")) {  /* W:H or a number */
         const char *colon = strchr(v, ':');
         double w = atof(v), h = colon ? atof(colon + 1) : 1.0;
@@ -331,7 +335,15 @@ static void pack_index(void);
 
 int rt_gpu_init(void *window, const char *driver) {
     if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "[gpu] SDL_Init: %s\n", SDL_GetError()); return 0; }
-    g_dev = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL, getenv("RT_GPU_DEBUG") != NULL, driver);
+    /* SDL picks the fast (discrete) GPU of a PC with two; --gpu-power low asks for the integrated one */
+    SDL_PropertiesID dp = SDL_CreateProperties();
+    SDL_SetBooleanProperty(dp, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+    SDL_SetBooleanProperty(dp, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_DXIL_BOOLEAN, true);
+    SDL_SetBooleanProperty(dp, SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, getenv("RT_GPU_DEBUG") != NULL);
+    SDL_SetBooleanProperty(dp, SDL_PROP_GPU_DEVICE_CREATE_PREFERLOWPOWER_BOOLEAN, rt_gpu_opt.low_power != 0);
+    if (driver) SDL_SetStringProperty(dp, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING, driver);
+    g_dev = SDL_CreateGPUDeviceWithProperties(dp);
+    SDL_DestroyProperties(dp);
     if (!g_dev) { fprintf(stderr, "[gpu] SDL_CreateGPUDevice: %s\n", SDL_GetError()); return 0; }
     SDL_GPUShaderFormat fmts = SDL_GetGPUShaderFormats(g_dev);
     SDL_GPUShaderFormat use = (fmts & SDL_GPU_SHADERFORMAT_SPIRV) ? SDL_GPU_SHADERFORMAT_SPIRV : SDL_GPU_SHADERFORMAT_DXIL;
@@ -1309,8 +1321,20 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
      * shape. Not full-width passes (screen effects, fades), clears, or copies of render targets. */
     float sq = rt_gpu_aspect_squeeze();
     if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && bx1 - bx0 < DISP_W - 8 && rt_gpu_shown_fb(t->addr)) {
-        float cx = (float)ox + DISP_W / 2.0f;
-        for (uint32_t i = 0; i < n; i++) o[i].x = cx + (o[i].x - cx) * sq;
+        float cx = (float)ox + DISP_W / 2.0f, cy = (float)oy + DISP_H / 2.0f;
+        if (sq < 1.0f) {
+            /* --hud-edges (experimental): 2D wholly in the left or right 35% keeps its shape at that edge of the wide
+             * window instead of in the 16:9 area in the middle; the rest stays centred. A text whose letters are
+             * separate draws across that line comes apart, so it is off by default. */
+            float ax = cx;
+            if (rt_gpu_opt.hud_edges && bx1 < (float)ox + DISP_W * 0.35f) ax = (float)ox;
+            else if (rt_gpu_opt.hud_edges && bx0 > (float)ox + DISP_W * 0.65f) ax = (float)ox + DISP_W;
+            for (uint32_t i = 0; i < n; i++) o[i].x = ax + (o[i].x - ax) * sq;
+        } else {
+            /* a narrower window (4:3): the 3D view is cropped at the sides, and the HUD is drawn
+             * lower in height by the same factor instead, so that it keeps its shape and stays whole */
+            for (uint32_t i = 0; i < n; i++) o[i].y = cy + (o[i].y - cy) / sq;
+        }
     }
     g_nverts += n;
     int wx0 = imax(x1, (int)bx0), wy0 = imax(y1, (int)by0), wx1 = imin(x2 + 1, (int)bx1 + 1), wy1 = imin(y2 + 1, (int)by1 + 1);
@@ -1368,6 +1392,17 @@ static void submitted(bool ok) {
 
 static void submit(SDL_GPUCommandBuffer *cmd) { submitted(SDL_SubmitGPUCommandBuffer(cmd)); }
 
+/* A buffer the frame needs could not be created or mapped: the graphics card's memory is full (a high internal
+ * resolution or MSAA, other programs on the GPU) or the device is gone. Writing through the NULL would crash
+ * without a word, so stop with a line the launcher shows (it offers a lighter preset). */
+static void gpu_out_of_memory(const char *what) {
+    fprintf(stderr, "[gpu] out of GPU memory: %s failed (%s); stopping. A lower resolution or MSAA needs less.\n", what,
+            SDL_GetError());
+    fflush(stdout);
+    fflush(stderr);
+    exit(1);
+}
+
 /* submits and waits until the GPU has done it */
 static void submit_and_wait(SDL_GPUCommandBuffer *cmd) {
     SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
@@ -1387,14 +1422,20 @@ static void upload_frame(SDL_GPUCommandBuffer *cmd) {
         g_tbuf_size = total + total / 2;
         SDL_GPUTransferBufferCreateInfo ti = { SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, g_tbuf_size, 0 };
         g_tbuf = SDL_CreateGPUTransferBuffer(g_dev, &ti);
+        if (!g_tbuf) gpu_out_of_memory("creating the upload buffer");
     }
     if (vbytes > g_vbuf_size) {
         if (g_vbuf) SDL_ReleaseGPUBuffer(g_dev, g_vbuf);
         g_vbuf_size = vbytes + vbytes / 2;
         SDL_GPUBufferCreateInfo bi = { SDL_GPU_BUFFERUSAGE_VERTEX, g_vbuf_size, 0 };
         g_vbuf = SDL_CreateGPUBuffer(g_dev, &bi);
+        if (!g_vbuf) gpu_out_of_memory("creating the vertex buffer");
     }
     uint8_t *p = SDL_MapGPUTransferBuffer(g_dev, g_tbuf, true);
+    static long fail_at = -2;  /* RT_GPU_FAIL_AT=N: the map fails at frame N, to test this path */
+    if (fail_at == -2) { const char *e = getenv("RT_GPU_FAIL_AT"); fail_at = e ? atol(e) : -1; }
+    if (fail_at >= 0 && (long)g_frame == fail_at) p = NULL;
+    if (!p) gpu_out_of_memory("mapping the upload buffer");
     if (vbytes) memcpy(p, g_verts, vbytes);
     if (g_upsize) memcpy(p + g_voff, g_upbytes, g_upsize);
     SDL_UnmapGPUTransferBuffer(g_dev, g_tbuf);
@@ -1607,6 +1648,7 @@ static int download_tex(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *src, int x, i
     SDL_EndGPUCopyPass(cp);
     submit_and_wait(cmd);
     const uint8_t *p = SDL_MapGPUTransferBuffer(g_dev, tb, false);
+    if (!p) gpu_out_of_memory("mapping a readback buffer");
     memcpy(out, p, bytes);
     SDL_UnmapGPUTransferBuffer(g_dev, tb);
     SDL_ReleaseGPUTransferBuffer(g_dev, tb);
@@ -1796,6 +1838,69 @@ static SDL_GPUTexture *post_chain(SDL_GPUCommandBuffer *cmd, int t, int x, int y
     return src;
 }
 
+/* --show-fps (F3): the frame rate shown in the window, twice a second, in the top left corner: a 3x5 pixel font
+ * drawn on the CPU into a small texture, drawn by the present pass at 4 window pixels per font pixel. */
+#define FPS_W 64
+#define FPS_H 7
+static SDL_GPUTexture *g_fps_tex;
+static char g_fps_text[16];
+static int g_fps_len;
+
+static const uint16_t *font3x5(char ch) {
+    static const uint16_t digits[10] = { 0x7B6F, 0x2C97, 0x73E7, 0x73CF, 0x5BC9, 0x79CF, 0x79EF, 0x7249, 0x7BEF, 0x7BCF };
+    static const uint16_t dot = 0x0002, f = 0x79A4, p = 0x7BE4, s = 0x79CF, sp = 0;
+    return ch >= '0' && ch <= '9' ? &digits[ch - '0'] : ch == '.' ? &dot : ch == 'F' ? &f : ch == 'P' ? &p : ch == 'S' ? &s : &sp;
+}
+
+static void fps_overlay(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *sc) {
+    static uint64_t t0, f0;
+    uint64_t now = SDL_GetTicksNS();
+    if (!t0) { t0 = now; f0 = g_frame; }
+    if (now - t0 >= 500000000ull || !g_fps_len) {
+        double fps = (double)(g_frame - f0) * 1e9 / (double)(now - t0 ? now - t0 : 1);
+        t0 = now; f0 = g_frame;
+        char text[16];
+        snprintf(text, sizeof(text), "%.0f FPS", fps);
+        if (strcmp(text, g_fps_text) || !g_fps_tex) {
+            strcpy(g_fps_text, text);
+            g_fps_len = (int)strlen(text);
+            if (!g_fps_tex) g_fps_tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, FPS_W, FPS_H, 1, SDL_GPU_SAMPLECOUNT_1);
+            SDL_GPUTransferBufferCreateInfo ti = { SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, FPS_W * FPS_H * 4, 0 };
+            SDL_GPUTransferBuffer *tb = g_fps_tex ? SDL_CreateGPUTransferBuffer(g_dev, &ti) : NULL;
+            if (!tb) return;
+            uint32_t *px = SDL_MapGPUTransferBuffer(g_dev, tb, false);
+            if (!px) { SDL_ReleaseGPUTransferBuffer(g_dev, tb); return; }
+            for (int i = 0; i < FPS_W * FPS_H; i++) px[i] = 0xC0000000u;  /* dark box */
+            for (int c = 0; c < g_fps_len && 1 + c * 4 + 3 <= FPS_W; c++) {
+                uint16_t g = *font3x5(g_fps_text[c]);
+                for (int y = 0; y < 5; y++)
+                    for (int x = 0; x < 3; x++)
+                        if (g >> (14 - y * 3 - x) & 1) px[(1 + y) * FPS_W + 1 + c * 4 + x] = 0xFF60E0FFu;  /* yellow */
+            }
+            SDL_UnmapGPUTransferBuffer(g_dev, tb);
+            SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+            SDL_GPUTextureTransferInfo src = { tb, 0, FPS_W, FPS_H };
+            SDL_GPUTextureRegion r;
+            memset(&r, 0, sizeof(r));
+            r.texture = g_fps_tex; r.w = FPS_W; r.h = FPS_H; r.d = 1;
+            SDL_UploadToGPUTexture(cp, &src, &r, false);
+            SDL_EndGPUCopyPass(cp);
+            SDL_ReleaseGPUTransferBuffer(g_dev, tb);
+        }
+    }
+    if (!g_fps_tex) return;
+    int w = 1 + g_fps_len * 4;
+    PostU u;
+    memset(&u, 0, sizeof(u));
+    u.src[2] = (float)w; u.src[3] = (float)FPS_H;
+    u.mode[0] = P_PRESENT;
+    u.mode[1] = 1;
+    u.mode[2] = (uint32_t)g_hdr_out;
+    u.p0[0] = g_paper; u.p0[1] = g_peak; u.p0[2] = 0.55f;
+    SDL_GPUViewport vp = { 8, 8, (float)w * 4, (float)FPS_H * 4, 0.0f, 1.0f };
+    post_pass(cmd, sc, g_swfmt, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_LOAD, &vp, NULL, g_fps_tex, FPS_W, FPS_H, &u, 0);
+}
+
 /* The displayed framebuffer into the window: FXAA and sharpening at the internal resolution
  * (when on), then scaled into the window, letterboxed, as SDR or HDR. */
 static void draw_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
@@ -1836,7 +1941,9 @@ static void draw_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
     u.mode[2] = (uint32_t)g_hdr_out;
     u.p0[0] = g_paper; u.p0[1] = g_peak; u.p0[2] = 0.55f;
     u.p1[0] = pw / dw; u.p1[1] = ph / dh;
+    u.mode[3] = rt_gpu_opt.crt ? 1u : 0u;
     post_pass(cmd, sc, g_swfmt, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_CLEAR, &vp, NULL, src, tw, th, &u, !rt_gpu_opt.nearest);
+    if (rt_gpu_opt.show_fps) fps_overlay(cmd, sc);
 }
 
 /* RT_GPU_DUMP=N: after frame N, writes every target's drawn area (gpu) and the same area of PSP

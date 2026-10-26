@@ -74,11 +74,12 @@ The launcher is `tools/launcher.pyw`: build logic, command line, settings in `bu
   progress, Play. The options sit behind the gear button, and changing one switches the preset to "Custom". Every
   control is reachable with the keyboard.
 - **Presets** (`PRESETS` in `tools/launcher_qt.py`). The starting preset is High with a discrete GPU, otherwise
-  Balanced, and keeps 60 FPS.
+  Light, and keeps 60 FPS.
 
   | Preset | Resolution | MSAA | Anisotropic |
   |---|---|---|---|
   | Original | x1 (480x272) | off | off |
+  | Light | x2 (960x544) | off | 4x |
   | Balanced | x4 (1920x1088) | off | 8x |
   | High | x6 (2880x1632) | 4x | 4x |
   | Ultra | x8 (3840x2176) | 4x | 4x |
@@ -109,6 +110,9 @@ sha256sum build/check/mix.wav
 ```
 
 Expected: 34 frames `identical`, and the SHA-256 `1c1ad6762270d1dead70c3faa0997f9fb4cff264c111420b3221a621cdff5869`.
+`tools/regression_check.py --exe-coo EXE [--exe-gos EXE]` runs the same check (and a Ghost of Sparta boot) in one
+command and prints PASS or FAIL. Bindings can be tested without a focused window: `RT_TEST_KEYS="1000:K,1100:Mouse
+Right"` holds those keys from those frames, and `--record-input` shows what the game read.
 Use a fresh, empty `ms0` folder every time (a save in it changes the boot). Put the result of a new check in its own
 folder under `build/`, and write in the commit message that the check passed.
 

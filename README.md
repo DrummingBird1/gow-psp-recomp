@@ -22,13 +22,12 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 - Saving and loading work; sound, music and movies play.
 - **No full playthrough of either game yet**, so expect bugs late in a game. Known issues are listed in the
   [phase write-ups](docs/), the [launcher acceptance test](docs/phase14-launcher.md) and the [changelog](CHANGELOG.md).
-- Windows only for now (Linux / Steam Deck planned).
+- Windows only for now (Linux / Steam Deck planned: see the [roadmap](docs/roadmap.md)).
 
 ### Known issues
 
 - Neither game has had a full playthrough yet: late levels, boss fights and endings may still have bugs.
 - Only the US releases (UCUS98653 / UCUS98737) are supported.
-- Default controls are listed under [Controls](#controls); change them with the launcher's *Controls…* button.
 - Warping into Ghost of Sparta's `scb_010_climb` at spawn point 1 (a developer option) stops after a checkpoint restart;
   a normal playthrough does not start there ([phase 12](docs/phase12-gos-level-tour.md), bug 2).
 - Some movies end on a black frame, and some Ghost of Sparta geometry clips: both look the same on a PSP and in PPSSPP.
@@ -44,8 +43,10 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 - Internal resolution up to 4K (and beyond), MSAA, anisotropic filtering, FXAA, sharpening.
 - HDR10 / scRGB output.
 - 60, 120, 144 FPS and more (both games step by elapsed time), V-Sync.
-- 21:9 and other aspect ratios.
-- Keyboard and gamepads (PSP layout), saves, texture dump and replacement packs.
+- 21:9, 32:9 and 4:3, and a CRT filter (scanlines).
+- Keyboard, mouse buttons and gamepads (PSP layout, the right stick evades), saves, texture dump and replacement packs.
+- Ghost of Sparta in English, French or Spanish; separate music and effects volume; gamepad rumble; import of PPSSPP
+  saves; AI-upscaled texture packs made on your PC; the launcher in English, Spanish, French or Hebrew.
 - A one-download launcher: finds your disc images, builds each game, graphics presets, Play.
 
 ![Launcher tour](docs/images/launcher-tour.gif)
@@ -113,13 +114,17 @@ compiles it locally, once.
 | Space or Enter | Start | Start |
 | V | Select | Back |
 | I / J / K / L | analog stick | left stick |
+| | evade (L + R + stick) | right stick |
 
 - **Skip a movie:** Enter, Space, a mouse click, or gamepad Start or Cross. The game goes on to the menu or level as if
   the movie had ended; the press that skipped isn't passed on to the game.
 - **Quit:** Alt+F4 or the window's close button quit at once. Esc asks "Quit the game?" with the game paused: Enter or
   gamepad Cross = yes, Esc or gamepad Circle = no. On a gamepad, hold Back + Start for 2 seconds. The game saves only
   at its own save points, so quitting loses progress since the last save. The launcher comes back when the game exits.
-- F11 or Alt+Enter: fullscreen / window. F12: screenshot.
+- F11 or Alt+Enter: fullscreen / window. F12: screenshot. F3: frame rate in the corner.
+- **Change them** with the launcher's *Controls…* button (Options > Advanced): keys, mouse buttons and gamepad
+  buttons. A key you give to a button leaves the button that had it, so WASD can move without also blocking (W is R
+  by default). The right stick's evade can be turned off there.
 
 While the game runs, the launcher minimizes itself and stops its animation, so it doesn't take time from the game.
 

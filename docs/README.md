@@ -10,6 +10,7 @@ documents how the ports were made, phase by phase. Pages marked (Hebrew) are the
 - [Launcher acceptance test](phase14-launcher.md): what was tested for the one-file launcher.
 - [Building without Visual Studio](phase15-portable-toolchain.md): the portable toolchain the launcher downloads.
 - [Changelog](../CHANGELOG.md).
+- [Roadmap](roadmap.md): what the next versions bring, from the requests on GitHub.
 
 ## Development history
 

@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.
@@ -50,11 +50,12 @@ GAMES = {
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
-    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "crt": False,
+    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
-        "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, Esc = quit. Gamepads: PSP layout. "
+        "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, F3 = frame rate, Esc = quit. Gamepads: PSP layout. "
         "Change them in Options > Controls.")
 
 
@@ -69,15 +70,22 @@ CONTROLS = {
 }
 PAD_BUTTONS = ["a", "b", "x", "y", "leftshoulder", "rightshoulder", "lefttrigger", "righttrigger", "back", "start",
                "dpup", "dpdown", "dpleft", "dpright", "leftstick", "rightstick"]
-RESERVED_KEYS = {"Escape", "F11", "F12", "F4"}  # quit box, fullscreen, screenshot, Alt+F4
+RESERVED_KEYS = {"Escape", "F11", "F12", "F3", "F4"}  # quit box, fullscreen, screenshot, frame rate, Alt+F4
 
 
 def controls_of(cfg):
     """{button: (keys, pads)}: the defaults with the player's changes."""
     out = {b: (list(k), list(p)) for b, (k, p) in CONTROLS.items()}
-    for b, v in (cfg.get("controls") or {}).items():
-        if b in out and isinstance(v, dict):
-            out[b] = ([str(x) for x in v.get("keys", [])][:4], [x for x in v.get("pad", []) if x in PAD_BUTTONS][:4])
+    mine = {b: v for b, v in (cfg.get("controls") or {}).items() if b in out and isinstance(v, dict)}
+    for b, v in mine.items():
+        out[b] = ([str(x) for x in v.get("keys", [])][:4], [x for x in v.get("pad", []) if x in PAD_BUTTONS][:4])
+    # a key or gamepad button the player put on a button leaves the defaults of the others: WASD for moving no
+    # longer also blocks (W = R) and attacks (A, S), which made custom controls look broken (issue #3)
+    taken_k = {k for b in mine for k in out[b][0]}
+    taken_p = {p for b in mine for p in out[b][1]}
+    for b in out:
+        if b not in mine:
+            out[b] = ([k for k in out[b][0] if k not in taken_k], [p for p in out[b][1] if p not in taken_p])
     return out
 
 
@@ -88,9 +96,11 @@ def controls_problems(controls):
     for b, (keys, pads) in controls.items():
         if not keys and not pads:
             out.append(f"{b}: nothing assigned")
+        elif not keys:
+            out.append(f"{b}: no key (gamepad only)")
         for k in keys:
             if k in RESERVED_KEYS:
-                out.append(f"{k} is reserved (Esc quit box, F11 fullscreen, F12 screenshot, Alt+F4)")
+                out.append(f"{k} is reserved (Esc quit box, F11 fullscreen, F12 screenshot, F3 frame rate, Alt+F4)")
             elif k in seen_k:
                 out.append(f"key {k} is on both {seen_k[k]} and {b}")
             seen_k.setdefault(k, b)
@@ -117,9 +127,29 @@ def write_controls(cfg):
 
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
-           "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9"),
-           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan")}
-BOOLS = ("fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates")
+           "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "es", "fr", "he"),
+           "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
+BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
+
+
+# --- per-game graphics ------------------------------------------------------------------------------------------
+# With "Separate graphics settings for each game" on, these keys are kept per game (cfg["game_settings"][game]).
+GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
+             "crt", "show_fps", "hud_edges", "preset")
+
+
+def settings_for(cfg, game):
+    """The settings a game plays with: the shared ones, with that game's own graphics when they are kept apart."""
+    own = (cfg.get("game_settings") or {}).get(game) if cfg.get("per_game") else None
+    if not isinstance(own, dict):
+        return cfg
+    out = dict(cfg)
+    for k in GAME_KEYS:
+        if k in own:
+            out[k] = own[k]
+    validate_config(out)
+    return out
 
 
 def validate_config(cfg):
@@ -152,9 +182,12 @@ def validate_config(cfg):
     if not isinstance(cfg.get("disc"), dict):
         fixed.append("disc -> {}")
         cfg["disc"] = {}
-    if cfg.get("game") not in GAMES:
+    if not isinstance(cfg.get("game"), str) or cfg.get("game") not in GAMES:
         fixed.append(f"game={cfg.get('game')!r} -> 'coo'")
         cfg["game"] = "coo"
+    if cfg.get("game_settings") is not None and not isinstance(cfg.get("game_settings"), dict):
+        fixed.append("game_settings -> {}")
+        cfg["game_settings"] = {}
     if cfg.get("controls") is not None and not isinstance(cfg.get("controls"), dict):
         fixed.append("controls -> defaults")
         cfg["controls"] = {}
@@ -167,7 +200,12 @@ def load_config():
         saved = json.loads(CONFIG.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         saved = {}
-    if saved and saved.get("settings_version", 1) < 2:
+    if not isinstance(saved, dict):  # a hand-edited or damaged file: start from the defaults instead of failing
+        saved = {}
+    version = saved.get("settings_version", 1)
+    if not isinstance(version, (int, float)) or isinstance(version, bool):
+        saved["settings_version"] = version = 2  # damaged, not v1.0.0's missing key: don't touch fullscreen
+    if saved and version < 2:
         # v1.0.0 saved every setting, so its "fullscreen": false was the old default, not a choice: switch to the
         # new default (fullscreen) once; the Fullscreen option and F11 still switch back to a window.
         saved["fullscreen"], saved["settings_version"] = True, 2
@@ -274,6 +312,7 @@ def check_disc(cfg, game):
 def play_command(cfg, game):
     """The gow_rt command line for these settings."""
     g = GAMES[game]
+    cfg = settings_for(cfg, game)
     cmd = [str(exe_path(game)), "--image", str(gen_dir(game) / "image.bin"), "--boot", "--disc", cfg["disc"].get(game, ""),
            "--ms0", str(ROOT / g["ms0"]), "--window", "--scale", str(cfg["window_scale"]), "--shots", str(ROOT / "build" / "screenshots"),
            "--renderer", cfg["renderer"]]
@@ -287,6 +326,12 @@ def play_command(cfg, game):
     if cfg["renderer"] == "gpu":
         if cfg.get("gpu_api") in ("direct3d12", "vulkan"):
             cmd += ["--gpu-driver", cfg["gpu_api"]]
+        if cfg.get("gpu_power") == "low":
+            cmd += ["--gpu-power", "low"]
+        if cfg.get("show_fps"):
+            cmd.append("--show-fps")
+        if cfg.get("crt"):
+            cmd.append("--crt")
         if cfg["res_scale"] > 1:
             cmd += ["--res-scale", str(cfg["res_scale"])]
         if cfg["fx_scale"]:
@@ -305,6 +350,8 @@ def play_command(cfg, game):
             cmd.append("--vsync")
         if cfg["aspect"] != "native":
             cmd += ["--aspect", cfg["aspect"]]
+            if cfg.get("hud_edges") and cfg["aspect"] in ("21:9", "32:9"):
+                cmd.append("--hud-edges")
         if cfg["texture_pack"]:
             cmd += ["--texture-pack", cfg["texture_pack"]]
         if cfg.get("texture_dump"):
@@ -313,7 +360,102 @@ def play_command(cfg, game):
         cmd += ["--fps", str(cfg["fps"])]
     if cfg.get("controls"):
         cmd += ["--controls", str(ROOT / "build" / "controls.ini")]
+    if not cfg.get("stick_evade", True):
+        cmd.append("--no-stick-evade")
+    if cfg.get("language", "en") != "en":
+        cmd += ["--language", cfg["language"]]
+    for k, opt in (("music_volume", "--music-volume"), ("sfx_volume", "--sfx-volume")):
+        if int(cfg.get(k, 100)) != 100:
+            cmd += [opt, str(int(cfg[k]))]
+    if cfg.get("skip_movies"):
+        cmd.append("--skip-movies")
+    if cfg.get("god"):
+        cmd.append("--god")
+    if cfg.get("rumble", True):
+        cmd.append("--rumble")
+    if cfg.get("confirm_circle"):
+        cmd += ["--confirm", "circle"]
     return cmd
+
+
+def sfo_values(data):
+    """{key: value} of a PARAM.SFO (strings without their padding, integers, binary as bytes); {} when it isn't one."""
+    import struct
+    if len(data) < 20 or data[:4] != b"\0PSF":
+        return {}
+    keys_off, data_off, n = struct.unpack_from("<III", data, 8)
+    out = {}
+    for i in range(n):
+        if 20 + i * 16 + 16 > len(data):
+            break
+        k_off, fmt, length, _max, d_off = struct.unpack_from("<HHIII", data, 20 + i * 16)
+        end = data.find(b"\0", keys_off + k_off)
+        key = data[keys_off + k_off:end].decode("ascii", "replace")
+        raw = data[data_off + d_off:data_off + d_off + length]
+        out[key] = (struct.unpack("<I", raw[:4])[0] if fmt == 0x404 and len(raw) >= 4 else
+                    raw.rstrip(b"\0").decode("utf-8", "replace") if fmt == 0x204 else raw)
+    return out
+
+
+def ppsspp_saves(folder):
+    """Save folders of the two games in a PPSSPP memory stick (the memstick folder, its PSP or SAVEDATA folder):
+    [(game, path, encrypted)]. PPSSPP encrypts saves unless EncryptSave is off in its ppsspp.ini; the port reads plain ones."""
+    d = Path(folder)
+    for sub in ("PSP/SAVEDATA", "SAVEDATA", ""):
+        if (d / sub).is_dir() and any((d / sub).glob("UCUS987*")):
+            d = d / sub
+            break
+    out = []
+    for game, g in GAMES.items():
+        for p in sorted(d.glob(g["id"] + "*")):
+            sfo = p / "PARAM.SFO"
+            if not sfo.is_file():
+                continue
+            params = sfo_values(sfo.read_bytes()).get("SAVEDATA_PARAMS", b"")
+            out.append((game, p, isinstance(params, bytes) and any(params)))
+    return out
+
+
+def import_ppsspp_saves(folder):
+    """Copies the plain PPSSPP saves of both games into this port's memory sticks (build/ms0, build/ms0_gos), next to
+    the saves already there (a folder that exists already is kept, not overwritten). Returns report lines."""
+    found = ppsspp_saves(folder)
+    if not found:
+        return ["No saves of Chains of Olympus (UCUS98653) or Ghost of Sparta (UCUS98737) in this folder. Choose "
+                "PPSSPP's memstick folder (it has PSP\\SAVEDATA in it)."]
+    lines = []
+    for game, src, encrypted in found:
+        dst = ROOT / GAMES[game]["ms0"] / "PSP" / "SAVEDATA" / src.name
+        if encrypted:
+            lines.append(f"{src.name}: encrypted, not copied. Turn off PPSSPP's save encryption (with PPSSPP closed, "
+                         "EncryptSave = False in memstick\\PSP\\SYSTEM\\ppsspp.ini), load this save in PPSSPP and save "
+                         "again, then import it.")
+        elif dst.exists():
+            lines.append(f"{src.name}: already here, kept as it is.")
+        else:
+            shutil.copytree(src, dst)
+            lines.append(f"{src.name}: imported ({GAMES[game]['title']}).")
+    return lines
+
+
+def ai_pack_dir(game):
+    """Where "Upscale dumped textures (AI)" writes its texture pack for this game."""
+    return ROOT / "build" / "texture_pack_ai" / game
+
+
+def upscale_textures(game, ask, out=print):
+    """Real-ESRGAN over this game's dumped textures into ai_pack_dir(game) (texture_upscale.py; the upscaler is
+    downloaded once, after ask() says yes). Returns the pack folder, or None when there was nothing to upscale."""
+    import texture_upscale as T
+    tools = ROOT / "build" / "tools"
+    if not T.find_exe(tools):
+        if ask(T.consent_text()):
+            if not toolchain.download_archive(T.REALESRGAN, tools, out):
+                out("The download failed: the textures are scaled with Lanczos only.")
+        else:
+            out("Without the download the textures are scaled with Lanczos only.")
+    ai, lz = T.upscale(texture_dump_dir(game), ai_pack_dir(game), tools, out=out)
+    return ai_pack_dir(game) if ai + lz else None
 
 
 def texture_dump_dir(game):
@@ -556,8 +698,12 @@ def start_game(cfg, game):
     log = open(game_log(game), "w", encoding="utf-8", errors="replace")
     # every Play also records the button presses (a few KB), so a bug report can include them without a command line
     cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game))]
-    return subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
+    proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    if cfg.get("discord"):  # "Playing <title>" on Discord while the game runs (off by default)
+        import discord_presence
+        discord_presence.show_while_running(proc, GAMES[game]["title"])
+    return proc
 
 
 def game_log(game):

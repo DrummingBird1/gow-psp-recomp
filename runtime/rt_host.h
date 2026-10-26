@@ -15,6 +15,8 @@ typedef struct {
     const char *gpu_driver;  /* "vulkan", "direct3d12" or NULL (SDL's choice) */
     const char *icon;        /* --icon file.png: window icon (the launcher passes the disc's ICON0.PNG) */
     const char *controls;    /* --controls file: keyboard and gamepad bindings (the launcher's Controls page) */
+    int no_stick_evade;      /* --no-stick-evade: the gamepad's right stick does not evade (L + R + left stick) */
+    int skip_movies;         /* --skip-movies: movies (cutscene videos) end at once, as if skipped */
 } HostOptions;
 
 /* PSP controller buttons (SceCtrlData.Buttons) */
@@ -25,6 +27,8 @@ enum {
 };
 
 int rt_host_init(const HostOptions *o);  /* 0 on failure */
+/* Rumbles every open gamepad: strength 0..1 for ms milliseconds (--rumble, rt_debug.c). */
+void rt_host_rumble(float strength, int ms);
 void rt_host_shutdown(void);
 /* A frame is shown (sceDisplaySetFrameBuf). Returns nonzero when the user closed the window. */
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format);

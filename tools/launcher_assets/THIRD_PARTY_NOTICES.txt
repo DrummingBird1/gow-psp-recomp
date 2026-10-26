@@ -24,3 +24,8 @@ launcher download, and each folder keeps its own license files:
   extra conditions on the result (the LLVM Exceptions cover compiled code).
 - CMake 4.4.4 (https://cmake.org/), BSD 3-Clause License.
 - Ninja 1.13.2 (https://ninja-build.org/), Apache License 2.0.
+
+Texture upscaler. When the player asks for an AI-upscaled texture pack, after asking, the launcher downloads
+Real-ESRGAN ncnn Vulkan 0.2.5.0 (https://github.com/xinntao/Real-ESRGAN, BSD 3-Clause License; ncnn, BSD
+3-Clause) from its official GitHub release, checked against a pinned SHA-256, into GoW_PSP_data\build\tools. It is
+not part of the download.
