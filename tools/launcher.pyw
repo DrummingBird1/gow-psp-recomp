@@ -182,7 +182,7 @@ def validate_config(cfg):
     if not isinstance(cfg.get("disc"), dict):
         fixed.append("disc -> {}")
         cfg["disc"] = {}
-    if cfg.get("game") not in GAMES:
+    if not isinstance(cfg.get("game"), str) or cfg.get("game") not in GAMES:
         fixed.append(f"game={cfg.get('game')!r} -> 'coo'")
         cfg["game"] = "coo"
     if cfg.get("game_settings") is not None and not isinstance(cfg.get("game_settings"), dict):
@@ -200,7 +200,12 @@ def load_config():
         saved = json.loads(CONFIG.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         saved = {}
-    if saved and saved.get("settings_version", 1) < 2:
+    if not isinstance(saved, dict):  # a hand-edited or damaged file: start from the defaults instead of failing
+        saved = {}
+    version = saved.get("settings_version", 1)
+    if not isinstance(version, (int, float)) or isinstance(version, bool):
+        saved["settings_version"] = version = 2  # damaged, not v1.0.0's missing key: don't touch fullscreen
+    if saved and version < 2:
         # v1.0.0 saved every setting, so its "fullscreen": false was the old default, not a choice: switch to the
         # new default (fullscreen) once; the Fullscreen option and F11 still switch back to a window.
         saved["fullscreen"], saved["settings_version"] = True, 2
