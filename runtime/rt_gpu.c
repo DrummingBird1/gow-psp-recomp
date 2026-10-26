@@ -1392,6 +1392,17 @@ static void submitted(bool ok) {
 
 static void submit(SDL_GPUCommandBuffer *cmd) { submitted(SDL_SubmitGPUCommandBuffer(cmd)); }
 
+/* A buffer the frame needs could not be created or mapped: the graphics card's memory is full (a high internal
+ * resolution or MSAA, other programs on the GPU) or the device is gone. Writing through the NULL would crash
+ * without a word, so stop with a line the launcher shows (it offers a lighter preset). */
+static void gpu_out_of_memory(const char *what) {
+    fprintf(stderr, "[gpu] out of GPU memory: %s failed (%s); stopping. A lower resolution or MSAA needs less.\n", what,
+            SDL_GetError());
+    fflush(stdout);
+    fflush(stderr);
+    exit(1);
+}
+
 /* submits and waits until the GPU has done it */
 static void submit_and_wait(SDL_GPUCommandBuffer *cmd) {
     SDL_GPUFence *f = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
@@ -1411,14 +1422,20 @@ static void upload_frame(SDL_GPUCommandBuffer *cmd) {
         g_tbuf_size = total + total / 2;
         SDL_GPUTransferBufferCreateInfo ti = { SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, g_tbuf_size, 0 };
         g_tbuf = SDL_CreateGPUTransferBuffer(g_dev, &ti);
+        if (!g_tbuf) gpu_out_of_memory("creating the upload buffer");
     }
     if (vbytes > g_vbuf_size) {
         if (g_vbuf) SDL_ReleaseGPUBuffer(g_dev, g_vbuf);
         g_vbuf_size = vbytes + vbytes / 2;
         SDL_GPUBufferCreateInfo bi = { SDL_GPU_BUFFERUSAGE_VERTEX, g_vbuf_size, 0 };
         g_vbuf = SDL_CreateGPUBuffer(g_dev, &bi);
+        if (!g_vbuf) gpu_out_of_memory("creating the vertex buffer");
     }
     uint8_t *p = SDL_MapGPUTransferBuffer(g_dev, g_tbuf, true);
+    static long fail_at = -2;  /* RT_GPU_FAIL_AT=N: the map fails at frame N, to test this path */
+    if (fail_at == -2) { const char *e = getenv("RT_GPU_FAIL_AT"); fail_at = e ? atol(e) : -1; }
+    if (fail_at >= 0 && (long)g_frame == fail_at) p = NULL;
+    if (!p) gpu_out_of_memory("mapping the upload buffer");
     if (vbytes) memcpy(p, g_verts, vbytes);
     if (g_upsize) memcpy(p + g_voff, g_upbytes, g_upsize);
     SDL_UnmapGPUTransferBuffer(g_dev, g_tbuf);
@@ -1631,6 +1648,7 @@ static int download_tex(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *src, int x, i
     SDL_EndGPUCopyPass(cp);
     submit_and_wait(cmd);
     const uint8_t *p = SDL_MapGPUTransferBuffer(g_dev, tb, false);
+    if (!p) gpu_out_of_memory("mapping a readback buffer");
     memcpy(out, p, bytes);
     SDL_UnmapGPUTransferBuffer(g_dev, tb);
     SDL_ReleaseGPUTransferBuffer(g_dev, tb);
@@ -1851,6 +1869,7 @@ static void fps_overlay(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *sc) {
             SDL_GPUTransferBuffer *tb = g_fps_tex ? SDL_CreateGPUTransferBuffer(g_dev, &ti) : NULL;
             if (!tb) return;
             uint32_t *px = SDL_MapGPUTransferBuffer(g_dev, tb, false);
+            if (!px) { SDL_ReleaseGPUTransferBuffer(g_dev, tb); return; }
             for (int i = 0; i < FPS_W * FPS_H; i++) px[i] = 0xC0000000u;  /* dark box */
             for (int c = 0; c < g_fps_len && 1 + c * 4 + 3 <= FPS_W; c++) {
                 uint16_t g = *font3x5(g_fps_text[c]);

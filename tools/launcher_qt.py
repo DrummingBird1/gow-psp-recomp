@@ -1725,8 +1725,11 @@ class Window(QWidget):
         if why:
             text += "\n\nFrom its log:\n" + "\n".join(why)
         box = QMessageBox(QMessageBox.Icon.Warning, "The game closed", text, parent=self)
-        b_aniso = b_api = None
-        if self.cfg.get("renderer") == "gpu" and int(self.cfg.get("aniso", 1)) > 1:
+        b_aniso = b_api = b_light = None
+        if any("out of GPU memory" in line for line in why):
+            lighter = "Original" if self.preset == "Light" else "Light"
+            b_light = box.addButton(f"Use the {lighter} preset", QMessageBox.ButtonRole.AcceptRole)
+        elif self.cfg.get("renderer") == "gpu" and int(self.cfg.get("aniso", 1)) > 1:
             b_aniso = box.addButton("Turn off anisotropic filtering", QMessageBox.ButtonRole.AcceptRole)
         elif self.cfg.get("renderer") == "gpu":
             b_api = box.addButton("Try " + ("Direct3D 12" if self.cfg.get("gpu_api") == "vulkan" else "Vulkan"),
@@ -1736,7 +1739,9 @@ class Window(QWidget):
         box.addButton(QMessageBox.StandardButton.Close)
         box.exec()
         hit = box.clickedButton()
-        if hit is b_aniso:
+        if hit is b_light:
+            self.apply_preset(lighter)
+        elif hit is b_aniso:
             self.combo["aniso"][0].setCurrentText(label_of(ANISO, 1))
         elif hit is b_api:
             self.combo["api"][0].setCurrentText(label_of(GPU_API, "direct3d12" if self.cfg.get("gpu_api") == "vulkan" else "vulkan"))
@@ -1860,7 +1865,9 @@ class Window(QWidget):
                 new = U.download(info, self.L.update_dir(), prog)
                 self.bridge.call.emit(lambda: self.finish_update(new, dialog, buttons, None))
             except U.UpdateError as e:
-                self.bridge.call.emit(lambda: self.finish_update(None, dialog, buttons, str(e)))
+                # the message now: Python unbinds e when the except block ends, before the GUI thread runs the lambda
+                err = str(e)
+                self.bridge.call.emit(lambda: self.finish_update(None, dialog, buttons, err))
         threading.Thread(target=work, daemon=True).start()
 
     def finish_update(self, new, dialog, buttons, err):
