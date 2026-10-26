@@ -1741,6 +1741,8 @@ class Window(QWidget):
         box.addButton(QMessageBox.StandardButton.Close)
         box.exec()
         hit = box.clickedButton()
+        if hit is None:  # closed without a button: and None would match a button that isn't there
+            return
         if hit is b_light:
             self.apply_preset(lighter)
         elif hit is b_aniso:

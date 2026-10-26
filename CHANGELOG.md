@@ -9,6 +9,9 @@ default), and the game would have closed at once.
 - **After an update, the launcher asks for one Build before Play** when the game was built from older code: the
   game's state says *Needs building* and Play says why (a shortcut or Steam shows it in a message). Each build
   records which runtime it was made from (`build/runtime_<game>.txt`).
+- **Pillow 13.0.0** in the launcher (was 12.3.0), for the 41 security advisories that GitHub's Dependabot listed
+  against 12.3.0. The launcher only opens PNG files (art from your disc, dumped textures), so the risk was low.
+- Fix: closing the "game closed" dialog without a button could act as if one had been chosen.
 
 ## v1.3.0 (2026-10-26, not released)
 
