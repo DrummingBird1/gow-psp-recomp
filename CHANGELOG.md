@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.3.0 (unreleased)
+## v1.3.0 (2026-10-26)
 
 - **Fix: custom controls that seemed not to work** (issue #3). A key put on a PSP button stayed on the button it had
   by default, so WASD for moving still blocked (W = R) and attacked (A, S). Now a key or gamepad button goes to one
