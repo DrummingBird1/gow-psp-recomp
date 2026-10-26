@@ -15,7 +15,7 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 
 ![The launcher](docs/images/launcher-main.png)
 
-## Status: preview (v1.2.1)
+## Status: preview (v1.3.1)
 
 - Every level of both games loads and runs (automated tours: [phase 11](docs/phase11-level-tour.md),
   [phase 12](docs/phase12-gos-level-tour.md)).
@@ -55,7 +55,7 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 
 You only download **one file**, the launcher. No Python, no manual setup.
 
-1. Download [`GoW_PSP_Launcher-v1.2.1.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.2.1.zip)
+1. Download [`GoW_PSP_Launcher-v1.3.1.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.3.1.zip)
    from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
    one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`.
    Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
@@ -72,9 +72,9 @@ You only download **one file**, the launcher. No Python, no manual setup.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
 > "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
-> PyInstaller programs as a false positive. Check that your download is the real one (v1.2.1 SHA-256):
-> - `GoW_PSP_Launcher-v1.2.1.zip`: `588e80aa83f848cbd2c0dd70248c89dfb47b69c857151e0428f870012b0b7821`
-> - `GoW_PSP\GoWLauncher.exe`: `c5ea932d8489adf6425598204c137accf260ae312dcf6350d3f0b22cddc73c62`
+> PyInstaller programs as a false positive. Check that your download is the real one (v1.3.1 SHA-256):
+> - `GoW_PSP_Launcher-v1.3.1.zip`: `ab947409ce82a15153d3441c394a09e58553f9c32b0d6cd48540cc2fbf2990f8`
+> - `GoW_PSP\GoWLauncher.exe`: `b075c4a67343a11dd900c44339fd9a7345d2bd2ccf4fc5bf32bb3aaade8d584f`
 >
 > (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
 
