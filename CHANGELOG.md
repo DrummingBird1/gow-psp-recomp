@@ -31,6 +31,11 @@
   buttons and options; longer help texts stay in English.
 - **HUD at the screen edges** at 21:9 and 32:9 (experimental, off by default): the HUD keeps its shape at the sides
   of the screen instead of in the middle. Text drawn across the middle can come apart; please report what you see.
+- **Fix: a full graphics card closed the game without a word** (found by the v1.3.0 level tours with eight games on
+  one GPU). The game now stops with "out of GPU memory" in its log, and the launcher offers a lighter preset.
+- **Fix: a failed launcher self-update left its dialog on "Downloading"**; it now says what went wrong.
+- **Fix: a damaged `launcher.json`** (for example a hand-edited `settings_version`) could stop the launcher at start;
+  such values are reset to defaults like the others.
 - For contributors: `RT_TEST_KEYS` simulates held keys to test bindings without a focused window; new options
   `--no-stick-evade`, `--language`, `--crt`, `--show-fps`, `--gpu-power`, `--music-volume`, `--sfx-volume`,
   `--skip-movies`, `--rumble`, `--confirm`, `--hud-edges`; `tools/texture_upscale.py`, `tools/regression_check.py`.
