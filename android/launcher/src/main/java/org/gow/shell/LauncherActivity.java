@@ -837,7 +837,7 @@ public final class LauncherActivity extends Activity {
         plus.setGravity(Gravity.CENTER);
         plus.setPadding(0, dp(1), 0, dp(1));
         left.addView(plus, wrapWrap());
-        TextView secondTitle = tv("Ghost of Sparta", 27, ROSE, true);
+        TextView secondTitle = tv("Ghost of Sparta", 30, ROSE, true);
         secondTitle.setPadding(0, dp(2), 0, dp(5));
         left.addView(secondTitle, wrapWrap());
         left.addView(tv("Launcher oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
@@ -1270,7 +1270,7 @@ public final class LauncherActivity extends Activity {
                 i -> prefs().edit().putInt("performance_hud_style", i).apply()), false));
         right.addView(row("Posição", null, seg(new String[] { "Esq.", "Dir." },
                 prefs().getInt("performance_hud_position", 0),
-                i -> prefs().edit().putInt("performance_hud_position", i).apply()), false));
+                i -> prefs().edit().putInt("performance_hud_position", i).remove("performance_hud_x").apply()), false));
         right.addView(row("Opacidade", "20–100%", hudOpacityControl(), false));
         showScreen("hud", "Desempenho / HUD", left, right);
     }
