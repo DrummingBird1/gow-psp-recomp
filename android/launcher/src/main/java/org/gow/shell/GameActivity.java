@@ -39,6 +39,9 @@ public final class GameActivity extends SDLActivity {
     private InputManager inputManager;
     private TouchControls controls;
     private TextView performanceHud;
+    private boolean hudPreviewActive;
+    private int hudPreviewX = -1;
+    private int hudPreviewY = -1;
     private final Handler hudHandler = new Handler(Looper.getMainLooper());
     private static native double nativeGetFps();
     private static native double nativeGetFrameMs();
@@ -57,6 +60,8 @@ public final class GameActivity extends SDLActivity {
             case "Cancelar": return "Cancel";
             case "Exibição compacta em uma linha": return "Compact single-line display";
             case "Posicionar à direita": return "Align right";
+            case "Posição horizontal": return "Horizontal position";
+            case "Posição vertical": return "Vertical position";
             case "Opacidade do HUD": return "HUD opacity";
             case "Mostrar HUD de desempenho": return "Show performance HUD";
             case "Tempo de quadro": return "Frame time";
@@ -286,7 +291,25 @@ public final class GameActivity extends SDLActivity {
         styleGameDialog(profileDialog);
     }
 
+    private int defaultHudX() {
+        if (prefs.contains("performance_hud_x")) {
+            return Math.max(0, Math.min(100, prefs.getInt("performance_hud_x", 0)));
+        }
+        return prefs.getInt("performance_hud_position", 0) == 1 ? 100 : 0;
+    }
+
+    private int defaultHudY() {
+        return Math.max(0, Math.min(100, prefs.getInt("performance_hud_y", 0)));
+    }
+
     private void showInGameHudEditor() {
+        final int originalX = defaultHudX();
+        final int originalY = defaultHudY();
+        hudPreviewActive = true;
+        hudPreviewX = originalX;
+        hudPreviewY = originalY;
+        refreshPerformanceHud();
+
         LinearLayout box = new LinearLayout(this);
         box.setPadding(dp(20), dp(8), dp(20), dp(8));
         box.setBackgroundColor(Color.rgb(18, 18, 23));
@@ -299,12 +322,48 @@ public final class GameActivity extends SDLActivity {
         compact.setText(localized("Exibição compacta em uma linha"));
         compact.setTextColor(Color.WHITE);
         compact.setChecked(prefs.getInt("performance_hud_style", 0) == 1);
-        android.widget.Switch right = new android.widget.Switch(this);
-        right.setText(localized("Posicionar à direita"));
-        right.setTextColor(Color.WHITE);
-        right.setChecked(prefs.getInt("performance_hud_position", 0) == 1);
         box.addView(enabled); box.addView(fps); box.addView(frame); box.addView(ram);
-        box.addView(compact); box.addView(right);
+        box.addView(compact);
+
+        TextView xLabel = new TextView(this);
+        xLabel.setText(localized("Posição horizontal") + ": " + originalX + "%");
+        xLabel.setTextColor(Color.WHITE);
+        box.addView(xLabel);
+        SeekBar horizontal = new SeekBar(this);
+        horizontal.setMax(100);
+        horizontal.setProgress(originalX);
+        tintHudSeekBar(horizontal);
+        box.addView(horizontal);
+
+        TextView yLabel = new TextView(this);
+        yLabel.setText(localized("Posição vertical") + ": " + originalY + "%");
+        yLabel.setTextColor(Color.WHITE);
+        box.addView(yLabel);
+        SeekBar vertical = new SeekBar(this);
+        vertical.setMax(100);
+        vertical.setProgress(originalY);
+        tintHudSeekBar(vertical);
+        box.addView(vertical);
+
+        horizontal.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                xLabel.setText(localized("Posição horizontal") + ": " + progress + "%");
+                hudPreviewX = progress;
+                refreshPerformanceHud();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+        vertical.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar bar, int progress, boolean fromUser) {
+                yLabel.setText(localized("Posição vertical") + ": " + progress + "%");
+                hudPreviewY = progress;
+                refreshPerformanceHud();
+            }
+            @Override public void onStartTrackingTouch(SeekBar bar) { }
+            @Override public void onStopTrackingTouch(SeekBar bar) { }
+        });
+
         TextView opacityLabel = new TextView(this);
         opacityLabel.setText(localized("Opacidade do HUD"));
         opacityLabel.setTextColor(Color.WHITE);
@@ -312,24 +371,50 @@ public final class GameActivity extends SDLActivity {
         SeekBar opacity = new SeekBar(this);
         opacity.setMax(100);
         opacity.setProgress(prefs.getInt("performance_hud_opacity", 70));
-        if (Build.VERSION.SDK_INT >= 21) {
-            opacity.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235,70,85)));
-            opacity.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235,70,85)));
-        }
+        tintHudSeekBar(opacity);
         box.addView(opacity);
-        android.app.AlertDialog hudDialog = new android.app.AlertDialog.Builder(this).setTitle(localized("Editar HUD de FPS")).setView(box)
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+        scroll.setFillViewport(true);
+        scroll.addView(box);
+        android.app.AlertDialog hudDialog = new android.app.AlertDialog.Builder(this)
+                .setTitle(localized("Editar HUD de FPS")).setView(scroll)
                 .setPositiveButton(localized("Salvar"), (d, w) -> {
+                    int x = horizontal.getProgress();
+                    int y = vertical.getProgress();
                     prefs.edit().putBoolean("performance_hud_enabled", enabled.isChecked())
                             .putBoolean("performance_hud_fps", fps.isChecked())
                             .putBoolean("performance_hud_frame_time", frame.isChecked())
                             .putBoolean("performance_hud_ram", ram.isChecked())
                             .putInt("performance_hud_style", compact.isChecked() ? 1 : 0)
-                            .putInt("performance_hud_position", right.isChecked() ? 1 : 0)
+                            .putInt("performance_hud_position", x >= 50 ? 1 : 0)
+                            .putInt("performance_hud_x", x)
+                            .putInt("performance_hud_y", y)
                             .putInt("performance_hud_opacity", opacity.getProgress()).apply();
+                    hudPreviewActive = false;
+                    hudPreviewX = -1;
+                    hudPreviewY = -1;
                     refreshPerformanceHud();
-                }).setNegativeButton(localized("Cancelar"), null).create();
+                })
+                .setNegativeButton(localized("Cancelar"), (d, w) -> cancelHudPreview(originalX, originalY))
+                .setOnCancelListener(d -> cancelHudPreview(originalX, originalY))
+                .create();
         hudDialog.show();
         styleGameDialog(hudDialog);
+    }
+
+    private void cancelHudPreview(int originalX, int originalY) {
+        hudPreviewActive = false;
+        hudPreviewX = -1;
+        hudPreviewY = -1;
+        refreshPerformanceHud();
+    }
+
+    private void tintHudSeekBar(SeekBar seek) {
+        if (Build.VERSION.SDK_INT >= 21) {
+            seek.setProgressTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235, 70, 85)));
+            seek.setThumbTintList(android.content.res.ColorStateList.valueOf(Color.rgb(235, 70, 85)));
+        }
     }
 
     private android.widget.Switch hudSwitch(String label, String key, boolean defaultValue) {
@@ -380,8 +465,8 @@ public final class GameActivity extends SDLActivity {
         boolean showFps = prefs.getBoolean("performance_hud_fps", true);
         boolean showFrame = prefs.getBoolean("performance_hud_frame_time", true);
         boolean showRam = prefs.getBoolean("performance_hud_ram", true);
-        performanceHud.setVisibility(enabled && (showFps || showFrame || showRam) ? View.VISIBLE : View.GONE);
-        if (!enabled) return;
+        performanceHud.setVisibility((enabled || hudPreviewActive) && (showFps || showFrame || showRam) ? View.VISIBLE : View.GONE);
+        if (!enabled && !hudPreviewActive) return;
 
         double fps = 0.0, frameMs = 0.0;
         if (showFps) {
@@ -414,8 +499,15 @@ public final class GameActivity extends SDLActivity {
         performanceHud.setAlpha(Math.max(0.2f, Math.min(1f,
                 prefs.getInt("performance_hud_opacity", 70) / 100f)));
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) performanceHud.getLayoutParams();
-        boolean right = prefs.getInt("performance_hud_position", 0) == 1;
-        lp.gravity = Gravity.TOP | (right ? Gravity.RIGHT : Gravity.LEFT);
+        int x = hudPreviewX >= 0 ? hudPreviewX : defaultHudX();
+        int y = hudPreviewY >= 0 ? hudPreviewY : defaultHudY();
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
+        int screenHeight = getResources().getDisplayMetrics().heightPixels;
+        int hudWidth = performanceHud.getWidth() > 0 ? performanceHud.getWidth() : performanceHud.getMeasuredWidth();
+        int hudHeight = performanceHud.getHeight() > 0 ? performanceHud.getHeight() : performanceHud.getMeasuredHeight();
+        lp.gravity = Gravity.TOP | Gravity.LEFT;
+        lp.leftMargin = dp(12) + Math.round(Math.max(0, screenWidth - hudWidth - dp(24)) * x / 100f);
+        lp.topMargin = dp(12) + Math.round(Math.max(0, screenHeight - hudHeight - dp(24)) * y / 100f);
         performanceHud.setLayoutParams(lp);
         android.text.SpannableString styled = new android.text.SpannableString(value.toString());
         int fpsStart = value.indexOf("FPS");
