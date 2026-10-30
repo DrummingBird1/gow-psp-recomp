@@ -61,6 +61,7 @@ typedef struct {
     float aspect;              /* --aspect W:H: a wider picture (e.g. 21:9) or a narrower one (4:3); 0: the PSP's 480:272 */
     int crt;                   /* --crt: scanlines and a shadow mask over the picture in the window */
     int show_fps;              /* --show-fps: frame rate in a corner of the window (F3 switches it) */
+    int show_input;            /* --show-input: the buttons and stick the game reads, bottom left (F2 switches it) */
     int low_power;             /* --gpu-power low: the integrated GPU of a PC with two (default: the fast one) */
     int hud_edges;             /* --hud-edges: wider than 16:9, the HUD at the window's edges (experimental) */
 } GpuOptions;

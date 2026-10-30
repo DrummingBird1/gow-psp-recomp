@@ -121,7 +121,8 @@ compiles it locally, once.
 - **Quit:** Alt+F4 or the window's close button quit at once. Esc asks "Quit the game?" with the game paused: Enter or
   gamepad Cross = yes, Esc or gamepad Circle = no. On a gamepad, hold Back + Start for 2 seconds. The game saves only
   at its own save points, so quitting loses progress since the last save. The launcher comes back when the game exits.
-- F11 or Alt+Enter: fullscreen / window. F12: screenshot. F3: frame rate in the corner.
+- F11 or Alt+Enter: fullscreen / window. F12: screenshot. F3: frame rate in the corner. F2: the buttons pressed,
+  bottom left.
 - **Change them** with the launcher's *Controls…* button (Options > Advanced): keys, mouse buttons and gamepad
   buttons. A key you give to a button leaves the button that had it, so WASD can move without also blocking (W is R
   by default). The right stick's evade can be turned off there.

@@ -424,7 +424,7 @@ class KeyButton(QPushButton):
             pass
         elif e.key() == Qt.Key.Key_Backspace:
             self.key = ""
-        elif name and name not in ("Escape", "F11", "F12", "F3"):
+        elif name and name not in ("Escape", "F11", "F12", "F3", "F2"):
             self.key = name
         self.setText(self.key or "\u2014")
         self.changed.emit()
@@ -457,8 +457,8 @@ class ControlsDialog(QDialog):
         self.setWindowTitle(T("Controls"))
         self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
         v = QVBoxLayout(self)
-        l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F3, F11, F12 and "
-                   "Alt+F4 stay fixed; Enter/Space/click/Start still skip movies. The gamepad's left stick is always the "
+        l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F2, F3, F11, F12 "
+                   "and Alt+F4 stay fixed; Enter/Space/click/Start still skip movies. The gamepad's left stick is always the "
                    "PSP stick, and its right stick evades (L + R + stick) unless that is turned off below.")
         l.setObjectName("dim")
         l.setWordWrap(True)
@@ -1111,7 +1111,8 @@ class Window(QWidget):
         self.combo["fps"][0].setToolTip("Above 60 the game runs smoother if your PC holds that rate every frame. If it can't, "
                                         "the game skips ahead to keep time and the sound gets choppy: go back to 60.")
         self.chk = {}
-        for key, text in (("fullscreen", "Fullscreen"), ("show_fps", "Show the frame rate (F3)"), ("crt", "CRT filter (scanlines)"),
+        for key, text in (("fullscreen", "Fullscreen"), ("show_fps", "Show the frame rate (F3)"),
+                          ("show_input", "Show the buttons pressed (F2)"), ("crt", "CRT filter (scanlines)"),
                           ("hud_edges", "HUD at the screen edges at 21:9 / 32:9 (experimental)"),
                           ("per_game", "Separate graphics settings for each game")):
             ch = QCheckBox(T(text))
