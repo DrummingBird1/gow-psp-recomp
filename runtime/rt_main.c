@@ -189,6 +189,63 @@ static LONG WINAPI on_crash(EXCEPTION_POINTERS *e) {
     fflush(NULL);
     return g_prev_filter ? g_prev_filter(e) : EXCEPTION_CONTINUE_SEARCH;
 }
+
+/* Everything the game does (its code, the GE, presenting) runs on this one thread. On a hybrid CPU (Intel 12th gen
+ * and later, Core Ultra, Ryzen AI 300) Windows may run it on the efficient cores: one busy thread looks like a light
+ * load to the power plan, and power throttling (EcoQoS, a minimized window) does the same. There it runs up to twice
+ * as slowly, the game falls behind the wall clock and plays in slow motion, until a burst of other work (the Windows
+ * key, the Start menu) wakes the fast cores for a moment (issue #33). So the process opts out of power throttling
+ * (HighQoS, timer resolution honoured) and this thread keeps to the cores of the highest efficiency class.
+ * RT_NO_FAST_CORES=1 leaves both to Windows. The functions are looked up: older Windows lacks some of them. */
+typedef struct { ULONG version, control, state; } PowerThrottle;  /* PROCESS_ and THREAD_POWER_THROTTLING_STATE */
+typedef struct {  /* SYSTEM_CPU_SET_INFORMATION, as far as it is read here */
+    DWORD size, type, id;
+    WORD group;
+    BYTE logical, core, cache, numa, efficiency, flags;
+} CpuSetInfo;
+typedef BOOL(WINAPI *SetInfoFn)(HANDLE, int, void *, DWORD);
+typedef BOOL(WINAPI *GetCpuSetsFn)(void *, ULONG, ULONG *, HANDLE, ULONG);
+typedef BOOL(WINAPI *SetCpuSetsFn)(HANDLE, const ULONG *, ULONG);
+
+static void prefer_fast_cores(void) {
+    if (getenv("RT_NO_FAST_CORES")) { printf("[host] RT_NO_FAST_CORES: Windows places the game thread\n"); return; }
+    HMODULE k32 = GetModuleHandleA("kernel32.dll");
+    SetInfoFn set_process = (SetInfoFn)(void *)GetProcAddress(k32, "SetProcessInformation");
+    SetInfoFn set_thread = (SetInfoFn)(void *)GetProcAddress(k32, "SetThreadInformation");
+    GetCpuSetsFn get_sets = (GetCpuSetsFn)(void *)GetProcAddress(k32, "GetSystemCpuSetInformation");
+    SetCpuSetsFn set_sets = (SetCpuSetsFn)(void *)GetProcAddress(k32, "SetThreadSelectedCpuSets");
+    /* ProcessPowerThrottling = 4, ThreadPowerThrottling = 3; EXECUTION_SPEED = 1, IGNORE_TIMER_RESOLUTION = 4 (Windows
+     * 11): a mechanism in the control mask and not in the state mask is off */
+    PowerThrottle p = { 1, 1 | 4, 0 }, t = { 1, 1, 0 };
+    if (set_process && !set_process(GetCurrentProcess(), 4, &p, sizeof(p))) {
+        p.control = 1;
+        set_process(GetCurrentProcess(), 4, &p, sizeof(p));
+    }
+    if (set_thread) set_thread(GetCurrentThread(), 3, &t, sizeof(t));
+    ULONG len = 0;
+    if (!get_sets || !set_sets) return;
+    get_sets(NULL, 0, &len, GetCurrentProcess(), 0);
+    unsigned char *buf = len ? malloc(len) : NULL;
+    if (!buf || !get_sets(buf, len, &len, GetCurrentProcess(), 0)) { free(buf); return; }
+    ULONG ids[256];
+    int lo = 255, hi = 0, n = 0, all = 0;
+    for (int pass = 0; pass < 2; pass++)
+        for (ULONG off = 0; off + sizeof(CpuSetInfo) <= len;) {
+            const CpuSetInfo *c = (const CpuSetInfo *)(buf + off);
+            if (c->size < sizeof(CpuSetInfo)) break;
+            if (c->type == 0 && pass == 0) {  /* CpuSetInformation */
+                if (c->efficiency < lo) lo = c->efficiency;
+                if (c->efficiency > hi) hi = c->efficiency;
+                all++;
+            } else if (c->type == 0 && c->efficiency == hi && n < 256) {
+                ids[n++] = c->id;
+            }
+            off += c->size;
+        }
+    free(buf);
+    if (hi > lo && n && set_sets(GetCurrentThread(), ids, (ULONG)n))
+        printf("[host] hybrid CPU: the game thread keeps to the %d fastest of %d logical processors\n", n, all);
+}
 #endif
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
@@ -208,6 +265,7 @@ static int run_boot(const BootOptions *o) {
     k_thread_start(t, sizeof(path), argp);
 #ifdef _WIN32
     g_prev_filter = SetUnhandledExceptionFilter(on_crash);  /* before the window and GPU start: drivers crash there too */
+    if (o->host.window) prefer_fast_cores();
 #endif
     if (!rt_host_init(&o->host)) return 1;
     FrameOptions frames = o->frames;
