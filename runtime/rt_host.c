@@ -657,9 +657,9 @@ int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !load_script(g_o.input)) return 0;
     setup_refresh();
-    if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     SDL_SetMainReady();
     if (!g_o.window) {
+        if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
         if (g_o.gpu && !rt_gpu_init(NULL, g_o.gpu_driver)) software_instead();
         return 1;
     }
@@ -671,6 +671,17 @@ int rt_host_init(const HostOptions *o) {
     int win_w = g_o.gpu && rt_gpu_opt.aspect > 0 ? (int)(DISP_H * scale * rt_gpu_opt.aspect + 0.5f) : DISP_W * scale;  /* --aspect */
     g_win = SDL_CreateWindow("God of War (PSP native port)", win_w, DISP_H * scale, SDL_WINDOW_RESIZABLE);
     if (!g_win) { fprintf(stderr, "[host] SDL_CreateWindow: %s\n", SDL_GetError()); return 0; }
+    /* V-Sync shows at most one frame per refresh: a --fps above the display's refresh only made the virtual time
+     * fall behind and skip, and on a PC a little slower than a refresh V-Sync then waited for two (issue #35:
+     * 30 FPS). The rate of a recording being replayed is kept. */
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(g_win));
+    if (g_o.gpu && rt_gpu_opt.vsync && rt_gpu_opt.fps > 0 && !g_o.input && dm && dm->refresh_rate > 0 &&
+        rt_display_hz() > dm->refresh_rate + 1.0) {
+        printf("[host] V-Sync on a %.0f Hz display: the game runs at %.0f FPS instead of %.0f\n", dm->refresh_rate,
+               dm->refresh_rate, rt_display_hz());
+        rt_display_set_hz(dm->refresh_rate);
+    }
+    if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     if (g_o.icon) {  /* otherwise Windows takes the exe's own icon (runtime/gow_rt.rc) */
         SDL_Surface *ic = SDL_LoadPNG(g_o.icon);
         if (ic) { SDL_SetWindowIcon(g_win, ic); SDL_DestroySurface(ic); }

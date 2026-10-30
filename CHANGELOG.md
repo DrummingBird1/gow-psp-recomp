@@ -11,6 +11,9 @@
   AI 300) Windows could put it on the efficient ones, where each frame took up to twice as long. The game now asks
   Windows not to throttle it and keeps that thread on the fastest cores; the log says so
   (`hybrid CPU: the game thread keeps to ...`). `RT_NO_FAST_CORES=1` leaves it to Windows.
+- **Fix: V-Sync with a frame rate above the display's refresh** (issue #35), e.g. 120 FPS on a 60 Hz display. The
+  game's time kept falling behind the display, and on a PC a little too slow for every refresh V-Sync settled at
+  30 FPS. With V-Sync on, the frame rate is now held to the display's refresh, and the log says so.
 - **Spin keys for the "rotate the stick" prompts** (issue #34): hold O or U (or a gamepad button set on the Controls
   page) and the stick goes round, clockwise or counter-clockwise. The keyboard's I/J/K/L could not complete them.
 - **Turbo** for the "press repeatedly" prompts (issue #26): hold C (gamepad: right stick click) with a button and it
