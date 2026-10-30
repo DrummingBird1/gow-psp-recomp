@@ -82,7 +82,7 @@ jobs:
       # (docs/troubleshooting.md). Publishes nothing else.
       - name: Build provenance
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: |
             build/launcher_dist/GoW_PSP_Launcher-v*.zip
