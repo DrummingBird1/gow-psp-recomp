@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.
@@ -50,12 +50,12 @@ GAMES = {
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
-    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "crt": False,
+    "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "show_input": False, "crt": False,
     "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
-        "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, F3 = frame rate, Esc = quit. Gamepads: PSP layout. "
+        "V = Select, I/J/K/L = stick, O/U = spin the stick, C = turbo, F11 = fullscreen, F12 = screenshot, F3 = frame rate, Esc = quit. Gamepads: PSP layout. "
         "Change them in Options > Controls.")
 
 
@@ -67,10 +67,11 @@ CONTROLS = {
     "l": (["Q"], ["leftshoulder", "lefttrigger"]), "r": (["W"], ["rightshoulder", "righttrigger"]),
     "start": (["Space", "Return"], ["start"]), "select": (["V"], ["back"]),
     "stick_up": (["I"], []), "stick_down": (["K"], []), "stick_left": (["J"], []), "stick_right": (["L"], []),
+    "stick_spin_cw": (["O"], []), "stick_spin_ccw": (["U"], []), "turbo": (["C"], ["rightstick"]),
 }
 PAD_BUTTONS = ["a", "b", "x", "y", "leftshoulder", "rightshoulder", "lefttrigger", "righttrigger", "back", "start",
                "dpup", "dpdown", "dpleft", "dpright", "leftstick", "rightstick"]
-RESERVED_KEYS = {"Escape", "F11", "F12", "F3", "F4"}  # quit box, fullscreen, screenshot, frame rate, Alt+F4
+RESERVED_KEYS = {"Escape", "F11", "F12", "F3", "F2", "F4"}  # quit box, fullscreen, screenshot, frame rate, buttons, Alt+F4
 
 
 def controls_of(cfg):
@@ -128,9 +129,9 @@ def write_controls(cfg):
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
-           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "es", "fr", "he"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "he", "ar"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
-BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
+BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
 
 
 # --- per-game graphics ------------------------------------------------------------------------------------------
@@ -356,6 +357,8 @@ def play_command(cfg, game):
             cmd += ["--gpu-power", "low"]
         if cfg.get("show_fps"):
             cmd.append("--show-fps")
+        if cfg.get("show_input"):
+            cmd.append("--show-input")
         if cfg.get("crt"):
             cmd.append("--crt")
         if cfg["res_scale"] > 1:
@@ -529,8 +532,12 @@ def clean_cmake_dir(build_dir, out=print):
 def run_command(cmd, out=print, env=None):
     """Runs a command, sending its output lines to out; returns (exit code, lines)."""
     out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
-    p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env)
+    try:
+        p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env)
+    except OSError as e:  # blocked or removed by an antivirus program, damaged: a failed step, not a dead thread (#29)
+        out(toolchain.ERROR + f"could not start {Path(cmd[0]).name}: {toolchain.explain(e)}")
+        return 1, []
     lines = []
     for line in p.stdout:
         lines.append(line.rstrip())
@@ -549,14 +556,29 @@ def ensure_disc_tool(out=print, ask=toolchain.ask_console):
     tools_build = ROOT / FLAVOURS[tools["kind"]]["tools"]
     for cmd in disc_tool_steps(tools):
         had_cache = is_configure(cmd) and (tools_build / "CMakeCache.txt").exists()
-        code = run_command(cmd, out, tools.get("env"))[0]
+        code, lines = run_command(cmd, out, tools.get("env"))
         if code and had_cache:
             clean_cmake_dir(tools_build, out)
-            code = run_command(cmd, out, tools.get("env"))[0]
+            code, lines = run_command(cmd, out, tools.get("env"))
         if code:
             out("failed to build gow_disc")
+            why = first_error(lines)
+            if why:
+                out(toolchain.ERROR + f"building the disc reader (gow_disc) failed: {why}")
             return False
     return disc_tool().exists()
+
+
+def first_error(lines):
+    """The lines of a tool's output that say best what went wrong (a download, CMake, the compiler, Ninja), for the
+    error box; '' when there are none."""
+    for test in (lambda s: "error: downloading" in s, lambda s: s.startswith("CMake Error"),
+                 lambda s: ": error:" in s or ": fatal error" in s, lambda s: s.startswith(("FAILED:", "ninja: error"))):
+        for i, line in enumerate(lines):
+            if test(line):
+                more = [m.strip() for m in lines[i + 1:i + 4] if m.strip() and not m.lstrip().startswith(("Call Stack", "log:"))]
+                return " ".join([line.strip()] + more[:2])[:400]
+    return ""
 
 
 def disc_tool_steps(tools):
@@ -702,9 +724,13 @@ def build_with(cfg, game, tools, out=print):
             code, lines = run_command(cmd, out, tools.get("env"))
         if code:
             out(f"failed (exit {code})")
+            why = first_error(lines)
+            if why:
+                out(toolchain.ERROR + why)
             return False
         if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != GAMES[game]["id"]):
-            out(f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} ({GAMES[game]['title']})")
+            out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} "
+                f"({GAMES[game]['title']})")
             return False
         if cond is not None:  # the recompile step
             stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())
@@ -726,8 +752,9 @@ def start_game(cfg, game):
     # window, and its output goes to game_log(game) instead, for bug reports.
     write_controls(cfg)
     log = open(game_log(game), "w", encoding="utf-8", errors="replace")
-    # every Play also records the button presses (a few KB), so a bug report can include them without a command line
-    cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game))]
+    # every Play also records the button presses (a few KB) and each frame's timings, so a bug report can include
+    # them without a command line
+    cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game)), "--perf-csv", str(game_perf_log(game))]
     proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if cfg.get("discord"):  # "Playing <title>" on Discord while the game runs (off by default)
@@ -739,6 +766,15 @@ def start_game(cfg, game):
 def game_log(game):
     """What the game printed during the last Play (build/launcher_<game>.log)."""
     return ROOT / "build" / f"launcher_{game}.log"
+
+
+def ran_without_gpu(game):
+    """True when the last Play fell back to the software renderer: no Direct3D 12 or Vulkan device (runtime's
+    software_instead, issue #27)."""
+    try:
+        return "the hardware renderer could not start" in game_log(game).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
 
 
 def crash_summary(game):
@@ -754,6 +790,14 @@ def crash_summary(game):
 def game_input_log(game):
     """The button presses of the last Play (build/launcher_<game>_input.txt, the --input format)."""
     return ROOT / "build" / f"launcher_{game}_input.txt"
+
+
+def game_perf_log(game):
+    """Each frame's timings in the last Play (build/launcher_<game>_perf.csv, --perf-csv): about 60 bytes a frame."""
+    return ROOT / "build" / f"launcher_{game}_perf.csv"
+
+
+PERF_ROWS = 18000  # the bug report keeps the last 5 minutes of frame timings
 
 
 # --- bug reports ---------------------------------------------------------------------------------------------
@@ -844,12 +888,16 @@ def make_bug_report(cfg, game, launcher_log=()):
         for p in (game_log(game), game_input_log(game)):
             if p.exists():
                 f.writestr(p.name, redact_paths(p.read_text(encoding="utf-8", errors="replace"), cfg))
+        perf = game_perf_log(game)
+        if perf.exists():  # numbers only (frame, times, primitive counts): the header and the last PERF_ROWS rows
+            rows = perf.read_text(encoding="utf-8", errors="replace").splitlines()
+            f.writestr(perf.name, "\n".join(rows[:1] + rows[1:][-PERF_ROWS:]) + "\n")
         f.writestr("settings.json", json.dumps(report_settings(cfg), indent=1))
         f.writestr("pc_info.txt", pc_info() + "\n")
         if launcher_log:
             f.writestr("launcher_log.txt", redact_paths("\n".join(launcher_log) + "\n", cfg))
-        f.writestr("README.txt", "God of War PSP native port: bug report. The game's log and recorded button presses of the "
-                   "last Play, the launcher settings, PC info. Paths keep only file names (your folders show as "
+        f.writestr("README.txt", "God of War PSP native port: bug report. The game's log, recorded button presses and frame "
+                   "timings of the last Play, the launcher settings, PC info. Paths keep only file names (your folders show as "
                    "<game folder>, <user folder>...), and the Windows user name shows as <user>. No game files.\n")
     return z
 

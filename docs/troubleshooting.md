@@ -18,6 +18,7 @@ Everything the launcher creates is in `GoW_PSP_data` next to `GoWLauncher.exe`:
 | `GoW_PSP_data\build\launcher.json` | Launcher settings |
 | `GoW_PSP_data\build\launcher_coo.log`, `launcher_gos.log` | What the game printed during the last Play |
 | `GoW_PSP_data\build\launcher_coo_input.txt`, `launcher_gos_input.txt` | Your button presses during the last Play |
+| `GoW_PSP_data\build\launcher_coo_perf.csv`, `launcher_gos_perf.csv` | Each frame's timings during the last Play |
 | `GoW_PSP_data\build\screenshots` | F12 screenshots (keep them private: they show the game) |
 | `GoW_PSP_data\build\toolchain` | The portable build tools (about 550 MB) |
 
@@ -36,6 +37,16 @@ Download the new ZIP and extract it over the old `GoW_PSP` folder (or copy the n
   you run from source.
 - Make sure the disc image is the **US** release (UCUS98653 / UCUS98737); other regions are not supported.
 - Press Build again: a failed configure step cleans its folder and retries.
+- **The first Build stops after downloading the build tools** (issue #29). The error box and the log's `ERROR:`
+  lines say why. The usual causes:
+  - *The folder is too deep.* Windows allows 260 characters in a path unless long paths are turned on, and the
+    build tools have files 140 characters deep inside `GoW_PSP_data`. Move the `GoW_PSP` folder (the exe with its
+    `GoW_PSP_data`) to a short path such as `C:\Games\GoW_PSP`.
+  - *An antivirus program* removed or blocked `clang.exe`, `cmake.exe` or `ninja.exe` (a false positive). Allow
+    the `GoW_PSP_data` folder in it and press Build again; the launcher unpacks missing tools again.
+  - *Windows' Controlled folder access* (ransomware protection) keeps unknown programs from writing to Documents and
+    Desktop: allow `GoWLauncher.exe`, or keep the `GoW_PSP` folder somewhere else.
+  - The first configure also downloads about 140 small source files; on a slow connection that takes a few minutes.
 - Still failing: open an [issue](https://github.com/DrummingBird1/gow-psp-recomp/issues/new/choose) with the
   launcher's log window text (the build output).
 

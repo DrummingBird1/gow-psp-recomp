@@ -1,0 +1,25 @@
+# Version updates as pull requests, once a week, one per ecosystem (security updates are on in the repo settings).
+# pip: the launcher's build requirements (tools/requirements-dev.txt); PySide6-Essentials and shiboken6 must stay on
+# the same version, so they come in one group. The game's own dependencies are pinned in CMakeLists.txt, not here.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies]
+
+  - package-ecosystem: pip
+    directory: /tools
+    schedule:
+      interval: weekly
+    groups:
+      qt:
+        patterns: ["PySide6*", "shiboken6"]
+      build:
+        patterns: ["*"]
+        exclude-patterns: ["PySide6*", "shiboken6"]
+    labels: [dependencies, python]

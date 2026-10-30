@@ -14,6 +14,8 @@ found on the PC or, with consent, installed with winget (docs/phase14-plan.md, t
                                          printed (dry run); "winget" also pretends winget is missing
     GOW_DRY_RUN=1                        print the winget commands instead of running them
 """
+import ctypes
+import errno
 import hashlib
 import os
 import shutil
@@ -35,20 +37,71 @@ NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 # The portable toolchain: official release archives, pinned by SHA-256 (licenses: tools/launcher_assets/
 # THIRD_PARTY_NOTICES.txt). "skip" leaves out parts a 64-bit Windows build never uses (other targets, Python).
+# "longest": the longest path of an unpacked file below dir (llvm-mingw: include\c++\v1\__cxx03\__type_traits\
+# is_trivially_lexicographically_comparable.h under its top folder), checked against Windows' 260 characters.
 PORTABLE = [
     {"name": "llvm-mingw 20261006 (Clang, lld, mingw-w64)", "dir": "llvm-mingw",
      "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20261006/llvm-mingw-20261006-ucrt-x86_64.zip",
      "sha256": "317492c456aa27ee607a5919f1d2d38dcdc1112516a24d0bf4b00d078f52d17a", "size": 190836485,
-     "skip": ("aarch64-w64-mingw32/", "armv7-w64-mingw32/", "i686-w64-mingw32/", "python/")},
+     "skip": ("aarch64-w64-mingw32/", "armv7-w64-mingw32/", "i686-w64-mingw32/", "python/"), "longest": 112},
     {"name": "CMake 4.4.4", "dir": "cmake",
      "url": "https://github.com/Kitware/CMake/releases/download/v4.4.4/cmake-4.4.4-windows-x86_64.zip",
      "sha256": "bace36e94b31c68ab6fa295f26dfa11219e0701cf7c94b0284a7d1cb13dac536", "size": 54400562,
-     "skip": ("doc/", "man/")},
+     "skip": ("doc/", "man/"), "longest": 114},
     {"name": "Ninja 1.13.2", "dir": "ninja",
      "url": "https://github.com/ninja-build/ninja/releases/download/v1.13.2/ninja-win.zip",
-     "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65", "size": 291570, "skip": ()},
+     "sha256": "07fc8261b42b20e71d1720b39068c2e14ffcee6396b76fb7a795fb460b78dc65", "size": 291570, "skip": (),
+     "longest": 9},
 ]
 PORTABLE_MB = round(sum(p["size"] for p in PORTABLE) / 1e6)
+# Lines that say why a step failed start with this; the launcher window shows them in its error box (issue #29).
+ERROR = "ERROR: "
+MAX_PATH = 260
+SHORT_PATH_HINT = "Move the GoW_PSP folder (GoWLauncher.exe with its GoW_PSP_data folder) to a short path such as C:\\Games\\GoW_PSP"
+
+
+def long_paths_ok():
+    """True when this process may use paths of 260 characters or more: Windows' LongPathsEnabled (off by default on
+    Windows 10) and a longPathAware program, which GoWLauncher.exe and python.exe are."""
+    if os.name != "nt":
+        return True
+    try:
+        return bool(ctypes.WinDLL("ntdll").RtlAreLongPathsEnabled())
+    except (OSError, AttributeError):
+        return False
+
+
+def path_too_long(dest, longest):
+    """A message when unpacking files `longest` characters below dest would pass Windows' 260 characters, else ''."""
+    need = len(os.path.abspath(dest)) + 1 + longest
+    if not longest or need < MAX_PATH or long_paths_ok():
+        return ""
+    return (f"the folder is too deep: unpacking the build tools needs paths of {need} characters, and Windows allows "
+            f"{MAX_PATH - 1} unless long paths are turned on. {SHORT_PATH_HINT} (a path at least "
+            f"{need - MAX_PATH + 1} characters shorter), then press Build again.")
+
+
+def explain(e):
+    """An OSError from unpacking or starting a build tool, with what it most likely means for the player."""
+    win, name = getattr(e, "winerror", None), str(getattr(e, "filename", None) or "")
+    if win == 206 or e.errno == errno.ENAMETOOLONG or (isinstance(e, FileNotFoundError) and len(name) >= MAX_PATH
+                                                        and not long_paths_ok()):
+        return f"{e}. The path is longer than Windows allows ({MAX_PATH - 1} characters). {SHORT_PATH_HINT}."
+    if win in (225, 226):  # ERROR_VIRUS_INFECTED, ERROR_VIRUS_DELETED
+        return (f"{e}. The antivirus program blocked it (a false positive for a compiler). Allow the GoW_PSP_data "
+                "folder in the antivirus, restore the file from its quarantine, then press Build again.")
+    if win in (1260, 4551):  # blocked by a group policy (AppLocker), or by Smart App Control / App Control
+        return f"{e}. Windows' application control (Smart App Control, AppLocker or a company policy) blocked it."
+    if win in (112, 39) or e.errno == errno.ENOSPC:
+        return f"{e}. The disk is full: the build tools need about 550 MB and each game's build more. Free a few GB."
+    if isinstance(e, PermissionError) or win in (5, 32, 33):
+        return (f"{e}. Another program (most likely an antivirus program, or Windows' Controlled folder access) "
+                "would not let the launcher use this file. Allow GoWLauncher.exe and the GoW_PSP_data folder in it, "
+                "or move the GoW_PSP folder out of Documents, Desktop or OneDrive, then press Build again.")
+    if isinstance(e, FileNotFoundError) or win in (193, 216):
+        return (f"{e}. The file is missing or damaged; an antivirus program may have removed it (see its "
+                "quarantine).")
+    return str(e)
 
 
 def mode():
@@ -64,45 +117,88 @@ def _one_subdir(d):
     return subs[0] if len(subs) == 1 and not any(p.is_file() and not p.name.startswith(".") for p in d.iterdir()) else d
 
 
+def _complete(root, p):
+    """True when archive p was unpacked completely under root (its .complete holds the archive's SHA-256)."""
+    f = Path(root) / p["dir"] / ".complete"
+    return f.is_file() and f.read_text(errors="replace").strip() == p["sha256"]
+
+
+def _portable_files(root):
+    """{tool: (archive dir, path)} of the programs a build runs from the portable toolchain under root."""
+    root = Path(root)
+    llvm, cmake = _one_subdir(root / "llvm-mingw"), _one_subdir(root / "cmake")
+    return {"cmake": ("cmake", cmake / "bin" / "cmake.exe"), "ninja": ("ninja", root / "ninja" / "ninja.exe"),
+            "cc": ("llvm-mingw", llvm / "bin" / "clang.exe"), "cxx": ("llvm-mingw", llvm / "bin" / "clang++.exe")}
+
+
+def missing_tools(root):
+    """[(archive dir, path)] of programs missing from archives that were unpacked completely: removed afterwards,
+    most likely quarantined by an antivirus program (issue #29)."""
+    done = {p["dir"] for p in PORTABLE if _complete(root, p)}
+    return [(d, f) for d, f in _portable_files(root).values() if d in done and not f.is_file()]
+
+
 def find_portable(root):
     """{"kind": "portable", cmake, ninja, cc, cxx, env} when the toolchain under root is complete, else None."""
     root = Path(root)
-    if "portable" in simulated_missing() or not all((root / p["dir"] / ".complete").read_text(errors="replace").strip() == p["sha256"]
-                                                     if (root / p["dir"] / ".complete").is_file() else False for p in PORTABLE):
+    if "portable" in simulated_missing() or not all(_complete(root, p) for p in PORTABLE):
         return None
-    llvm, cmake = _one_subdir(root / "llvm-mingw"), _one_subdir(root / "cmake")
-    tools = {"kind": "portable", "cmake": str(cmake / "bin" / "cmake.exe"), "ninja": str(root / "ninja" / "ninja.exe"),
-             "cc": str(llvm / "bin" / "clang.exe"), "cxx": str(llvm / "bin" / "clang++.exe"), "python": find_python()}
-    if not all(Path(tools[k]).is_file() for k in ("cmake", "ninja", "cc", "cxx")):
+    files = _portable_files(root)
+    if not all(f.is_file() for _, f in files.values()):
         return None
+    llvm = _one_subdir(root / "llvm-mingw")
+    tools = dict({k: str(f) for k, (_, f) in files.items()}, kind="portable", python=find_python())
     # the compiler's own folder first (lld, llvm-rc), nothing from a Visual Studio prompt
     tools["env"] = dict(os.environ, PATH=os.pathsep.join([str(llvm / "bin"), str(root / "ninja"), os.environ.get("PATH", "")]))
     for v in ("INCLUDE", "LIB", "LIBPATH", "VCINSTALLDIR", "CC", "CXX"):
         tools["env"].pop(v, None)
+    # The toolchain came through Windows' proxy setting (urllib reads it); CMake's downloads of the sources only read
+    # proxy variables, so behind a proxy they failed after minutes of silence (issue #29): hand the setting on.
+    if not any(k.upper() in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY") for k in tools["env"]):
+        for scheme, url in urllib.request.getproxies().items():
+            if scheme in ("http", "https"):
+                tools["env"][scheme + "_proxy"] = url
     return tools
 
 
 def download_portable(root, out=print):
     """Downloads, checks (SHA-256) and unpacks the portable toolchain into root. True when complete."""
     root = Path(root)
+    for p in PORTABLE:  # all three paths first: don't download 246 MB that can't be unpacked
+        too_long = path_too_long(root / p["dir"], p.get("longest", 0))
+        if too_long:
+            out(ERROR + too_long)
+            return False
     for p in PORTABLE:
         if not download_archive(p, root, out):
             return False
+    gone = missing_tools(root)
+    if gone:
+        out(ERROR + "unpacked, but gone right after: " + ", ".join(str(f) for _, f in gone) + ". An antivirus program "
+            "most likely quarantined them (a false positive). Allow the GoW_PSP_data folder in the antivirus, then "
+            "press Build again.")
+        for d in {d for d, _ in gone}:
+            (root / d / ".complete").unlink(missing_ok=True)  # unpacked again on the next try
     return find_portable(root) is not None
 
 
 def download_archive(p, root, out=print):
     """Downloads one pinned archive (an entry like those of PORTABLE: name, dir, url, sha256, size, skip), checks its
-    SHA-256 and unpacks it into root/dir; a folder already unpacked from the same archive is kept. True when there."""
+    SHA-256 and unpacks it into root/dir; a folder already unpacked from the same archive is kept. True when there.
+    Every failure is reported through out (a line starting with ERROR) and returns False; nothing is raised."""
     root = Path(root)
     dest = root / p["dir"]
     if (dest / ".complete").is_file() and (dest / ".complete").read_text().strip() == p["sha256"]:
         return True
+    too_long = path_too_long(dest, p.get("longest", 0))
+    if too_long:
+        out(ERROR + too_long)
+        return False
     archive = root / (p["dir"] + ".zip.part")
-    root.mkdir(parents=True, exist_ok=True)
     out(f"downloading {p['name']} ({p['size'] / 1e6:.0f} MB) from {p['url']}")
     h, done, shown = hashlib.sha256(), 0, -1
     try:
+        root.mkdir(parents=True, exist_ok=True)
         req = urllib.request.Request(p["url"], headers={"User-Agent": "GoWLauncher"})
         with urllib.request.urlopen(req, timeout=60) as r, open(archive, "wb") as f:
             while True:
@@ -117,22 +213,35 @@ def download_archive(p, root, out=print):
                     shown = pct // 10
                     out(f"  {p['dir']}: {min(pct, 100)}% ({done / 1e6:.0f} MB)")
     except OSError as e:
-        out(f"download failed: {e}")
+        why = explain(e)
+        out(ERROR + f"downloading {p['name']} failed: {why}" + (". Check the internet connection and try again."
+                                                                 if why == str(e) else ""))
         return False
     if h.hexdigest() != p["sha256"]:
-        archive.unlink(missing_ok=True)
-        out(f"{p['name']}: wrong SHA-256 ({h.hexdigest()}), expected {p['sha256']}; not used")
+        try:
+            archive.unlink(missing_ok=True)
+        except OSError:
+            pass
+        out(ERROR + f"{p['name']}: wrong SHA-256 ({h.hexdigest()}), expected {p['sha256']}; not used. The download "
+            "was damaged or changed on the way (a proxy or an antivirus program): try again.")
         return False
     out(f"  checked SHA-256, unpacking into {dest}")
-    shutil.rmtree(dest, ignore_errors=True)
-    with zipfile.ZipFile(archive) as z:
-        for m in z.infolist():
-            rel = m.filename.split("/", 1)[1] if "/" in m.filename.rstrip("/") else ""
-            if rel and rel.startswith(p["skip"]):
-                continue
-            z.extract(m, dest)
-    archive.unlink(missing_ok=True)
-    (dest / ".complete").write_text(p["sha256"])
+    try:
+        shutil.rmtree(dest, ignore_errors=True)
+        with zipfile.ZipFile(archive) as z:
+            for m in z.infolist():
+                rel = m.filename.split("/", 1)[1] if "/" in m.filename.rstrip("/") else ""
+                if rel and rel.startswith(p["skip"]):
+                    continue
+                z.extract(m, dest)
+        (dest / ".complete").write_text(p["sha256"])
+    except (OSError, zipfile.BadZipFile) as e:  # before issue #29 this ended the build thread without a word
+        out(ERROR + f"unpacking {p['name']} into {dest} failed: " + (explain(e) if isinstance(e, OSError) else str(e)))
+        return False
+    try:
+        archive.unlink(missing_ok=True)
+    except OSError:
+        pass  # still open in another program (an antivirus scanning it): harmless, the next download replaces it
     return True
 
 
@@ -314,6 +423,12 @@ def ensure(ask, out=print, root=None):
     tools = find_portable(root)
     if tools:
         return tools
+    gone = missing_tools(root)
+    if gone:  # unpacked before, a program removed since: unpack that archive again instead of failing every time
+        out("These build tools were unpacked before and are missing now: " + ", ".join(str(f) for _, f in gone)
+            + ". An antivirus program most likely quarantined them; they are downloaded and unpacked again.")
+        for d in {d for d, _ in gone}:
+            (Path(root) / d / ".complete").unlink(missing_ok=True)
     if ask(portable_consent_text()):
         if download_portable(root, out):
             return find_portable(root)

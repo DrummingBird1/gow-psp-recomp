@@ -37,6 +37,8 @@ int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t for
 int rt_host_idle(uint64_t now_us, uint64_t next_us);
 /* Controller state at displayed frame `frame` / virtual time now_us: buttons, analog stick (128 = centre). */
 uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly);
+/* What the game read last (buttons, stick 0-255): for the on-screen input display (--show-input). */
+uint32_t rt_host_input_shown(uint8_t *lx, uint8_t *ly);
 /* Ends an input recording (also at exit and on a crash); safe to call more than once. */
 void rt_host_record_close(void);
 /* A headless replay needs rt_host_idle too: the recording has virtual-time skips (--fps). */

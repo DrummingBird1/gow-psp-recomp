@@ -32,6 +32,11 @@ jobs:
       - name: Install build requirements
         run: python -m pip install -r tools/requirements-dev.txt
 
+      # Every language table complete, every text of the window fits in every language, the bug-report zip
+      # (the window is laid out without being shown; no game data)
+      - name: Launcher check
+        run: python tools/check_launcher.py
+
       - name: Build GoWLauncher.exe
         run: python tools/build_launcher.py
 

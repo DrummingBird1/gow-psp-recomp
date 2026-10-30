@@ -15,7 +15,7 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 
 ![The launcher](docs/images/launcher-main.png)
 
-## Status: preview (v1.3.1)
+## Status: preview (v1.4.0)
 
 - Every level of both games loads and runs (automated tours: [phase 11](docs/phase11-level-tour.md),
   [phase 12](docs/phase12-gos-level-tour.md)).
@@ -46,7 +46,8 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 - 21:9, 32:9 and 4:3, and a CRT filter (scanlines).
 - Keyboard, mouse buttons and gamepads (PSP layout, the right stick evades), saves, texture dump and replacement packs.
 - Ghost of Sparta in English, French or Spanish; separate music and effects volume; gamepad rumble; import of PPSSPP
-  saves; AI-upscaled texture packs made on your PC; the launcher in English, Spanish, French or Hebrew.
+  saves; AI-upscaled texture packs made on your PC; the launcher in nine languages (English, German, Spanish, French,
+  Italian, Brazilian Portuguese, Russian, Hebrew and Arabic).
 - A one-download launcher: finds your disc images, builds each game, graphics presets, Play.
 
 ![Launcher tour](docs/images/launcher-tour.gif)
@@ -55,7 +56,7 @@ Bug reports are very welcome: see [Reporting a bug](#reporting-a-bug) (the log a
 
 You only download **one file**, the launcher. No Python, no manual setup.
 
-1. Download [`GoW_PSP_Launcher-v1.3.1.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.3.1.zip)
+1. Download [`GoW_PSP_Launcher-v1.4.0.zip`](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest/download/GoW_PSP_Launcher-v1.4.0.zip)
    from the [latest release](https://github.com/DrummingBird1/gow-psp-recomp/releases/latest) and extract it anywhere: you get
    one `GoW_PSP` folder with `GoWLauncher.exe` and a short `README.txt`.
    Everything the launcher creates (sources, builds, saves, settings) goes into `GoW_PSP_data` next to the exe, so
@@ -85,8 +86,9 @@ The launcher opens no console window. Its command-line options (`GoWLauncher.exe
 
 The game starts in fullscreen (F11 or Alt+Enter switches to a window; the launcher's Fullscreen option sets the
 default) without a console window. What it prints goes to `GoW_PSP_data\build\launcher_coo.log` (or
-`launcher_gos.log`), and your button presses of that session to `launcher_coo_input.txt` (or
-`launcher_gos_input.txt`). Both are overwritten by the next Play, so copy them right after the bug happens.
+`launcher_gos.log`), your button presses of that session to `launcher_coo_input.txt` (or
+`launcher_gos_input.txt`), and each frame's timings to `launcher_coo_perf.csv` (or `launcher_gos_perf.csv`). The next
+Play overwrites them, so copy them right after the bug happens.
 
 ### Reporting a bug
 
@@ -114,6 +116,8 @@ compiles it locally, once.
 | Space or Enter | Start | Start |
 | V | Select | Back |
 | I / J / K / L | analog stick | left stick |
+| O / U (hold) | spin the analog stick clockwise / counter-clockwise, for the "rotate the stick" prompts | rotate the left stick |
+| C (hold) | turbo: the face buttons and L/R you hold press and release 10 times a second, for the "press repeatedly" prompts | right stick click |
 | | evade (L + R + stick) | right stick |
 
 - **Skip a movie:** Enter, Space, a mouse click, or gamepad Start or Cross. The game goes on to the menu or level as if
@@ -121,7 +125,8 @@ compiles it locally, once.
 - **Quit:** Alt+F4 or the window's close button quit at once. Esc asks "Quit the game?" with the game paused: Enter or
   gamepad Cross = yes, Esc or gamepad Circle = no. On a gamepad, hold Back + Start for 2 seconds. The game saves only
   at its own save points, so quitting loses progress since the last save. The launcher comes back when the game exits.
-- F11 or Alt+Enter: fullscreen / window. F12: screenshot. F3: frame rate in the corner.
+- F11 or Alt+Enter: fullscreen / window. F12: screenshot. F3: frame rate in the corner. F2: the buttons pressed,
+  bottom left.
 - **Change them** with the launcher's *Controls…* button (Options > Advanced): keys, mouse buttons and gamepad
   buttons. A key you give to a button leaves the button that had it, so WASD can move without also blocking (W is R
   by default). The right stick's evade can be turned off there.

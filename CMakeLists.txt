@@ -24,11 +24,15 @@ macro(gow_fetch_archive name repo commit sha256)
   set(_gow_src "${GOW_DEPS_DIR}/${name}-${commit}")
   if(EXISTS "${_gow_src}/.gow_complete")
     set(FETCHCONTENT_SOURCE_DIR_${_gow_upper} "${_gow_src}")  # already downloaded: reuse
+  else()
+    message(STATUS "Downloading ${name} (${repo} ${commit})")  # FetchContent is quiet until it fails
   endif()
+  # A stalled connection fails after 60 s without data instead of waiting forever (issue #29)
   FetchContent_Declare(${name}
     URL "https://github.com/${repo}/archive/${commit}.tar.gz"
     URL_HASH SHA256=${sha256}
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    INACTIVITY_TIMEOUT 60
     SOURCE_DIR "${_gow_src}")
   FetchContent_MakeAvailable(${name})
   file(TOUCH "${_gow_src}/.gow_complete")
@@ -82,7 +86,10 @@ set(AT3_FILES
 # has that hash; the .c and .cpp files are returned in out_sources.
 function(fetch_pinned_files label dir url files out_sources)
   set(sources)
+  list(LENGTH files total)
+  set(n 0)
   foreach(entry IN LISTS files)
+    math(EXPR n "${n} + 1")
     string(REPLACE "=" ";" parts "${entry}")
     list(GET parts 0 name)
     list(GET parts 1 hash)
@@ -92,7 +99,10 @@ function(fetch_pinned_files label dir url files out_sources)
       file(SHA256 "${path}" have)
     endif()
     if(NOT have STREQUAL hash)
-      file(DOWNLOAD "${url}/${name}" "${path}" EXPECTED_HASH SHA256=${hash} TLS_VERIFY ON STATUS st)
+      # one line per file: the first build downloads about 140 of them, which took 2 minutes without a word (#29)
+      message(STATUS "Downloading ${label} ${n}/${total}: ${name}")
+      file(DOWNLOAD "${url}/${name}" "${path}" EXPECTED_HASH SHA256=${hash} TLS_VERIFY ON STATUS st
+           INACTIVITY_TIMEOUT 60)
       list(GET st 0 code)
       if(NOT code EQUAL 0)
         message(FATAL_ERROR "Downloading ${label}/${name} failed: ${st}")

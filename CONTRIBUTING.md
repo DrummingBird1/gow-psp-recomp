@@ -29,7 +29,26 @@ Follow the quick start in `README.md` (or `recomp/README.md` for the details). B
   must give the same frames and the same `--wav` before and after, unless the change is meant to alter timing.
 - **Many levels at once:** `tools/level_tour.py --game coo|gos` warps into every level and reports crashes, missing HLE
   functions and missing files.
+- **Launcher changes:** `python tools/check_launcher.py` (also run by CI) opens the window in every language without
+  showing it and fails on a text that doesn't fit, a translation table that lacks a text, or a broken bug-report zip.
 - Say in the pull request what you ran and what you saw (frame counts, PSNR, FPS).
+
+## Translating the launcher
+
+The launcher's window is translated in `tools/launcher_i18n.py`, one table per language: the English text as the
+key, your translation as the value. Tooltips, dialogs and the log stay in English.
+
+- **To fix or finish a language,** edit its table. A text missing from a table shows in English.
+- **To add a language,** copy a whole table (the Hebrew one has every text), give it the language's code, translate
+  the values, and add `("Native name", "code")` to `LANGS` and the code to `ui_language` in `ALLOWED` in
+  `tools/launcher.pyw`. A right-to-left language also goes into `RTL`.
+- **Keep it short.** The Options panel is narrow: the five preset names share one row, and a long label or button
+  pushes the panel past the window's edge. Use the words players know from other games, even when shorter than the
+  dictionary's. `tools/check_launcher.py` says which text doesn't fit.
+- Keep the names as they are (Kratos, Steam, Discord, PPSSPP, V-Sync, HUD, CRT, VRR, F1-F12) and the `…` of a
+  button that opens a dialog.
+- Open a pull request with the label `translation`, and say whether you are a native speaker. A native speaker's
+  review of an existing language is welcome too.
 
 ## Versions
 

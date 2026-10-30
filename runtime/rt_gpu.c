@@ -38,6 +38,7 @@
 #include "psp_rt.h"
 #include "rt_frames.h"
 #include "rt_gpu.h"
+#include "rt_host.h"
 
 GpuOptions rt_gpu_opt;
 
@@ -49,6 +50,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     if (!strcmp(a, "--vsync")) { o->vsync = 1; return 1; }
     if (!strcmp(a, "--crt")) { o->crt = 1; return 1; }
     if (!strcmp(a, "--show-fps")) { o->show_fps = 1; return 1; }
+    if (!strcmp(a, "--show-input")) { o->show_input = 1; return 1; }
     if (!strcmp(a, "--hud-edges")) { o->hud_edges = 1; return 1; }
     if (!strcmp(a, "--hdr")) {
         o->hdr = 1;
@@ -310,7 +312,12 @@ static void setup_swapchain(void) {
            white * 80.0f, headroom, can10 ? "yes" : "no", canx ? "yes" : "no");
     SDL_GPUSwapchainComposition comp = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
     g_hdr_out = 0;
-    if (rt_gpu_opt.hdr) {
+    /* --hdr (auto) only when HDR is on for this display: Direct3D 12 offers an HDR10 swapchain on SDR
+     * displays too, and HDR10 on an SDR display looks grey and washed out (issue #28); --hdr hdr10 or
+     * scrgb asks for that output whatever the display says */
+    if (rt_gpu_opt.hdr == 1 && !hdr_on)
+        printf("[gpu] HDR is off for this display (Windows display settings): SDR\n");
+    else if (rt_gpu_opt.hdr) {
         int want10 = rt_gpu_opt.hdr == 3 || rt_gpu_opt.hdr == 1, wantx = rt_gpu_opt.hdr == 2 || rt_gpu_opt.hdr == 1;
         if (want10 && can10) { comp = SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084; g_hdr_out = 2; }
         else if (wantx && canx) { comp = SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR; g_hdr_out = 1; }
@@ -333,6 +340,15 @@ static void setup_swapchain(void) {
 
 static void pack_index(void);
 
+/* rt_gpu_init failed after the device was made: drop it, so that rt_gpu_active() says no and the
+ * software renderer can take over (rt_host_init) */
+static int drop_device(void) {
+    SDL_DestroyGPUDevice(g_dev);
+    g_dev = NULL;
+    g_win = NULL;
+    return 0;
+}
+
 int rt_gpu_init(void *window, const char *driver) {
     if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "[gpu] SDL_Init: %s\n", SDL_GetError()); return 0; }
     /* SDL picks the fast (discrete) GPU of a PC with two; --gpu-power low asks for the integrated one */
@@ -351,7 +367,7 @@ int rt_gpu_init(void *window, const char *driver) {
     g_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT, ge_fs_spirv, sizeof(ge_fs_spirv), ge_fs_dxil, sizeof(ge_fs_dxil), 1, 1);
     g_post_vs = make_shader(use, SDL_GPU_SHADERSTAGE_VERTEX, post_vs_spirv, sizeof(post_vs_spirv), post_vs_dxil, sizeof(post_vs_dxil), 0, 0);
     g_post_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT, post_fs_spirv, sizeof(post_fs_spirv), post_fs_dxil, sizeof(post_fs_dxil), 1, 1);
-    if (!g_vs || !g_fs || !g_post_vs || !g_post_fs) return 0;
+    if (!g_vs || !g_fs || !g_post_vs || !g_post_fs) return drop_device();
     g_dsfmt = SDL_GPUTextureSupportsFormat(g_dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
                                            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
                   ? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT
@@ -388,7 +404,7 @@ int rt_gpu_init(void *window, const char *driver) {
     }
     if (window) {
         g_win = window;
-        if (!SDL_ClaimWindowForGPUDevice(g_dev, g_win)) { fprintf(stderr, "[gpu] claim window: %s\n", SDL_GetError()); return 0; }
+        if (!SDL_ClaimWindowForGPUDevice(g_dev, g_win)) { fprintf(stderr, "[gpu] claim window: %s\n", SDL_GetError()); return drop_device(); }
         setup_swapchain();
     }
     pack_index();
@@ -1901,6 +1917,84 @@ static void fps_overlay(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *sc) {
     post_pass(cmd, sc, g_swfmt, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_LOAD, &vp, NULL, g_fps_tex, FPS_W, FPS_H, &u, 0);
 }
 
+/* --show-input (F2): what the game reads, bottom left, in the same 4x pixel style as the frame rate: D-pad, the
+ * analog stick's position, the four face buttons in their colours, L, R, Select and Start. Lit when held, grey when
+ * not. It shows what the game read (bindings applied), so it also matches an input recording. Issue #31. */
+#define IN_W 41
+#define IN_H 11
+static SDL_GPUTexture *g_in_tex;
+static uint32_t g_in_key = 0xFFFFFFFFu;  /* buttons and stick last drawn */
+
+static void in_rect(uint32_t *px, int x0, int y0, int w, int h, uint32_t c) {
+    for (int y = y0; y < y0 + h; y++)
+        for (int x = x0; x < x0 + w; x++) px[y * IN_W + x] = c;
+}
+
+static void in_glyph(uint32_t *px, int x0, int y0, uint16_t bits, int rows, uint32_t c) {  /* 3 columns, rows rows */
+    for (int y = 0; y < rows; y++)
+        for (int x = 0; x < 3; x++)
+            if (bits >> ((rows - 1 - y) * 3 + 2 - x) & 1) px[(y0 + y) * IN_W + x0 + x] = c;
+}
+
+static void input_overlay(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *sc, Uint32 sh) {
+    uint8_t lx, ly;
+    uint32_t b = rt_host_input_shown(&lx, &ly);
+    uint32_t key = (b & 0xFFFFu) | (uint32_t)(lx >> 4) << 16 | (uint32_t)(ly >> 4) << 20;
+    if (key != g_in_key || !g_in_tex) {
+        if (!g_in_tex) g_in_tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, IN_W, IN_H, 1, SDL_GPU_SAMPLECOUNT_1);
+        SDL_GPUTransferBufferCreateInfo ti = { SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, IN_W * IN_H * 4, 0 };
+        SDL_GPUTransferBuffer *tb = g_in_tex ? SDL_CreateGPUTransferBuffer(g_dev, &ti) : NULL;
+        if (!tb) return;
+        uint32_t *px = SDL_MapGPUTransferBuffer(g_dev, tb, false);
+        if (!px) { SDL_ReleaseGPUTransferBuffer(g_dev, tb); return; }
+        g_in_key = key;
+        const uint32_t bg = 0xC0000000u, off = 0xFF505050u, on = 0xFFFFFFFFu;  /* ABGR */
+#define LIT(bit, c) ((b & (bit)) ? (c) : off)
+        for (int i = 0; i < IN_W * IN_H; i++) px[i] = bg;
+        /* D-pad: a cross of 3x3 squares */
+        in_rect(px, 4, 1, 3, 3, LIT(PSP_UP, on));
+        in_rect(px, 4, 7, 3, 3, LIT(PSP_DOWN, on));
+        in_rect(px, 1, 4, 3, 3, LIT(PSP_LEFT, on));
+        in_rect(px, 7, 4, 3, 3, LIT(PSP_RIGHT, on));
+        in_rect(px, 4, 4, 3, 3, off);
+        /* stick: a 9x9 frame with a 3x3 dot where the stick is */
+        in_rect(px, 12, 1, 9, 1, off); in_rect(px, 12, 9, 9, 1, off);
+        in_rect(px, 12, 1, 1, 9, off); in_rect(px, 20, 1, 1, 9, off);
+        int centred = lx > 96 && lx < 160 && ly > 96 && ly < 160;
+        in_rect(px, 13 + lx * 4 / 255, 2 + ly * 4 / 255, 3, 3, centred ? off : on);
+        /* face buttons in a diamond: triangle (green), square (pink), circle (red), cross (blue) */
+        in_glyph(px, 26, 1, 0x0AF, 3, LIT(PSP_TRIANGLE, 0xFF80E040u));  /* .#. #.# ### */
+        in_glyph(px, 23, 4, 0x1EF, 3, LIT(PSP_SQUARE, 0xFFC080FFu));    /* ### #.# ### */
+        in_glyph(px, 29, 4, 0x0AA, 3, LIT(PSP_CIRCLE, 0xFF4040FFu));    /* .#. #.# .#. */
+        in_glyph(px, 26, 7, 0x155, 3, LIT(PSP_CROSS, 0xFFFFA040u));     /* #.# .#. #.# */
+        /* L and R, Select and Start (3x5 letters) */
+        in_glyph(px, 34, 0, 0x4927, 5, LIT(PSP_LTRIGGER, on));          /* L */
+        in_glyph(px, 38, 0, 0x6BAD, 5, LIT(PSP_RTRIGGER, on));          /* R */
+        in_glyph(px, 34, 6, 0x79CF, 5, LIT(PSP_SELECT, on));            /* S (Select) */
+        in_glyph(px, 38, 6, 0x7492, 5, LIT(PSP_START, on));             /* T (sTart) */
+#undef LIT
+        SDL_UnmapGPUTransferBuffer(g_dev, tb);
+        SDL_GPUCopyPass *cp = SDL_BeginGPUCopyPass(cmd);
+        SDL_GPUTextureTransferInfo src = { tb, 0, IN_W, IN_H };
+        SDL_GPUTextureRegion r;
+        memset(&r, 0, sizeof(r));
+        r.texture = g_in_tex; r.w = IN_W; r.h = IN_H; r.d = 1;
+        SDL_UploadToGPUTexture(cp, &src, &r, false);
+        SDL_EndGPUCopyPass(cp);
+        SDL_ReleaseGPUTransferBuffer(g_dev, tb);
+    }
+    if (!g_in_tex) return;
+    PostU u;
+    memset(&u, 0, sizeof(u));
+    u.src[2] = (float)IN_W; u.src[3] = (float)IN_H;
+    u.mode[0] = P_PRESENT;
+    u.mode[1] = 1;
+    u.mode[2] = (uint32_t)g_hdr_out;
+    u.p0[0] = g_paper; u.p0[1] = g_peak; u.p0[2] = 0.55f;
+    SDL_GPUViewport vp = { 8, (float)sh - 8 - IN_H * 4, (float)IN_W * 4, (float)IN_H * 4, 0.0f, 1.0f };
+    post_pass(cmd, sc, g_swfmt, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_LOAD, &vp, NULL, g_in_tex, IN_W, IN_H, &u, 0);
+}
+
 /* The displayed framebuffer into the window: FXAA and sharpening at the internal resolution
  * (when on), then scaled into the window, letterboxed, as SDR or HDR. */
 static void draw_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
@@ -1944,6 +2038,7 @@ static void draw_to_window(SDL_GPUCommandBuffer *cmd, int t, int x, int y) {
     u.mode[3] = rt_gpu_opt.crt ? 1u : 0u;
     post_pass(cmd, sc, g_swfmt, SDL_GPU_SAMPLECOUNT_1, SDL_GPU_LOADOP_CLEAR, &vp, NULL, src, tw, th, &u, !rt_gpu_opt.nearest);
     if (rt_gpu_opt.show_fps) fps_overlay(cmd, sc);
+    if (rt_gpu_opt.show_input) input_overlay(cmd, sc, sh);
 }
 
 /* RT_GPU_DUMP=N: after frame N, writes every target's drawn area (gpu) and the same area of PSP

@@ -189,7 +189,96 @@ static LONG WINAPI on_crash(EXCEPTION_POINTERS *e) {
     fflush(NULL);
     return g_prev_filter ? g_prev_filter(e) : EXCEPTION_CONTINUE_SEARCH;
 }
+
+/* Everything the game does (its code, the GE, presenting) runs on this one thread. On a hybrid CPU (Intel 12th gen
+ * and later, Core Ultra, Ryzen AI 300) Windows may run it on the efficient cores: one busy thread looks like a light
+ * load to the power plan, and power throttling (EcoQoS, a minimized window) does the same. There it runs up to twice
+ * as slowly, the game falls behind the wall clock and plays in slow motion, until a burst of other work (the Windows
+ * key, the Start menu) wakes the fast cores for a moment (issue #33). So the process opts out of power throttling
+ * (HighQoS, timer resolution honoured) and this thread keeps to the cores of the highest efficiency class.
+ * RT_NO_FAST_CORES=1 leaves both to Windows. The functions are looked up: older Windows lacks some of them. */
+typedef struct { ULONG version, control, state; } PowerThrottle;  /* PROCESS_ and THREAD_POWER_THROTTLING_STATE */
+typedef struct {  /* SYSTEM_CPU_SET_INFORMATION, as far as it is read here */
+    DWORD size, type, id;
+    WORD group;
+    BYTE logical, core, cache, numa, efficiency, flags;
+} CpuSetInfo;
+typedef BOOL(WINAPI *SetInfoFn)(HANDLE, int, void *, DWORD);
+typedef BOOL(WINAPI *GetCpuSetsFn)(void *, ULONG, ULONG *, HANDLE, ULONG);
+typedef BOOL(WINAPI *SetCpuSetsFn)(HANDLE, const ULONG *, ULONG);
+
+static void prefer_fast_cores(void) {
+    if (getenv("RT_NO_FAST_CORES")) { printf("[host] RT_NO_FAST_CORES: Windows places the game thread\n"); return; }
+    HMODULE k32 = GetModuleHandleA("kernel32.dll");
+    SetInfoFn set_process = (SetInfoFn)(void *)GetProcAddress(k32, "SetProcessInformation");
+    SetInfoFn set_thread = (SetInfoFn)(void *)GetProcAddress(k32, "SetThreadInformation");
+    GetCpuSetsFn get_sets = (GetCpuSetsFn)(void *)GetProcAddress(k32, "GetSystemCpuSetInformation");
+    SetCpuSetsFn set_sets = (SetCpuSetsFn)(void *)GetProcAddress(k32, "SetThreadSelectedCpuSets");
+    /* ProcessPowerThrottling = 4, ThreadPowerThrottling = 3; EXECUTION_SPEED = 1, IGNORE_TIMER_RESOLUTION = 4 (Windows
+     * 11): a mechanism in the control mask and not in the state mask is off */
+    PowerThrottle p = { 1, 1 | 4, 0 }, t = { 1, 1, 0 };
+    if (set_process && !set_process(GetCurrentProcess(), 4, &p, sizeof(p))) {
+        p.control = 1;
+        set_process(GetCurrentProcess(), 4, &p, sizeof(p));
+    }
+    if (set_thread) set_thread(GetCurrentThread(), 3, &t, sizeof(t));
+    ULONG len = 0;
+    if (!get_sets || !set_sets) return;
+    get_sets(NULL, 0, &len, GetCurrentProcess(), 0);
+    unsigned char *buf = len ? malloc(len) : NULL;
+    if (!buf || !get_sets(buf, len, &len, GetCurrentProcess(), 0)) { free(buf); return; }
+    ULONG ids[256];
+    int lo = 255, hi = 0, n = 0, all = 0;
+    for (int pass = 0; pass < 2; pass++)
+        for (ULONG off = 0; off + sizeof(CpuSetInfo) <= len;) {
+            const CpuSetInfo *c = (const CpuSetInfo *)(buf + off);
+            if (c->size < sizeof(CpuSetInfo)) break;
+            if (c->type == 0 && pass == 0) {  /* CpuSetInformation */
+                if (c->efficiency < lo) lo = c->efficiency;
+                if (c->efficiency > hi) hi = c->efficiency;
+                all++;
+            } else if (c->type == 0 && c->efficiency == hi && n < 256) {
+                ids[n++] = c->id;
+            }
+            off += c->size;
+        }
+    free(buf);
+    if (hi > lo && n && set_sets(GetCurrentThread(), ids, (ULONG)n))
+        printf("[host] hybrid CPU: the game thread keeps to the %d fastest of %d logical processors\n", n, all);
+}
 #endif
+
+/* The module_start thread's priority, stack size and attributes: the module's own
+ * module_start_thread_parameter export (NID 0x0F7C276C: {count, priority, stack size, attr}), as the PSP
+ * module manager and PPSSPP use it, else the module manager's defaults (0x20, 256 KB). Both God of War
+ * EBOOTs ask for a 1 KB stack: a 256 KB one left 255 KB less user memory, and the games size their whole
+ * heap by sceKernelMaxFreeMemSize (issue #24). The export table comes from the module info
+ * (+4 name, +0x24 ent_top, +0x28 ent_end). */
+static void module_start_params(uint32_t *prio, uint32_t *stack, uint32_t *attr) {
+    *prio = 0x20; *stack = 0x40000; *attr = 0x80000000u;
+    uint32_t lo = RT_IMAGE_BASE, hi = RT_IMAGE_BASE + RT_IMAGE_SIZE;
+    size_t n = strlen(RT_MODULE_NAME);
+    for (uint32_t mi = lo; mi + 0x34 <= hi; mi += 4) {
+        if (memcmp(rt_ptr(mi + 4), RT_MODULE_NAME, n + 1)) continue;
+        uint32_t top = rt_r32(mi + 0x24), end = rt_r32(mi + 0x28);
+        if (top < lo || end > hi || top >= end) continue;
+        for (uint32_t e = top; e + 16 <= end;) {
+            uint32_t len = rt_r8(e + 8) * 4u, vars = rt_r8(e + 9), funcs = rt_r16(e + 10), tab = rt_r32(e + 12);
+            if (len < 16) break;
+            if (rt_r32(e) == 0 && tab >= lo && tab + 8 * (vars + funcs) <= hi)  /* the module's own system library */
+                for (uint32_t k = 0; k < vars + funcs; k++) {
+                    uint32_t p = rt_r32(tab + 4 * (vars + funcs + k));
+                    if (rt_r32(tab + 4 * k) != 0x0F7C276Cu || p < lo || p + 16 > hi || rt_r32(p) < 3) continue;
+                    if (rt_r32(p + 4)) *prio = rt_r32(p + 4);
+                    if (rt_r32(p + 8)) *stack = rt_r32(p + 8);
+                    if (rt_r32(p + 12)) *attr = rt_r32(p + 12);
+                    return;
+                }
+            e += len;
+        }
+        return;
+    }
+}
 
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
  * thread (as the PSP module manager does) and the scheduler runs until every thread
@@ -204,12 +293,18 @@ static int run_boot(const BootOptions *o) {
     static const char path[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
     uint32_t argp = k_alloc(0x100, 0, 0x100);
     memcpy(rt_ptr(argp), path, sizeof(path));
-    KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
+    uint32_t prio, stack, attr;
+    module_start_params(&prio, &stack, &attr);
+    KThread *t = k_thread_create("module_start", RT_ENTRY, prio, stack, attr);
+    printf("[boot] module_start thread: prio %u, stack %X, attr %08X\n", prio, stack, attr);
     k_thread_start(t, sizeof(path), argp);
 #ifdef _WIN32
     g_prev_filter = SetUnhandledExceptionFilter(on_crash);  /* before the window and GPU start: drivers crash there too */
+    if (o->host.window) prefer_fast_cores();
 #endif
     if (!rt_host_init(&o->host)) return 1;
+    FrameOptions frames = o->frames;
+    if (frames.from_gpu && !rt_gpu_active()) frames.from_gpu = 0;  /* the software renderer took over (rt_host_init) */
     AudioOptions ao = { o->wav, o->host.window && !o->mute, o->music_vol, o->sfx_vol };
     if (!rt_audio_init(&ao)) return 1;
     /* An interactive window runs until it is closed, unless limits were given explicitly. */
@@ -219,7 +314,7 @@ static int run_boot(const BootOptions *o) {
     g_case_started = now_ms();
     g_case_running = !o->host.window || o->wall_set;
     start_watchdog();
-    rt_frames_init(&o->frames);
+    rt_frames_init(&frames);
     if (o->host.window || rt_host_wants_idle()) k_idle_hook = rt_host_idle;
     if (o->profile) { rt_prof_start(); g_profile = 1; }
     k_run_scheduler(cpu_ms);
@@ -309,7 +404,7 @@ int main(int argc, char **argv) {
                         "              [--renderer soft|gpu|both] [--gpu-driver vulkan|direct3d12] [--gpu-compare-at N,N,...]\n"
                         "              [--res-scale 1-8] [--fx-scale 1-8] [--msaa 2|4|8] [--aniso 2-16] [--lod-bias F] [--fxaa] [--sharpen 0-1]\n"
                         "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"
-                        "              [--aspect W:H [--hud-edges]] [--crt] [--show-fps] [--gpu-power low|high] [--texture-dump dir] [--texture-pack dir]\n"
+                        "              [--aspect W:H [--hud-edges]] [--crt] [--show-fps] [--show-input] [--gpu-power low|high] [--texture-dump dir] [--texture-pack dir]\n"
                         "              [--wav out.wav] [--mute] [--music-volume 0-200] [--sfx-volume 0-200]\n"
                         "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--rumble] [--level-log] [--load-level NAME@FRAME]\n"
                         "              [--dump-ram N,N,...|stop:prefix])\n"

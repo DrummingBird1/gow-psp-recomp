@@ -11,8 +11,9 @@
  * rt_host_idle, right before the runtime sleeps until the wall clock catches up.
  *
  * Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R,
- * Space or Enter = start, V = select, I/J/K/L = analog stick; F11 or Alt+Enter = fullscreen,
- * F12 = screenshot, Esc = quit. Gamepads use the PSP layout (south button = cross).
+ * Space or Enter = start, V = select, I/J/K/L = analog stick, O/U = spin the stick (clockwise /
+ * counter-clockwise); F11 or Alt+Enter = fullscreen, F12 = screenshot, Esc = quit. Gamepads use
+ * the PSP layout (south button = cross).
  *
  * Replays: the window samples the keyboard and gamepads once per displayed frame (and once
  * per vblank while no frames are shown, as in movies), so the game reads the same state all
@@ -21,6 +22,7 @@
  * --input with that file replays the session, headless too, read for read. A recording also
  * holds the display refresh (fps=), the virtual-time skips (skip=) of a high frame rate, and
  * the movies the player skipped (movie=). */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -29,6 +31,7 @@
 #include "rt_audio.h"
 #include "rt_debug.h"
 #include "rt_frames.h"
+#include "rt_ge.h"
 #include "rt_gpu.h"
 #include "rt_host.h"
 #include "rt_kernel.h"
@@ -277,7 +280,9 @@ static int replay_movie_skip(void) {
     return 1;
 }
 
-static int live_input(uint32_t *b, int *lx, int *ly);  /* keyboard and gamepads, when there is a window */
+static int live_input(uint32_t *b, int *lx, int *ly, uint64_t now_us);  /* keyboard and gamepads, when there is a window */
+static uint32_t g_shown_b;                              /* what the game read last (rt_host_input_shown) */
+static uint8_t g_shown_lx = 128, g_shown_ly = 128;
 
 uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *ly) {
     int ax = 128, ay = 128;
@@ -294,7 +299,7 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
         latch_us = now_us;
         live_b = 0;
         live_x = live_y = 128;
-        have_live = live_input(&live_b, &live_x, &live_y);
+        have_live = live_input(&live_b, &live_x, &live_y, now_us);
     }
     if (have_live) {
         b |= live_b;
@@ -302,9 +307,18 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
         if (live_y != 128) ay = live_y;
     }
     rec_read(frame, now_us, first_in_frame, b, ax, ay);
+    g_shown_b = b;
+    g_shown_lx = (uint8_t)ax;
+    g_shown_ly = (uint8_t)ay;
     *lx = (uint8_t)ax;
     *ly = (uint8_t)ay;
     return b;
+}
+
+uint32_t rt_host_input_shown(uint8_t *lx, uint8_t *ly) {
+    *lx = g_shown_lx;
+    *ly = g_shown_ly;
+    return g_shown_b;
 }
 
 #ifdef GOW_HAVE_SDL
@@ -338,13 +352,16 @@ static uint64_t now_us(void) { return SDL_GetTicksNS() / 1000; }
  *   stick_up = I            as pad:<SDL name> (a b x y back start leftshoulder rightshoulder
  *                           lefttrigger righttrigger dpup dpdown dpleft dpright leftstick rightstick)
  *   l = Q, Mouse Right      mouse buttons as Mouse Left, Mouse Right, Mouse Middle, Mouse 4, Mouse 5
+ *   stick_spin_cw = O       held: the stick goes round at full tilt (stick_spin_ccw: the other way)
+ *   turbo = C               held: the face buttons and L/R that are held press and release 10 times a second
  * '#' starts a comment; the comma key is "Comma". Unknown names are reported and skipped; the game keeps running. */
-enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, NBIND };
+enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, B_SPIN_CW, B_SPIN_CCW, B_TURBO, NBIND };
 #define PAD_LT 100  /* the triggers are axes: pseudo button numbers */
 #define PAD_RT 101
 #define MOUSE_KEY 1000  /* mouse buttons are "keys" MOUSE_KEY + SDL button number (1 left .. 5 X2) */
 static const char *const b_names[NBIND] = { "up", "down", "left", "right", "cross", "circle", "square", "triangle",
-                                            "l", "r", "start", "select", "stick_up", "stick_down", "stick_left", "stick_right" };
+                                            "l", "r", "start", "select", "stick_up", "stick_down", "stick_left", "stick_right",
+                                            "stick_spin_cw", "stick_spin_ccw", "turbo" };
 static const uint32_t b_bits[12] = { PSP_UP, PSP_DOWN, PSP_LEFT, PSP_RIGHT, PSP_CROSS, PSP_CIRCLE, PSP_SQUARE, PSP_TRIANGLE,
                                      PSP_LTRIGGER, PSP_RTRIGGER, PSP_START, PSP_SELECT };
 static const char *const mouse_names[6] = { NULL, "Mouse Left", "Mouse Middle", "Mouse Right", "Mouse 4", "Mouse 5" };
@@ -362,6 +379,8 @@ static struct { int nk, np; int k[4]; int p[4]; } g_bind[NBIND] = {
     { 2, 1, { SDL_SCANCODE_SPACE, SDL_SCANCODE_RETURN }, { SDL_GAMEPAD_BUTTON_START } },
     { 1, 1, { SDL_SCANCODE_V }, { SDL_GAMEPAD_BUTTON_BACK } },
     { 1, 0, { SDL_SCANCODE_I } }, { 1, 0, { SDL_SCANCODE_K } }, { 1, 0, { SDL_SCANCODE_J } }, { 1, 0, { SDL_SCANCODE_L } },
+    { 1, 0, { SDL_SCANCODE_O } }, { 1, 0, { SDL_SCANCODE_U } },
+    { 1, 1, { SDL_SCANCODE_C }, { SDL_GAMEPAD_BUTTON_RIGHT_STICK } },
 };
 
 static char *trim(char *s) {
@@ -586,6 +605,7 @@ static void pump(void) {
                 SDL_SetWindowFullscreen(g_win, g_fullscreen);
             } else if (e.key.key == SDLK_F12) screenshot();
             else if (e.key.key == SDLK_F3) rt_gpu_opt.show_fps = !rt_gpu_opt.show_fps;  /* the frame rate in the corner */
+            else if (e.key.key == SDLK_F2) rt_gpu_opt.show_input = !rt_gpu_opt.show_input;  /* the buttons pressed */
             else {
                 /* a movie skips on the keys bound to Start or Cross, and on Enter and Space; the press is kept
                  * from the game only for the buttons that key is bound to */
@@ -623,13 +643,26 @@ static void pump(void) {
     g_last_pump = now_us();
 }
 
+/* No graphics device for the hardware renderer (no Direct3D 12 or Vulkan driver, issue #27): the
+ * software renderer draws instead, slower but the same picture at 1x; the launcher's log summary
+ * quotes the line */
+static void software_instead(void) {
+    printf("[host] the hardware renderer could not start (no Direct3D 12 or Vulkan device; is the graphics driver "
+           "installed and up to date?): the software renderer draws instead, at the PSP's resolution\n");
+    g_o.gpu = 0;
+    rt_ge_set_renderer(1, 0);
+}
+
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !load_script(g_o.input)) return 0;
     setup_refresh();
-    if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     SDL_SetMainReady();
-    if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
+    if (!g_o.window) {
+        if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
+        if (g_o.gpu && !rt_gpu_init(NULL, g_o.gpu_driver)) software_instead();
+        return 1;
+    }
     if (g_o.controls) load_controls(g_o.controls);
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
     SDL_SetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "1");  /* Alt+F4 closes the window, as in any Windows program */
@@ -638,6 +671,17 @@ int rt_host_init(const HostOptions *o) {
     int win_w = g_o.gpu && rt_gpu_opt.aspect > 0 ? (int)(DISP_H * scale * rt_gpu_opt.aspect + 0.5f) : DISP_W * scale;  /* --aspect */
     g_win = SDL_CreateWindow("God of War (PSP native port)", win_w, DISP_H * scale, SDL_WINDOW_RESIZABLE);
     if (!g_win) { fprintf(stderr, "[host] SDL_CreateWindow: %s\n", SDL_GetError()); return 0; }
+    /* V-Sync shows at most one frame per refresh: a --fps above the display's refresh only made the virtual time
+     * fall behind and skip, and on a PC a little slower than a refresh V-Sync then waited for two (issue #35:
+     * 30 FPS). The rate of a recording being replayed is kept. */
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(SDL_GetDisplayForWindow(g_win));
+    if (g_o.gpu && rt_gpu_opt.vsync && rt_gpu_opt.fps > 0 && !g_o.input && dm && dm->refresh_rate > 0 &&
+        rt_display_hz() > dm->refresh_rate + 1.0) {
+        printf("[host] V-Sync on a %.0f Hz display: the game runs at %.0f FPS instead of %.0f\n", dm->refresh_rate,
+               dm->refresh_rate, rt_display_hz());
+        rt_display_set_hz(dm->refresh_rate);
+    }
+    if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     if (g_o.icon) {  /* otherwise Windows takes the exe's own icon (runtime/gow_rt.rc) */
         SDL_Surface *ic = SDL_LoadPNG(g_o.icon);
         if (ic) { SDL_SetWindowIcon(g_win, ic); SDL_DestroySurface(ic); }
@@ -646,10 +690,12 @@ int rt_host_init(const HostOptions *o) {
     if (g_o.gpu) {
         /* the hardware renderer presents to the window itself */
         rt_gpu_opt.nearest = g_o.nearest;
-        if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
+        if (!rt_gpu_init(g_win, g_o.gpu_driver)) software_instead();
+    }
+    if (g_o.gpu) {
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-               "IJKL = stick, F11 fullscreen, F12 screenshot, F3 frame rate, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
+               "IJKL = stick, O/U = spin the stick, C = turbo, F11 fullscreen, F12 screenshot, F3 frame rate, F2 buttons, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
         g_title_t = now_us();
         pump();
         return 1;
@@ -666,7 +712,7 @@ int rt_host_init(const HostOptions *o) {
     SDL_RenderClear(g_ren);
     SDL_RenderPresent(g_ren);
     printf("[host] window %dx%d (%s renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-           "IJKL = stick, F11 fullscreen, F12 screenshot, F3 frame rate, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
+           "IJKL = stick, O/U = spin the stick, C = turbo, F11 fullscreen, F12 screenshot, F3 frame rate, F2 buttons, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
     g_title_t = now_us();
     pump();
     return 1;
@@ -818,7 +864,30 @@ static void test_keys(const bool **k, SDL_MouseButtonFlags *mb) {
     *k = keys;
 }
 
-static int live_input(uint32_t *out_b, int *lx, int *ly) {
+/* The spin keys turn the stick round at full tilt, SPIN_TURNS_PER_S times a second, with a new angle at every
+ * sample. Chains of Olympus's "spin the stick" prompts (the Basilisk boss, issue #34; FUN_001534ac) count only the
+ * updates in which the stick's angle moved: an update with the same angle as the one before slows the action down,
+ * so I/J/K/L, which hold one of 8 angles until the next key, cannot do them. The fastest of these prompts on the
+ * disc wants 3 turns a second. */
+#define SPIN_TURNS_PER_S 3.5
+static int spin_stick(int dir, uint64_t now_virt_us, int *ax, int *ay) {
+    static double deg;
+    static uint64_t last_us;
+    static int was;
+    if (!dir) { was = 0; return 0; }
+    if (!was) deg = -90.0;  /* each spin starts at the top */
+    else deg += dir * 360.0 * SPIN_TURNS_PER_S * (double)(now_virt_us - last_us) / 1e6;
+    deg = fmod(deg, 360.0);
+    was = 1;
+    last_us = now_virt_us;
+    double a = deg * 3.14159265358979 / 180.0;
+    int x = (int)floor(127.5 + 127.5 * cos(a) + 0.5), y = (int)floor(127.5 + 127.5 * sin(a) + 0.5);
+    *ax = x < 0 ? 0 : x > 255 ? 255 : x;
+    *ay = y < 0 ? 0 : y > 255 ? 255 : y;
+    return 1;
+}
+
+static int live_input(uint32_t *out_b, int *lx, int *ly, uint64_t now_virt_us) {
     if (!g_win) return 0;
     uint32_t b = 0;
     int ax = 128, ay = 128;
@@ -826,7 +895,7 @@ static int live_input(uint32_t *out_b, int *lx, int *ly) {
         const bool *k = SDL_GetKeyboardState(NULL);
         SDL_MouseButtonFlags mb = SDL_GetWindowFlags(g_win) & SDL_WINDOW_INPUT_FOCUS ? SDL_GetMouseState(NULL, NULL) : 0;
         test_keys(&k, &mb);
-        int stick[4] = { 0 };
+        int stick[NBIND - B_STICK_UP] = { 0 };
         for (int i = 0; i < NBIND; i++) {
             int on = 0;
             for (int j = 0; j < g_bind[i].nk; j++) {
@@ -840,10 +909,16 @@ static int live_input(uint32_t *out_b, int *lx, int *ly) {
             else stick[i - B_STICK_UP] = 1;
         }
         if (b & PSP_START && (SDL_GetModState() & SDL_KMOD_ALT)) b &= ~(uint32_t)PSP_START;  /* Alt+Enter is fullscreen */
+        /* turbo, for the "press repeatedly" prompts (issue #26): 50 ms down, 50 ms up, by virtual time so that a
+         * replay matches; each half is still seen when the game reads the pad at 30 FPS */
+        if (stick[B_TURBO - B_STICK_UP] && (now_virt_us / 50000) & 1)
+            b &= ~(uint32_t)(PSP_CROSS | PSP_CIRCLE | PSP_SQUARE | PSP_TRIANGLE | PSP_LTRIGGER | PSP_RTRIGGER);
         if (stick[2]) ax = 0;
         if (stick[3]) ax = 255;
         if (stick[0]) ay = 0;
         if (stick[1]) ay = 255;
+        /* on screen, clockwise is up -> right -> down -> left (y grows downwards) */
+        spin_stick(stick[B_SPIN_CW - B_STICK_UP] - stick[B_SPIN_CCW - B_STICK_UP], now_virt_us, &ax, &ay);
         for (int i = 0; i < 8; i++) {
             SDL_Gamepad *gp = g_pads[i];
             if (!gp) continue;
@@ -881,7 +956,7 @@ int rt_host_init(const HostOptions *o) {
 void rt_host_shutdown(void) { rt_host_record_close(); }
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) { (void)frame; (void)addr; (void)stride; (void)format; return 0; }
 int rt_host_idle(uint64_t now_us, uint64_t next_us) { replay_skips(now_us, next_us); return 0; }
-static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
+static int live_input(uint32_t *b, int *lx, int *ly, uint64_t now_us) { (void)b; (void)lx; (void)ly; (void)now_us; return 0; }
 void rt_host_movie_playing(int on) { (void)on; }
 int rt_host_take_movie_skip(void) { return replay_movie_skip(); }
 void rt_host_rumble(float strength, int ms) { (void)strength; (void)ms; }
