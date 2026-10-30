@@ -28,6 +28,7 @@
   the build shows its downloads, stops a stalled one after a timeout and uses the system proxy.
 - **The launcher in Arabic, German, Italian, Brazilian Portuguese and Russian** (Options > Advanced > Launcher
   language), as well as English, Spanish, French and Hebrew. Arabic, like Hebrew, lays the window out right to left.
+  Fix: in Spanish the Options panel was wider than the window, and its right edge was cut off.
 - **Bug reports include frame timings**: every Play writes `launcher_<game>_perf.csv` (each frame's times, about
   60 bytes a frame) and *Report a bug* adds its last 5 minutes. The bug-report form now asks for the zip.
 

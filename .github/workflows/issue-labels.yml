@@ -1,0 +1,32 @@
+# Labels a new issue by the game it is about: the "Game" field of the bug form or the "Area" field of the feature
+# form (.github/ISSUE_TEMPLATE). Adds labels only, never removes one. The issue text is read as data in JavaScript;
+# nothing from it reaches a shell.
+name: issue-labels
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.issue.body || "";
+            const field = /^###\s+(?:Game|Area)\s*\n+([^\n]+)/m.exec(body);
+            if (!field) return;
+            const value = field[1].trim();
+            const labels = {
+              "Chains of Olympus": ["game: coo"],
+              "Ghost of Sparta": ["game: gos"],
+              "Both games": ["game: coo", "game: gos"],
+              "Launcher only": ["launcher"],
+              "Launcher": ["launcher"],
+            }[value];
+            if (!labels) return;
+            await github.rest.issues.addLabels({ ...context.repo, issue_number: context.issue.number, labels });
