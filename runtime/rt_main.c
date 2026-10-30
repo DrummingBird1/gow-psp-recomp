@@ -248,6 +248,38 @@ static void prefer_fast_cores(void) {
 }
 #endif
 
+/* The module_start thread's priority, stack size and attributes: the module's own
+ * module_start_thread_parameter export (NID 0x0F7C276C: {count, priority, stack size, attr}), as the PSP
+ * module manager and PPSSPP use it, else the module manager's defaults (0x20, 256 KB). Both God of War
+ * EBOOTs ask for a 1 KB stack: a 256 KB one left 255 KB less user memory, and the games size their whole
+ * heap by sceKernelMaxFreeMemSize (issue #24). The export table comes from the module info
+ * (+4 name, +0x24 ent_top, +0x28 ent_end). */
+static void module_start_params(uint32_t *prio, uint32_t *stack, uint32_t *attr) {
+    *prio = 0x20; *stack = 0x40000; *attr = 0x80000000u;
+    uint32_t lo = RT_IMAGE_BASE, hi = RT_IMAGE_BASE + RT_IMAGE_SIZE;
+    size_t n = strlen(RT_MODULE_NAME);
+    for (uint32_t mi = lo; mi + 0x34 <= hi; mi += 4) {
+        if (memcmp(rt_ptr(mi + 4), RT_MODULE_NAME, n + 1)) continue;
+        uint32_t top = rt_r32(mi + 0x24), end = rt_r32(mi + 0x28);
+        if (top < lo || end > hi || top >= end) continue;
+        for (uint32_t e = top; e + 16 <= end;) {
+            uint32_t len = rt_r8(e + 8) * 4u, vars = rt_r8(e + 9), funcs = rt_r16(e + 10), tab = rt_r32(e + 12);
+            if (len < 16) break;
+            if (rt_r32(e) == 0 && tab >= lo && tab + 8 * (vars + funcs) <= hi)  /* the module's own system library */
+                for (uint32_t k = 0; k < vars + funcs; k++) {
+                    uint32_t p = rt_r32(tab + 4 * (vars + funcs + k));
+                    if (rt_r32(tab + 4 * k) != 0x0F7C276Cu || p < lo || p + 16 > hi || rt_r32(p) < 3) continue;
+                    if (rt_r32(p + 4)) *prio = rt_r32(p + 4);
+                    if (rt_r32(p + 8)) *stack = rt_r32(p + 8);
+                    if (rt_r32(p + 12)) *attr = rt_r32(p + 12);
+                    return;
+                }
+            e += len;
+        }
+        return;
+    }
+}
+
 /* Runs the game under the thread scheduler: module_start starts in a kernel-style
  * thread (as the PSP module manager does) and the scheduler runs until every thread
  * is blocked on something the runtime cannot provide yet, or a limit is reached. */
@@ -261,7 +293,10 @@ static int run_boot(const BootOptions *o) {
     static const char path[] = "disc0:/PSP_GAME/SYSDIR/EBOOT.BIN";
     uint32_t argp = k_alloc(0x100, 0, 0x100);
     memcpy(rt_ptr(argp), path, sizeof(path));
-    KThread *t = k_thread_create("module_start", RT_ENTRY, 0x20, 0x40000, 0x80000000u);
+    uint32_t prio, stack, attr;
+    module_start_params(&prio, &stack, &attr);
+    KThread *t = k_thread_create("module_start", RT_ENTRY, prio, stack, attr);
+    printf("[boot] module_start thread: prio %u, stack %X, attr %08X\n", prio, stack, attr);
     k_thread_start(t, sizeof(path), argp);
 #ifdef _WIN32
     g_prev_filter = SetUnhandledExceptionFilter(on_crash);  /* before the window and GPU start: drivers crash there too */

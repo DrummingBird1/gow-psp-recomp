@@ -2,6 +2,10 @@
 
 ## v1.4.0 (2026-10-30)
 
+- **Fix: Chains of Olympus could crash in the Depths of Tartarus** (issue #24, `[trap] break at 088096AC`). The game
+  ran out of heap: the port started it with a 256 KB boot stack instead of the 1 KB its EBOOT asks for, and both games
+  size their heap by the free memory left, so they had 255 KB less than on a PSP or in PPSSPP. The boot thread now
+  takes the EBOOT's own values, and both games get the full heap. Existing saves load as before.
 - **Fix: slow motion in Ghost of Sparta that the Windows key ended for a few seconds** (issue #33). The whole game
   runs on one thread, and on a CPU with performance and efficient cores (Intel 12th gen and later, Core Ultra, Ryzen
   AI 300) Windows could put it on the efficient ones, where each frame took up to twice as long. The game now asks
