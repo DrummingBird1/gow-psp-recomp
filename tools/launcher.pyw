@@ -529,8 +529,12 @@ def clean_cmake_dir(build_dir, out=print):
 def run_command(cmd, out=print, env=None):
     """Runs a command, sending its output lines to out; returns (exit code, lines)."""
     out("> " + " ".join(f'"{c}"' if " " in c else c for c in cmd))
-    p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
-                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env)
+    try:
+        p = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, errors="replace",
+                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), env=env)
+    except OSError as e:  # blocked or removed by an antivirus program, damaged: a failed step, not a dead thread (#29)
+        out(toolchain.ERROR + f"could not start {Path(cmd[0]).name}: {toolchain.explain(e)}")
+        return 1, []
     lines = []
     for line in p.stdout:
         lines.append(line.rstrip())
@@ -549,14 +553,29 @@ def ensure_disc_tool(out=print, ask=toolchain.ask_console):
     tools_build = ROOT / FLAVOURS[tools["kind"]]["tools"]
     for cmd in disc_tool_steps(tools):
         had_cache = is_configure(cmd) and (tools_build / "CMakeCache.txt").exists()
-        code = run_command(cmd, out, tools.get("env"))[0]
+        code, lines = run_command(cmd, out, tools.get("env"))
         if code and had_cache:
             clean_cmake_dir(tools_build, out)
-            code = run_command(cmd, out, tools.get("env"))[0]
+            code, lines = run_command(cmd, out, tools.get("env"))
         if code:
             out("failed to build gow_disc")
+            why = first_error(lines)
+            if why:
+                out(toolchain.ERROR + f"building the disc reader (gow_disc) failed: {why}")
             return False
     return disc_tool().exists()
+
+
+def first_error(lines):
+    """The lines of a tool's output that say best what went wrong (a download, CMake, the compiler, Ninja), for the
+    error box; '' when there are none."""
+    for test in (lambda s: "error: downloading" in s, lambda s: s.startswith("CMake Error"),
+                 lambda s: ": error:" in s or ": fatal error" in s, lambda s: s.startswith(("FAILED:", "ninja: error"))):
+        for i, line in enumerate(lines):
+            if test(line):
+                more = [m.strip() for m in lines[i + 1:i + 4] if m.strip() and not m.lstrip().startswith(("Call Stack", "log:"))]
+                return " ".join([line.strip()] + more[:2])[:400]
+    return ""
 
 
 def disc_tool_steps(tools):
@@ -702,9 +721,13 @@ def build_with(cfg, game, tools, out=print):
             code, lines = run_command(cmd, out, tools.get("env"))
         if code:
             out(f"failed (exit {code})")
+            why = first_error(lines)
+            if why:
+                out(toolchain.ERROR + why)
             return False
         if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != GAMES[game]["id"]):
-            out(f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} ({GAMES[game]['title']})")
+            out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} "
+                f"({GAMES[game]['title']})")
             return False
         if cond is not None:  # the recompile step
             stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())

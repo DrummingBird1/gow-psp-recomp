@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import webbrowser
 from pathlib import Path
 
@@ -752,6 +753,12 @@ class Window(QWidget):
                 self.cache_dirty = True
         if self.fade < 1:
             self.fade = min(1.0, self.fade + 0.025 * STEP)
+        st = getattr(self, "pstate", None)
+        if st and st.get("live") and int(t) != getattr(self, "beat", -1):  # the elapsed time also moves when a step
+            self.beat = int(t)                                              # prints nothing for minutes (issue #29)
+            text = self.progress_text()
+            self.prog.set(st["p"], text)
+            self.prep_prog.set(st["p"], text)
         self.prog.tick(t)
         self.prep_prog.tick(t)
         if self.cache_dirty:
@@ -1572,18 +1579,45 @@ class Window(QWidget):
         if not self.L.disc_tool().exists():
             self.prep("Preparing the disc reader (one time, about 2 minutes)")
             self.prep_prog.set(0.05, "Building gow_disc")
+            self.start_progress("Building gow_disc", 35, 0.05)
+        else:
+            self.start_progress("Reading the disc images", 1)
         threading.Thread(target=self.scan_thread, args=(d, first), daemon=True).start()
 
     def scan_thread(self, folder, first):
-        ok = self.L.ensure_disc_tool(self.log, self.ask)
-        found = self.L.scan_folder(folder, self.log) if ok else {}
+        def work():
+            ok = self.L.ensure_disc_tool(self.build_line, self.ask)  # build_line: the page shows the download too
+            return ok, (self.L.scan_folder(folder, self.log) if ok else {})
+        ok, found = self.run_safely(work, (False, {}))
         self.bridge.call.emit(lambda: self.scan_done(found, ok, first))
+
+    def run_safely(self, work, failed):
+        """work() in a worker thread; an exception is logged with its traceback and shown, and gives `failed`. Before
+        (issue #29) it ended the thread without a word (a windowed exe has no stderr): the window stayed on its
+        progress page forever, busy, with nothing in the log."""
+        try:
+            return work()
+        except Exception as e:  # noqa: BLE001 - anything: the window must never wait for a thread that is gone
+            self.log("".join(traceback.format_exception(e)).rstrip())
+            why = self.L.toolchain.explain(e) if isinstance(e, OSError) else f"{type(e).__name__}: {e}"
+            self.build_line(self.L.toolchain.ERROR + "unexpected error: " + why)
+            return failed
+
+    def start_progress(self, stage, total, p=0.0):
+        self.errors = []
+        self.pstate = {"stage": stage, "n": 0, "total": total, "p": p, "t0": time.monotonic(), "live": True}
+
+    def failure_text(self, what):
+        """The error box: what failed, why (the ERROR lines of the log, the last three), where to look."""
+        why = "\n\n".join(getattr(self, "errors", [])[-3:])
+        return what + ("\n\n" + why if why else "") + "\n\nSee Show log for the details."
 
     def scan_done(self, found, ok, first):
         self.busy = False
+        self.pstate["live"] = False
         if not ok:
             self.show_view("welcome" if first else "main")
-            QMessageBox.critical(self, "Game folder", "The disc reader could not be built. See Show log.")
+            QMessageBox.critical(self, "Game folder", self.failure_text("The disc reader could not be built."))
             return
         for g in self.L.GAMES:
             if g in found:
@@ -1624,15 +1658,17 @@ class Window(QWidget):
         if first_run or self.view == "prep":
             self.prep(f"Preparing {self.L.GAMES[g]['title']} (one time, a few minutes)")
         gen = len(list(self.L.gen_dir(g).glob("*.c"))) or 120
-        self.pstate = {"stage": "Starting", "n": 0, "total": gen + len(list((self.L.ROOT / "runtime").glob("*.c*"))), "p": 0.0,
-                       "t0": time.monotonic()}
+        self.start_progress("Starting", gen + len(list((self.L.ROOT / "runtime").glob("*.c*"))))
         self.refresh()
-        threading.Thread(target=lambda: self.build_done(self.L.run_build(c, g, self.build_line, self.ask), g), daemon=True).start()
+        threading.Thread(target=lambda: self.build_done(self.run_safely(lambda: self.L.run_build(c, g, self.build_line, self.ask),
+                                                                        False), g), daemon=True).start()
 
     def build_line(self, line):
         self.log(line)
         st = self.pstate
-        if line.startswith("> "):
+        if line.startswith(self.L.toolchain.ERROR):
+            self.errors.append(line[len(self.L.toolchain.ERROR):])
+        elif line.startswith("> "):
             if "gow_disc.exe" in line:
                 st["stage"], st["p"] = "Decrypting", 0.01
             elif "--recomp" in line or "recomp.py" in line:
@@ -1643,6 +1679,10 @@ class Window(QWidget):
                 st["stage"], st["p"] = "Configuring", 0.16
         elif line.startswith("downloading "):
             st["stage"], st["p"] = "Downloading build tools", 0.005
+        elif re.match(r"^  [\w-]+: \d+% \(", line):  # toolchain.download_archive
+            st["stage"] = "Downloading build tools: " + line.strip().split(" (")[0]
+        elif line.startswith("  checked SHA-256, unpacking"):
+            st["stage"] = "Unpacking build tools"
         elif st["stage"] == "Compiling" and re.match(r"^\[(\d+)/(\d+)\] ", line):  # Ninja (portable toolchain)
             done, total = map(int, re.match(r"^\[(\d+)/(\d+)\] ", line).groups())
             st["n"], st["total"] = done, total
@@ -1656,22 +1696,27 @@ class Window(QWidget):
             st["stage"], st["p"] = "Linking", 0.96
         elif "skipping recomp" in line:
             st["p"] = 0.15
+        text, p = self.progress_text(), st["p"]
+        self.bridge.call.emit(lambda: (self.prog.set(p, text), self.prep_prog.set(p, text)))
+
+    def progress_text(self):
+        st = self.pstate
         text = f"Compiling {st['n']}/{st['total']}" if st["stage"] == "Compiling" else st["stage"]
         secs = int(time.monotonic() - st.get("t0", time.monotonic()))
         if secs >= 5:  # elapsed time, so a long step (recompiling, linking) visibly isn't stuck
             text += f"  ·  {secs // 60}:{secs % 60:02d}"
-        p = st["p"]
-        self.bridge.call.emit(lambda: (self.prog.set(p, text), self.prep_prog.set(p, text)))
+        return text
 
     def build_done(self, ok, g):
         def done():
+            self.pstate["live"] = False
             self.prog.set(1.0, "Done" if ok else "Failed")
             self.prep_prog.set(1.0, "Done" if ok else "Failed")
             self.busy = False
             self.show_view("main")
             self.refresh()
             if not ok:
-                QMessageBox.critical(self, "Build", "The build failed. See Show log for the details.")
+                QMessageBox.critical(self, "Build", self.failure_text("The build failed."))
             else:
                 self.maybe_render_menus()
         self.bridge.call.emit(done)
