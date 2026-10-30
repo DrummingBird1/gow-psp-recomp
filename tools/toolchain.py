@@ -152,6 +152,12 @@ def find_portable(root):
     tools["env"] = dict(os.environ, PATH=os.pathsep.join([str(llvm / "bin"), str(root / "ninja"), os.environ.get("PATH", "")]))
     for v in ("INCLUDE", "LIB", "LIBPATH", "VCINSTALLDIR", "CC", "CXX"):
         tools["env"].pop(v, None)
+    # The toolchain came through Windows' proxy setting (urllib reads it); CMake's downloads of the sources only read
+    # proxy variables, so behind a proxy they failed after minutes of silence (issue #29): hand the setting on.
+    if not any(k.upper() in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY") for k in tools["env"]):
+        for scheme, url in urllib.request.getproxies().items():
+            if scheme in ("http", "https"):
+                tools["env"][scheme + "_proxy"] = url
     return tools
 
 
