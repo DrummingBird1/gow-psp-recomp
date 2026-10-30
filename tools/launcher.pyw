@@ -752,8 +752,9 @@ def start_game(cfg, game):
     # window, and its output goes to game_log(game) instead, for bug reports.
     write_controls(cfg)
     log = open(game_log(game), "w", encoding="utf-8", errors="replace")
-    # every Play also records the button presses (a few KB), so a bug report can include them without a command line
-    cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game))]
+    # every Play also records the button presses (a few KB) and each frame's timings, so a bug report can include
+    # them without a command line
+    cmd = play_command(cfg, game) + ["--record-input", str(game_input_log(game)), "--perf-csv", str(game_perf_log(game))]
     proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT,
                             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if cfg.get("discord"):  # "Playing <title>" on Discord while the game runs (off by default)
@@ -789,6 +790,14 @@ def crash_summary(game):
 def game_input_log(game):
     """The button presses of the last Play (build/launcher_<game>_input.txt, the --input format)."""
     return ROOT / "build" / f"launcher_{game}_input.txt"
+
+
+def game_perf_log(game):
+    """Each frame's timings in the last Play (build/launcher_<game>_perf.csv, --perf-csv): about 60 bytes a frame."""
+    return ROOT / "build" / f"launcher_{game}_perf.csv"
+
+
+PERF_ROWS = 18000  # the bug report keeps the last 5 minutes of frame timings
 
 
 # --- bug reports ---------------------------------------------------------------------------------------------
@@ -879,12 +888,16 @@ def make_bug_report(cfg, game, launcher_log=()):
         for p in (game_log(game), game_input_log(game)):
             if p.exists():
                 f.writestr(p.name, redact_paths(p.read_text(encoding="utf-8", errors="replace"), cfg))
+        perf = game_perf_log(game)
+        if perf.exists():  # numbers only (frame, times, primitive counts): the header and the last PERF_ROWS rows
+            rows = perf.read_text(encoding="utf-8", errors="replace").splitlines()
+            f.writestr(perf.name, "\n".join(rows[:1] + rows[1:][-PERF_ROWS:]) + "\n")
         f.writestr("settings.json", json.dumps(report_settings(cfg), indent=1))
         f.writestr("pc_info.txt", pc_info() + "\n")
         if launcher_log:
             f.writestr("launcher_log.txt", redact_paths("\n".join(launcher_log) + "\n", cfg))
-        f.writestr("README.txt", "God of War PSP native port: bug report. The game's log and recorded button presses of the "
-                   "last Play, the launcher settings, PC info. Paths keep only file names (your folders show as "
+        f.writestr("README.txt", "God of War PSP native port: bug report. The game's log, recorded button presses and frame "
+                   "timings of the last Play, the launcher settings, PC info. Paths keep only file names (your folders show as "
                    "<game folder>, <user folder>...), and the Windows user name shows as <user>. No game files.\n")
     return z
 

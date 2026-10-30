@@ -85,8 +85,9 @@ The launcher opens no console window. Its command-line options (`GoWLauncher.exe
 
 The game starts in fullscreen (F11 or Alt+Enter switches to a window; the launcher's Fullscreen option sets the
 default) without a console window. What it prints goes to `GoW_PSP_data\build\launcher_coo.log` (or
-`launcher_gos.log`), and your button presses of that session to `launcher_coo_input.txt` (or
-`launcher_gos_input.txt`). Both are overwritten by the next Play, so copy them right after the bug happens.
+`launcher_gos.log`), your button presses of that session to `launcher_coo_input.txt` (or
+`launcher_gos_input.txt`), and each frame's timings to `launcher_coo_perf.csv` (or `launcher_gos_perf.csv`). The next
+Play overwrites them, so copy them right after the bug happens.
 
 ### Reporting a bug
 

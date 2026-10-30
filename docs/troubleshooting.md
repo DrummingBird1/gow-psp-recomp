@@ -18,6 +18,7 @@ Everything the launcher creates is in `GoW_PSP_data` next to `GoWLauncher.exe`:
 | `GoW_PSP_data\build\launcher.json` | Launcher settings |
 | `GoW_PSP_data\build\launcher_coo.log`, `launcher_gos.log` | What the game printed during the last Play |
 | `GoW_PSP_data\build\launcher_coo_input.txt`, `launcher_gos_input.txt` | Your button presses during the last Play |
+| `GoW_PSP_data\build\launcher_coo_perf.csv`, `launcher_gos_perf.csv` | Each frame's timings during the last Play |
 | `GoW_PSP_data\build\screenshots` | F12 screenshots (keep them private: they show the game) |
 | `GoW_PSP_data\build\toolchain` | The portable build tools (about 550 MB) |
 
