@@ -210,6 +210,8 @@ static int run_boot(const BootOptions *o) {
     g_prev_filter = SetUnhandledExceptionFilter(on_crash);  /* before the window and GPU start: drivers crash there too */
 #endif
     if (!rt_host_init(&o->host)) return 1;
+    FrameOptions frames = o->frames;
+    if (frames.from_gpu && !rt_gpu_active()) frames.from_gpu = 0;  /* the software renderer took over (rt_host_init) */
     AudioOptions ao = { o->wav, o->host.window && !o->mute, o->music_vol, o->sfx_vol };
     if (!rt_audio_init(&ao)) return 1;
     /* An interactive window runs until it is closed, unless limits were given explicitly. */
@@ -219,7 +221,7 @@ static int run_boot(const BootOptions *o) {
     g_case_started = now_ms();
     g_case_running = !o->host.window || o->wall_set;
     start_watchdog();
-    rt_frames_init(&o->frames);
+    rt_frames_init(&frames);
     if (o->host.window || rt_host_wants_idle()) k_idle_hook = rt_host_idle;
     if (o->profile) { rt_prof_start(); g_profile = 1; }
     k_run_scheduler(cpu_ms);

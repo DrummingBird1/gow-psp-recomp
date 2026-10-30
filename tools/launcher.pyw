@@ -741,6 +741,15 @@ def game_log(game):
     return ROOT / "build" / f"launcher_{game}.log"
 
 
+def ran_without_gpu(game):
+    """True when the last Play fell back to the software renderer: no Direct3D 12 or Vulkan device (runtime's
+    software_instead, issue #27)."""
+    try:
+        return "the hardware renderer could not start" in game_log(game).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
 def crash_summary(game):
     """The lines of the last Play's log that say why it stopped early ([crash], GPU or SDL errors), at most 6."""
     try:

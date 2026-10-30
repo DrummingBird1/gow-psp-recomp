@@ -1716,6 +1716,28 @@ class Window(QWidget):
         self.refresh()
         if code:
             self.game_failed(code)
+        elif self.cfg.get("renderer") == "gpu" and self.L.ran_without_gpu(self.cfg.get("game", "coo")):
+            self.ran_without_gpu()
+
+    def ran_without_gpu(self):
+        """The game found no Direct3D 12 or Vulkan device and drew with the software renderer (issue #27): say why it
+        was slow and offer to stay on the software renderer, so the next Play doesn't look for the GPU again."""
+        box = QMessageBox(QMessageBox.Icon.Information, "No graphics device",
+                          "The game ran with the software renderer: it found no Direct3D 12 or Vulkan device, so it "
+                          "drew at the PSP's resolution and may have been slow.\n\nUpdating the graphics driver (from "
+                          "Windows Update or the maker of the graphics card) usually brings the hardware renderer back.",
+                          parent=self)
+        b_soft = box.addButton("Use the software renderer", QMessageBox.ButtonRole.AcceptRole)
+        b_log = box.addButton("Open the log", QMessageBox.ButtonRole.ActionRole)
+        box.addButton(QMessageBox.StandardButton.Close)
+        box.exec()
+        hit = box.clickedButton()
+        if hit is None:
+            return
+        if hit is b_soft:
+            self.combo["renderer"][0].setCurrentText(label_of(RENDERER, "soft"))
+        elif hit is b_log:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.L.game_log(self.cfg.get("game", "coo")))))
 
     def game_failed(self, code):
         """The game stopped with an error or crashed: say so, show why (from its log) and offer what may help."""

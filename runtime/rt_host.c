@@ -29,6 +29,7 @@
 #include "rt_audio.h"
 #include "rt_debug.h"
 #include "rt_frames.h"
+#include "rt_ge.h"
 #include "rt_gpu.h"
 #include "rt_host.h"
 #include "rt_kernel.h"
@@ -623,13 +624,26 @@ static void pump(void) {
     g_last_pump = now_us();
 }
 
+/* No graphics device for the hardware renderer (no Direct3D 12 or Vulkan driver, issue #27): the
+ * software renderer draws instead, slower but the same picture at 1x; the launcher's log summary
+ * quotes the line */
+static void software_instead(void) {
+    printf("[host] the hardware renderer could not start (no Direct3D 12 or Vulkan device; is the graphics driver "
+           "installed and up to date?): the software renderer draws instead, at the PSP's resolution\n");
+    g_o.gpu = 0;
+    rt_ge_set_renderer(1, 0);
+}
+
 int rt_host_init(const HostOptions *o) {
     g_o = *o;
     if (g_o.input && !load_script(g_o.input)) return 0;
     setup_refresh();
     if (g_o.record_input && !rec_open(g_o.record_input)) return 0;
     SDL_SetMainReady();
-    if (!g_o.window) return g_o.gpu ? rt_gpu_init(NULL, g_o.gpu_driver) : 1;
+    if (!g_o.window) {
+        if (g_o.gpu && !rt_gpu_init(NULL, g_o.gpu_driver)) software_instead();
+        return 1;
+    }
     if (g_o.controls) load_controls(g_o.controls);
     SDL_SetHint(SDL_HINT_APP_NAME, "God of War PSP native port");
     SDL_SetHint(SDL_HINT_WINDOWS_CLOSE_ON_ALT_F4, "1");  /* Alt+F4 closes the window, as in any Windows program */
@@ -646,7 +660,9 @@ int rt_host_init(const HostOptions *o) {
     if (g_o.gpu) {
         /* the hardware renderer presents to the window itself */
         rt_gpu_opt.nearest = g_o.nearest;
-        if (!rt_gpu_init(g_win, g_o.gpu_driver)) return 0;
+        if (!rt_gpu_init(g_win, g_o.gpu_driver)) software_instead();
+    }
+    if (g_o.gpu) {
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
                "IJKL = stick, F11 fullscreen, F12 screenshot, F3 frame rate, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);

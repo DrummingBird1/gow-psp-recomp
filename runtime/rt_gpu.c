@@ -338,6 +338,15 @@ static void setup_swapchain(void) {
 
 static void pack_index(void);
 
+/* rt_gpu_init failed after the device was made: drop it, so that rt_gpu_active() says no and the
+ * software renderer can take over (rt_host_init) */
+static int drop_device(void) {
+    SDL_DestroyGPUDevice(g_dev);
+    g_dev = NULL;
+    g_win = NULL;
+    return 0;
+}
+
 int rt_gpu_init(void *window, const char *driver) {
     if (!SDL_WasInit(SDL_INIT_VIDEO) && !SDL_Init(SDL_INIT_VIDEO)) { fprintf(stderr, "[gpu] SDL_Init: %s\n", SDL_GetError()); return 0; }
     /* SDL picks the fast (discrete) GPU of a PC with two; --gpu-power low asks for the integrated one */
@@ -356,7 +365,7 @@ int rt_gpu_init(void *window, const char *driver) {
     g_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT, ge_fs_spirv, sizeof(ge_fs_spirv), ge_fs_dxil, sizeof(ge_fs_dxil), 1, 1);
     g_post_vs = make_shader(use, SDL_GPU_SHADERSTAGE_VERTEX, post_vs_spirv, sizeof(post_vs_spirv), post_vs_dxil, sizeof(post_vs_dxil), 0, 0);
     g_post_fs = make_shader(use, SDL_GPU_SHADERSTAGE_FRAGMENT, post_fs_spirv, sizeof(post_fs_spirv), post_fs_dxil, sizeof(post_fs_dxil), 1, 1);
-    if (!g_vs || !g_fs || !g_post_vs || !g_post_fs) return 0;
+    if (!g_vs || !g_fs || !g_post_vs || !g_post_fs) return drop_device();
     g_dsfmt = SDL_GPUTextureSupportsFormat(g_dev, SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT, SDL_GPU_TEXTURETYPE_2D,
                                            SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET)
                   ? SDL_GPU_TEXTUREFORMAT_D24_UNORM_S8_UINT
@@ -393,7 +402,7 @@ int rt_gpu_init(void *window, const char *driver) {
     }
     if (window) {
         g_win = window;
-        if (!SDL_ClaimWindowForGPUDevice(g_dev, g_win)) { fprintf(stderr, "[gpu] claim window: %s\n", SDL_GetError()); return 0; }
+        if (!SDL_ClaimWindowForGPUDevice(g_dev, g_win)) { fprintf(stderr, "[gpu] claim window: %s\n", SDL_GetError()); return drop_device(); }
         setup_swapchain();
     }
     pack_index();
