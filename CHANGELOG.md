@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.4.0 (2026-10-30)
+
+- **Fix: slow motion in Ghost of Sparta that the Windows key ended for a few seconds** (issue #33). The whole game
+  runs on one thread, and on a CPU with performance and efficient cores (Intel 12th gen and later, Core Ultra, Ryzen
+  AI 300) Windows could put it on the efficient ones, where each frame took up to twice as long. The game now asks
+  Windows not to throttle it and keeps that thread on the fastest cores; the log says so
+  (`hybrid CPU: the game thread keeps to ...`). `RT_NO_FAST_CORES=1` leaves it to Windows.
+- **Spin keys for the "rotate the stick" prompts** (issue #34): hold O or U (or a gamepad button set on the Controls
+  page) and the stick goes round, clockwise or counter-clockwise. The keyboard's I/J/K/L could not complete them.
+- **Turbo** for the "press repeatedly" prompts (issue #26): hold C (gamepad: right stick click) with a button and it
+  presses 10 times a second. Prompts that need a given button at the right moment still need you.
+- **Show the buttons pressed** (issue #31): F2 in the game, or Options > *Show the buttons pressed*. A small overlay
+  shows the buttons and the stick as the game reads them.
+- **Fix: HDR on Auto turned on for displays without HDR** (issue #28), which looked washed out. Auto now follows the
+  display's HDR switch in Windows.
+- **Fix: no Direct3D 12 or Vulkan device closed the game** (issue #27). The software renderer now takes over (the
+  PSP's resolution, slower), and the launcher offers to keep it.
+- **Fix: a first Build that failed said nothing useful** (issue #29). The launcher shows the step and the error, and
+  the build shows its downloads, stops a stalled one after a timeout and uses the system proxy.
+- **Bug reports include frame timings**: every Play writes `launcher_<game>_perf.csv` (each frame's times, about
+  60 bytes a frame) and *Report a bug* adds its last 5 minutes. The bug-report form now asks for the zip.
+
 ## v1.3.1 (2026-10-26)
 
 The first release with the v1.3.0 changes below. v1.3.0 was tagged but never published: found while releasing it,
