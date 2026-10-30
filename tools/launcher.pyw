@@ -129,7 +129,7 @@ def write_controls(cfg):
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
-           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "es", "fr", "he"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "he", "ar"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
 BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
 

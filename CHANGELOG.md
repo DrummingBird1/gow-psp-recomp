@@ -26,6 +26,8 @@
   PSP's resolution, slower), and the launcher offers to keep it.
 - **Fix: a first Build that failed said nothing useful** (issue #29). The launcher shows the step and the error, and
   the build shows its downloads, stops a stalled one after a timeout and uses the system proxy.
+- **The launcher in Arabic, German, Italian, Brazilian Portuguese and Russian** (Options > Advanced > Launcher
+  language), as well as English, Spanish, French and Hebrew. Arabic, like Hebrew, lays the window out right to left.
 - **Bug reports include frame timings**: every Play writes `launcher_<game>_perf.csv` (each frame's times, about
   60 bytes a frame) and *Report a bug* adds its last 5 minutes. The bug-report form now asks for the zip.
 
