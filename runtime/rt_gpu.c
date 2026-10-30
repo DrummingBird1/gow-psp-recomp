@@ -310,7 +310,12 @@ static void setup_swapchain(void) {
            white * 80.0f, headroom, can10 ? "yes" : "no", canx ? "yes" : "no");
     SDL_GPUSwapchainComposition comp = SDL_GPU_SWAPCHAINCOMPOSITION_SDR;
     g_hdr_out = 0;
-    if (rt_gpu_opt.hdr) {
+    /* --hdr (auto) only when HDR is on for this display: Direct3D 12 offers an HDR10 swapchain on SDR
+     * displays too, and HDR10 on an SDR display looks grey and washed out (issue #28); --hdr hdr10 or
+     * scrgb asks for that output whatever the display says */
+    if (rt_gpu_opt.hdr == 1 && !hdr_on)
+        printf("[gpu] HDR is off for this display (Windows display settings): SDR\n");
+    else if (rt_gpu_opt.hdr) {
         int want10 = rt_gpu_opt.hdr == 3 || rt_gpu_opt.hdr == 1, wantx = rt_gpu_opt.hdr == 2 || rt_gpu_opt.hdr == 1;
         if (want10 && can10) { comp = SDL_GPU_SWAPCHAINCOMPOSITION_HDR10_ST2084; g_hdr_out = 2; }
         else if (wantx && canx) { comp = SDL_GPU_SWAPCHAINCOMPOSITION_HDR_EXTENDED_LINEAR; g_hdr_out = 1; }
