@@ -55,7 +55,7 @@ DEFAULTS = {
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
-        "V = Select, I/J/K/L = stick, F11 = fullscreen, F12 = screenshot, F3 = frame rate, Esc = quit. Gamepads: PSP layout. "
+        "V = Select, I/J/K/L = stick, O/U = spin the stick, F11 = fullscreen, F12 = screenshot, F3 = frame rate, Esc = quit. Gamepads: PSP layout. "
         "Change them in Options > Controls.")
 
 
@@ -67,6 +67,7 @@ CONTROLS = {
     "l": (["Q"], ["leftshoulder", "lefttrigger"]), "r": (["W"], ["rightshoulder", "righttrigger"]),
     "start": (["Space", "Return"], ["start"]), "select": (["V"], ["back"]),
     "stick_up": (["I"], []), "stick_down": (["K"], []), "stick_left": (["J"], []), "stick_right": (["L"], []),
+    "stick_spin_cw": (["O"], []), "stick_spin_ccw": (["U"], []),
 }
 PAD_BUTTONS = ["a", "b", "x", "y", "leftshoulder", "rightshoulder", "lefttrigger", "righttrigger", "back", "start",
                "dpup", "dpdown", "dpleft", "dpright", "leftstick", "rightstick"]

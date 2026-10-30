@@ -391,7 +391,8 @@ MOUSE_NAMES = {Qt.MouseButton.LeftButton: "Mouse Left", Qt.MouseButton.RightButt
 PSP_LABELS = [("up", "D-pad up"), ("down", "D-pad down"), ("left", "D-pad left"), ("right", "D-pad right"),
               ("cross", "Cross \u2715"), ("circle", "Circle \u25cb"), ("square", "Square \u25a1"), ("triangle", "Triangle \u25b3"),
               ("l", "L"), ("r", "R"), ("start", "Start"), ("select", "Select"), ("stick_up", "Stick up (keyboard)"),
-              ("stick_down", "Stick down (keyboard)"), ("stick_left", "Stick left (keyboard)"), ("stick_right", "Stick right (keyboard)")]
+              ("stick_down", "Stick down (keyboard)"), ("stick_left", "Stick left (keyboard)"), ("stick_right", "Stick right (keyboard)"),
+              ("stick_spin_cw", "Spin the stick clockwise"), ("stick_spin_ccw", "Spin the stick counter-clockwise")]
 PAD_LABELS = [("(none)", ""), ("A / Cross", "a"), ("B / Circle", "b"), ("X / Square", "x"), ("Y / Triangle", "y"),
               ("LB / L1", "leftshoulder"), ("RB / R1", "rightshoulder"), ("LT / L2", "lefttrigger"), ("RT / R2", "righttrigger"),
               ("Back / Share", "back"), ("Start / Options", "start"), ("D-pad up", "dpup"), ("D-pad down", "dpdown"),
@@ -483,7 +484,7 @@ class ControlsDialog(QDialog):
                 cb.setMinimumWidth(150)
                 cb.addItems([t for t, _ in PAD_LABELS])
                 cb.setCurrentText(label_of(PAD_LABELS, pads[i] if i < len(pads) else ""))
-                cb.setEnabled(not b.startswith("stick"))
+                cb.setEnabled(not b.startswith("stick") or b.startswith("stick_spin"))  # a pad button can spin the stick
                 cb.currentTextChanged.connect(lambda _t, cb=cb: self.pad_set(cb))
                 grid.addWidget(cb, r, 3 + i)
                 pc.append(cb)

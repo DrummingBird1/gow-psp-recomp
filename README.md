@@ -114,6 +114,7 @@ compiles it locally, once.
 | Space or Enter | Start | Start |
 | V | Select | Back |
 | I / J / K / L | analog stick | left stick |
+| O / U (hold) | spin the analog stick clockwise / counter-clockwise, for the "rotate the stick" prompts | rotate the left stick |
 | | evade (L + R + stick) | right stick |
 
 - **Skip a movie:** Enter, Space, a mouse click, or gamepad Start or Cross. The game goes on to the menu or level as if
