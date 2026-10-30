@@ -26,6 +26,11 @@
   PSP's resolution, slower), and the launcher offers to keep it.
 - **Fix: a first Build that failed said nothing useful** (issue #29). The launcher shows the step and the error, and
   the build shows its downloads, stops a stalled one after a timeout and uses the system proxy.
+- **A new look for the launcher** ("forged bronze"): a warm brown-black instead of flat grey, game cards in gold
+  frames with corner fittings, a forged red Play button, a top bar with the title and buttons for Options and
+  Controls (the default keys moved from the footer to the Controls button and page), the folder and Build in one bar,
+  and the options grouped in framed sections with one joined preset control. Right to left, the title, the icons and
+  the Options panel change sides too. *Reduce motion* still turns every animation off.
 - **The launcher in Arabic, German, Italian, Brazilian Portuguese and Russian** (Options > Advanced > Launcher
   language), as well as English, Spanish, French and Hebrew. Arabic, like Hebrew, lays the window out right to left.
   Fix: in Spanish the Options panel was wider than the window, and its right edge was cut off.

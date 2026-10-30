@@ -1,7 +1,8 @@
 """The launcher window in PySide6 (AGENTS.md, "Launcher design"): a live background (the game's own main menu,
 rendered headless on the player's PC after the first build, darkened and blurred, with a slow Ken Burns pan and
 mouse parallax; a generated stone texture before that), drifting embers, a flickering fire glow behind Play, a
-shimmering gold meander, game cards that lift on hover, animated page transitions, a slide-in options panel.
+shimmering gold meander under the top bar, game cards in gold frames that lift (with a glint) on hover, animated page
+transitions, a slide-in options panel. The palette is "forged bronze": warm brown-black, metallic gold, ember red.
 The build/play logic stays in launcher.pyw.
 
 GOW_NO_DISC_ART=1 keeps every piece of the game out of the window (card art and menu background), for
@@ -18,10 +19,10 @@ import traceback
 import webbrowser
 from pathlib import Path
 
-from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, Qt,
+from PySide6.QtCore import (QEasingCurve, QObject, QParallelAnimationGroup, QPoint, QPointF, QPropertyAnimation, QRect, QRectF, QSize, QSizeF, Qt,
                             QTimer, QUrl, Signal, Property)
-from PySide6.QtGui import (QIcon, QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QImage, QKeySequence, QLinearGradient,
-                           QPainter, QPainterPath, QPen, QPixmap, QRadialGradient, QRegion, QShortcut)
+from PySide6.QtGui import (QBrush, QIcon, QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QFontMetricsF, QImage, QKeySequence, QLinearGradient,
+                           QPainter, QPainterPath, QPen, QPixmap, QPolygonF, QRadialGradient, QRegion, QShortcut)
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFileDialog, QFrame, QGraphicsDropShadowEffect,
                                QGraphicsOpacityEffect, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSlider, QVBoxLayout, QWidget)
@@ -30,8 +31,10 @@ import launcher_art as art
 import launcher_i18n
 from launcher_i18n import T
 
-BG, PANEL, PANEL2, TEXT, TEXT2 = "#121212", "#1c1c1c", "#262626", "#f0efec", "#a8a69e"
-RED, RED_HI, GOLD = "#b3261e", "#c8372e", "#c9a227"
+# "forged bronze": warm brown-black, metallic gold (light, mid, dark), ember red
+BG, PANEL, PANEL2, TEXT, TEXT2 = "#120d09", "#1a140f", "#261d14", "#f3ecdc", "#b3a68c"
+RED, RED_HI, RED_LO, GOLD = "#b3261e", "#d6463a", "#5e110c", "#d4ae3f"
+GOLD_HI, GOLD_LO, BRONZE = "#f3d77a", "#8a6514", "#4a3a22"
 REPO_URL = "https://github.com/DrummingBird1/gow-psp-recomp"
 
 PRESETS = {
@@ -97,54 +100,110 @@ def pil_to_qimage(img):
     return q.copy()
 
 
+def diamond(p, c, r, color):
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(color)
+    p.drawPolygon(QPolygonF([QPointF(c.x(), c.y() - r), QPointF(c.x() + r, c.y()), QPointF(c.x(), c.y() + r), QPointF(c.x() - r, c.y())]))
+
+
+class Ornament(QWidget):
+    """A gold rule with a diamond in the middle that fades out at both ends, under a heading."""
+
+    def __init__(self, width=280):
+        super().__init__()
+        self.setFixedSize(width, 14)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, c = self.width(), self.height() / 2
+        g = QLinearGradient(0, 0, w, 0)
+        g.setColorAt(0, QColor(212, 174, 63, 0))
+        g.setColorAt(0.5, QColor(GOLD))
+        g.setColorAt(1, QColor(212, 174, 63, 0))
+        p.setPen(QPen(QBrush(g), 1))
+        p.drawLine(QPointF(0, c), QPointF(w / 2 - 12, c))
+        p.drawLine(QPointF(w / 2 + 12, c), QPointF(w, c))
+        diamond(p, QPointF(w / 2, c), 5, QColor(GOLD_HI))
+        diamond(p, QPointF(w / 2, c), 2, QColor(GOLD_LO))
+
+
+FORGED = f"qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 {RED_HI}, stop:0.55 #8e1c15, stop:1 {RED_LO})"
+FORGED_HOT = f"qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #e85a4c, stop:0.55 {RED}, stop:1 #761610)"
+BRONZE_BTN = "qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #33271b, stop:1 #1c150e)"
 STYLE = f"""
 QWidget {{ color: {TEXT}; font-family: 'Segoe UI'; font-size: 10pt; }}
+QDialog, QMessageBox {{ background: {BG}; }}
 QLabel#dim {{ color: {TEXT2}; }}
 QLabel#head {{ color: {GOLD}; font-family: 'Cinzel'; font-size: 12pt; font-weight: 700; }}
-QLabel#bigq {{ font-family: 'Cinzel'; font-size: 18pt; font-weight: 700; }}
-QPushButton {{ background: {PANEL2}; border: 1px solid #3a3a3a; border-radius: 6px; padding: 7px 16px;
-  font-family: 'Cinzel'; font-weight: 700; }}
-QPushButton:hover {{ background: #323232; border-color: #6b5a24; }}
-QPushButton:pressed {{ background: #1a1a1a; }}
+QLabel#bigq {{ font-family: 'Cinzel'; font-size: 18pt; font-weight: 700; color: #fbf3df; }}
+QLabel#step {{ color: {GOLD}; font-family: 'Cinzel'; font-size: 10pt; font-weight: 700; }}
+QPushButton {{ background: {BRONZE_BTN}; border: 1px solid {BRONZE}; border-radius: 4px; padding: 7px 16px;
+  font-family: 'Cinzel'; font-weight: 700; color: #ecdcae; }}
+QPushButton:hover {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #45351f, stop:1 #251b11); border-color: {GOLD_LO}; color: {GOLD_HI}; }}
+QPushButton:pressed {{ background: #150f0a; }}
 QPushButton:focus {{ border-color: {GOLD}; }}
-QPushButton:disabled {{ color: #6a6a6a; background: {PANEL}; border-color: #2a2a2a; }}
-QPushButton#play {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 {RED_HI}, stop:1 #8f1e18); border: 1px solid #e0574d;
-  border-radius: 10px; font-size: 20pt; padding: 10px 58px; letter-spacing: 3px; }}
-QPushButton#play:hover {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #dd4a40, stop:1 {RED}); }}
-QPushButton#play:focus {{ border: 2px solid {GOLD}; }}
-QPushButton#play:disabled {{ background: #3a2422; color: #8a7f7c; border-color: #4a2e2b; }}
-QPushButton#big {{ background: {RED}; border-color: #e0574d; font-size: 15pt; padding: 10px 34px; }}
-QPushButton#big:hover {{ background: {RED_HI}; }}
-QPushButton#preset {{ padding: 6px 12px; }}
-QPushButton#preset[on="true"] {{ background: {RED}; border-color: {GOLD}; }}
-QPushButton#link {{ background: transparent; border: none; color: {TEXT2}; text-decoration: underline; padding: 2px 4px;
-  font-family: 'Segoe UI'; font-weight: 400; }}
-QPushButton#link:hover, QPushButton#link:focus {{ color: {GOLD}; }}
-QPushButton#gear {{ background: rgba(18,18,18,150); border: 1px solid #4a3d18; border-radius: 19px; color: {GOLD};
-  font-size: 16pt; padding: 0; min-width: 38px; min-height: 38px; font-family: 'Segoe UI Symbol'; }}
-QPushButton#gear:hover, QPushButton#gear:focus {{ border-color: {GOLD}; }}
-QLineEdit {{ background: rgba(38,38,38,220); border: 1px solid #3a3a3a; border-radius: 5px; padding: 5px 8px; }}
-QComboBox {{ background: {PANEL2}; border: 1px solid #3a3a3a; border-radius: 5px; padding: 5px 8px; min-width: 170px; }}
+QPushButton:checked {{ border-color: {GOLD_LO}; }}
+QPushButton:disabled {{ color: #6d6152; background: {PANEL}; border-color: #2c2318; }}
+QPushButton#play {{ background: {FORGED}; border: 2px solid #e8c25a; border-radius: 4px; color: #fff4dc;
+  font-size: 22pt; font-weight: 900; padding: 9px 64px; }}
+QPushButton#play:hover {{ background: {FORGED_HOT}; border-color: {GOLD_HI}; color: #ffffff; }}
+QPushButton#play:focus {{ border-color: #fff1c0; }}
+QPushButton#play:disabled {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #3d2620, stop:1 #241612); color: #8a7a6c;
+  border-color: #5a4630; }}
+QPushButton#big {{ background: {FORGED}; border: 2px solid #e8c25a; color: #fff4dc; font-size: 15pt; padding: 10px 36px; }}
+QPushButton#big:hover {{ background: {FORGED_HOT}; border-color: {GOLD_HI}; }}
+QFrame#segment {{ background: rgba(10,7,5,170); border: 1px solid {BRONZE}; border-radius: 6px; }}
+QPushButton#preset {{ background: transparent; border: 1px solid transparent; border-radius: 4px; padding: 6px 9px; color: {TEXT2}; }}
+QPushButton#preset:hover {{ color: {GOLD_HI}; background: rgba(212,174,63,28); }}
+QPushButton#preset:focus {{ border-color: {GOLD_LO}; }}
+QPushButton#preset[on="true"] {{ background: {FORGED}; border-color: {GOLD}; color: #fff4dc; }}
+QPushButton#link {{ background: transparent; border: none; color: {TEXT2}; padding: 2px 6px; font-family: 'Segoe UI';
+  font-weight: 400; }}
+QPushButton#link:hover, QPushButton#link:focus {{ color: {GOLD_HI}; text-decoration: underline; }}
+QPushButton#link:disabled {{ color: #5f5546; background: transparent; }}
+QPushButton#icon {{ background: qradialgradient(cx:0.5,cy:0.4,radius:0.6,fx:0.5,fy:0.3, stop:0 #34281c, stop:1 #140f0a);
+  border: 1px solid {GOLD_LO}; border-radius: 19px; color: {GOLD}; font-size: 14pt; padding: 0; font-weight: 400; }}
+QPushButton#icon:hover, QPushButton#icon:focus {{ border-color: {GOLD_HI}; color: {GOLD_HI}; }}
+QPushButton#icon:checked {{ border-color: {GOLD_HI}; background: {FORGED}; color: #fff4dc; }}
+QPushButton#section {{ background: transparent; border: none; border-bottom: 1px solid {BRONZE}; border-radius: 0; padding: 6px 2px;
+  color: {GOLD}; font-size: 12pt; text-align: left; }}
+QPushButton#section:hover, QPushButton#section:focus {{ color: {GOLD_HI}; border-bottom-color: {GOLD}; }}
+QFrame#bar {{ background: rgba(20,15,10,200); border: 1px solid rgba(201,162,39,80); border-radius: 5px; }}
+QFrame#bar QLineEdit {{ background: transparent; border: none; color: #e6dcc6; padding: 2px 4px; }}
+QFrame#plaque {{ background: rgba(255,236,190,9); border: 1px solid rgba(201,162,39,45); border-radius: 6px; }}
+QFrame#plaque QLabel, QFrame#plaque QCheckBox {{ background: transparent; }}
+QLineEdit {{ background: rgba(12,9,6,200); border: 1px solid {BRONZE}; border-radius: 4px; padding: 5px 8px; }}
+QLineEdit:focus {{ border-color: {GOLD}; }}
+QComboBox {{ background: {BRONZE_BTN}; border: 1px solid {BRONZE}; border-radius: 4px; padding: 5px 8px; min-width: 170px; }}
 QComboBox:focus, QComboBox:hover {{ border-color: {GOLD}; }}
+QComboBox:disabled {{ color: #6d6152; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
-QComboBox QAbstractItemView {{ background: {PANEL2}; selection-background-color: {RED}; border: 1px solid #3a3a3a; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid #555; border-radius: 3px; background: {PANEL2}; }}
-QCheckBox::indicator:checked {{ background: {RED}; border-color: {GOLD}; }}
-QCheckBox:focus {{ color: {GOLD}; }}
-QSlider::groove:horizontal {{ height: 6px; border-radius: 3px; background: {PANEL2}; }}
-QSlider::sub-page:horizontal {{ border-radius: 3px; background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #7a1a14, stop:1 {RED_HI}); }}
-QSlider::handle:horizontal {{ width: 16px; height: 16px; margin: -6px 0; border-radius: 8px; background: {GOLD};
-  border: 2px solid #f3dd8a; }}
-QSlider::handle:horizontal:focus {{ background: #f3dd8a; }}
+QComboBox QAbstractItemView {{ background: {PANEL2}; selection-background-color: {RED}; selection-color: #fff4dc;
+  border: 1px solid {GOLD_LO}; outline: none; }}
+QCheckBox {{ spacing: 8px; }}
+QCheckBox::indicator {{ width: 15px; height: 15px; border: 1px solid #6b5636; border-radius: 3px; background: #140f0a; }}
+QCheckBox::indicator:hover {{ border-color: {GOLD}; }}
+QCheckBox::indicator:checked {{ border-color: {GOLD}; background: qradialgradient(cx:0.5,cy:0.5,radius:0.5,fx:0.5,fy:0.35,
+  stop:0 {GOLD_HI}, stop:0.5 {GOLD}, stop:0.62 #3a2a12, stop:1 #140f0a); }}
+QCheckBox:focus {{ color: {GOLD_HI}; }}
+QSlider::groove:horizontal {{ height: 6px; border-radius: 3px; background: #140f0a; border: 1px solid #3a2d1c; }}
+QSlider::sub-page:horizontal {{ border-radius: 3px; background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #6a150f, stop:1 {RED_HI}); }}
+QSlider::handle:horizontal {{ width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
+  background: qradialgradient(cx:0.5,cy:0.5,radius:0.5,fx:0.4,fy:0.3, stop:0 #fff1c0, stop:0.6 {GOLD}, stop:1 {GOLD_LO}); border: 1px solid {GOLD_LO}; }}
+QSlider::handle:horizontal:focus {{ border-color: #fff1c0; }}
 QScrollArea, QScrollArea > QWidget > QWidget {{ background: transparent; border: none; }}
 QScrollBar:vertical {{ background: transparent; width: 8px; }}
-QScrollBar::handle:vertical {{ background: #4a3d18; border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical {{ background: {BRONZE}; border-radius: 4px; min-height: 30px; }}
+QScrollBar::handle:vertical:hover {{ background: {GOLD_LO}; }}
 QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
-QToolTip {{ background: {PANEL}; color: {TEXT}; border: 1px solid {GOLD}; padding: 4px; }}
-QPlainTextEdit {{ background: {PANEL}; border: none; font-family: Consolas; font-size: 9pt; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
+QToolTip {{ background: {PANEL2}; color: {TEXT}; border: 1px solid {GOLD_LO}; padding: 5px; }}
+QPlainTextEdit {{ background: #0d0a07; border: 1px solid #2c2318; font-family: Consolas; font-size: 9pt; color: #e3d8c0; }}
 """
 
 
+TOP, FOOT = 64, 40   # px: the top bar (the meander sits under it) and the footer
 FRAME_MS = 33   # ~30 fps animation tick
 BG_SCALE = 0.5   # background cache resolution relative to the screen
 STEP = FRAME_MS / 16.0   # motion constants were tuned per 16 ms
@@ -176,7 +235,7 @@ class Card(QWidget):
         self.setMinimumSize(300, 160)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.anim = QPropertyAnimation(self, b"lift", self)
-        self.anim.setDuration(220)
+        self.anim.setDuration(360)
         self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.placeholder = None
 
@@ -236,73 +295,114 @@ class Card(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         w, h = self.width(), self.height()
-        v = self._lift
-        s = 1.0 + 0.025 * v
+        v, sel = self._lift, self.selected
+        rtl = self.layoutDirection() == Qt.LayoutDirection.RightToLeft
+        s = 1.0 + 0.02 * v
         p.translate(w / 2, h / 2 - 6 * v)
         p.scale(s, s)
         p.translate(-w / 2, -h / 2)
         r = QRectF(16, 16, w - 32, h - 32)
         # soft glow/shadow around the card, painted (a QGraphicsEffect would re-blur on every repaint)
-        glow = QColor(GOLD) if self.selected else QColor(201, 120, 40)
-        k = 0.25 + 0.75 * v if self.selected else 0.6 * v
+        glow = QColor(GOLD) if sel else QColor(220, 110, 40)
+        k = 0.3 + 0.7 * v if sel else 0.55 * v
         p.setPen(Qt.PenStyle.NoPen)
         for i in range(8, 0, -1):
             a = int((1 - i / 9) ** 2 * 60 * k) if k > 0 else 0
-            col = QColor(glow.red(), glow.green(), glow.blue(), a) if a else QColor(0, 0, 0, int((1 - i / 9) ** 2 * 50))
+            col = QColor(glow.red(), glow.green(), glow.blue(), a) if a else QColor(0, 0, 0, int((1 - i / 9) ** 2 * 70))
             p.setBrush(col)
-            p.drawRoundedRect(r.adjusted(-i * 1.6, -i * 1.6 + 4, i * 1.6, i * 1.6 + 4), 14 + i * 1.6, 14 + i * 1.6)
+            p.drawRoundedRect(r.adjusted(-i * 1.6, -i * 1.6 + 4, i * 1.6, i * 1.6 + 4), 8 + i * 1.6, 8 + i * 1.6)
+        # the metal frame: polished gold when selected, dark bronze (brightening on hover) otherwise
+        fg = QLinearGradient(r.topLeft(), r.bottomRight())
+        stops = ((GOLD_HI, GOLD_LO, "#e7c463", "#6e4f0d") if sel else
+                 ("#8a7448", "#3a2e1c", "#7a6640", "#2e2416") if v > 0.5 else ("#5e4e30", "#2a2216", "#54452a", "#211a10"))
+        for at, c in zip((0, 0.4, 0.62, 1), stops):
+            fg.setColorAt(at, QColor(c))
+        outer = QPainterPath()
+        outer.addRoundedRect(r, 7, 7)
+        p.fillPath(outer, fg)
+        inner = r.adjusted(3, 3, -3, -3)
         path = QPainterPath()
-        path.addRoundedRect(r, 14, 14)
+        path.addRoundedRect(inner, 5, 5)
         p.setClipPath(path)
         src = self.pix
         if src is None:
-            if self.placeholder is None or self.placeholder.size() != r.size().toSize():
-                img = art.stone(int(r.width()), int(r.height()), seed=hash(self.game) & 0xFFFF).point(lambda x: min(255, int(x * 1.5)))
+            if self.placeholder is None or self.placeholder.size() != inner.size().toSize():
+                img = art.stone(int(inner.width()), int(inner.height()), seed=hash(self.game) & 0xFFFF).point(lambda x: min(255, int(x * 1.6)))
                 self.placeholder = QPixmap.fromImage(pil_to_qimage(img))
-            p.drawPixmap(r.topLeft(), self.placeholder)
+            p.drawPixmap(inner.topLeft(), self.placeholder)
         else:
-            sc = max(r.width() / src.width(), r.height() / src.height())
+            sc = max(inner.width() / src.width(), inner.height() / src.height())
             tw, th = src.width() * sc, src.height() * sc
-            p.drawPixmap(QRectF(r.center().x() - tw / 2, r.center().y() - th / 2, tw, th), src, QRectF(src.rect()))
-        g = QLinearGradient(0, r.top(), 0, r.bottom())
-        g.setColorAt(0, QColor(0, 0, 0, 30))
-        g.setColorAt(0.45, QColor(0, 0, 0, 60))
-        g.setColorAt(1, QColor(0, 0, 0, 225 - int(35 * v)))
-        p.fillRect(r, g)
+            p.drawPixmap(QRectF(inner.center().x() - tw / 2, inner.center().y() - th / 2, tw, th), src, QRectF(src.rect()))
+        g = QLinearGradient(0, inner.top(), 0, inner.bottom())
+        g.setColorAt(0, QColor(10, 6, 3, 40))
+        g.setColorAt(0.4, QColor(10, 6, 3, 50))
+        g.setColorAt(1, QColor(10, 6, 3, 235 - int(30 * v)))
+        p.fillRect(inner, g)
+        if not sel:  # the card that is not chosen sits back
+            p.fillRect(inner, QColor(12, 8, 5, int(90 * (1 - v))))
         icon = self.icon if self.icon is not None else self.app.app_icon  # the disc's ICON0.PNG, else ours
         if icon is not None and not icon.isNull():
             ih = 52
             iw = icon.width() * ih / icon.height()
-            p.drawPixmap(QRectF(r.left() + 16, r.top() + 16, iw, ih), icon, QRectF(icon.rect()))
+            ix = inner.right() - 16 - iw if rtl else inner.left() + 16
+            p.drawPixmap(QRectF(ix, inner.top() + (30 if sel else 16), iw, ih), icon, QRectF(icon.rect()))
+        if 0.02 < v < 0.98 and not self.app.reduce_motion:  # a glint sweeps across once while the card lifts
+            x = inner.left() - 120 + (inner.width() + 240) * v
+            sg = QLinearGradient(x - 70, inner.top(), x + 70, inner.bottom())
+            sg.setColorAt(0, QColor(255, 240, 200, 0))
+            sg.setColorAt(0.5, QColor(255, 240, 200, 40))
+            sg.setColorAt(1, QColor(255, 240, 200, 0))
+            p.fillRect(inner, sg)
         p.setClipping(False)
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.setPen(QPen(QColor(0, 0, 0, 170), 1))  # bevel: a dark line inside the metal, a light one outside
+        p.drawRoundedRect(inner, 5, 5)
+        p.setPen(QPen(QColor(255, 240, 200, 70 if sel else 25), 1))
+        p.drawRoundedRect(r.adjusted(0.5, 0.5, -0.5, -0.5), 7, 7)
+        if sel or v > 0.01:  # corner brackets, like the fittings of a shield
+            p.setPen(QPen(QColor(243, 215, 122, 230 if sel else int(150 * v)), 2))
+            a, d = 18, 9
+            for cx, cy, sx, sy in ((inner.left() + d, inner.top() + d, 1, 1), (inner.right() - d, inner.top() + d, -1, 1),
+                                   (inner.left() + d, inner.bottom() - d, 1, -1), (inner.right() - d, inner.bottom() - d, -1, -1)):
+                p.drawPolyline([QPointF(cx, cy + sy * a), QPointF(cx, cy), QPointF(cx + sx * a, cy)])
+        align = (Qt.AlignmentFlag.AlignRight if rtl else Qt.AlignmentFlag.AlignLeft) | Qt.AlignmentFlag.AlignAbsolute
         title = self.app.L.GAMES[self.game]["title"].replace("God of War: ", "")
         f = QFont("Cinzel", 17)
         f.setWeight(QFont.Weight.Bold)
         p.setFont(f)
-        p.setPen(QColor(TEXT))
-        p.drawText(QRectF(r.left() + 18, r.bottom() - 72, r.width() - 36, 36), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, title)
-        f2 = QFont("Segoe UI", 10)
+        tr = QRectF(inner.left() + 22, inner.bottom() - 78, inner.width() - 44, 38)
+        p.setPen(QColor(0, 0, 0, 200))
+        p.drawText(tr.translated(0, 2), align | Qt.AlignmentFlag.AlignBottom, title)
+        p.setPen(QColor("#fbf3df") if sel or v > 0.5 else QColor("#d9cdb3"))
+        p.drawText(tr, align | Qt.AlignmentFlag.AlignBottom, title)
+        # the state as a small pill with a coloured dot
+        f2 = QFont("Segoe UI", 9)
+        f2.setWeight(QFont.Weight.DemiBold)
         p.setFont(f2)
-        col = {"Ready to play": QColor("#9fd18b"), "Needs building": QColor(GOLD)}.get(self.status, QColor(TEXT2))
+        col = {"Ready to play": QColor("#9fd18b"), "Needs building": QColor(GOLD_HI)}.get(self.status, QColor(TEXT2))
+        text = T(self.status)
+        pw = p.fontMetrics().horizontalAdvance(text) + 34
+        pr = QRectF(inner.right() - 22 - pw if rtl else inner.left() + 22, inner.bottom() - 36, pw, 22)
+        p.setPen(QPen(QColor(col.red(), col.green(), col.blue(), 110), 1))
+        p.setBrush(QColor(8, 5, 3, 190))
+        p.drawRoundedRect(pr, 11, 11)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(col)
+        p.drawEllipse(QPointF(pr.right() - 13 if rtl else pr.left() + 13, pr.center().y()), 3.5, 3.5)
         p.setPen(col)
-        p.drawText(QRectF(r.left() + 18, r.bottom() - 34, r.width() - 36, 22), Qt.AlignmentFlag.AlignLeft, "\u25cf  " + T(self.status))
-        if self.selected:
-            p.setPen(QPen(QColor(GOLD), 2))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(r.adjusted(1, 1, -1, -1), 14, 14)
-            band = self.app.meander_pix(int(r.width() - 28))
+        p.drawText(pr.adjusted(10 if rtl else 24, 0, -24 if rtl else -10, 0), Qt.AlignmentFlag.AlignVCenter | align, text)
+        if sel:
+            band = self.app.meander_pix(int(inner.width() - 68))  # between the corner brackets
             p.setOpacity(0.9)
-            p.drawPixmap(QPointF(r.left() + 14, r.top() + 8), band)
-            self.app.draw_shimmer(p, QRectF(r.left() + 14, r.top() + 8, band.width() / band.devicePixelRatio(),
+            p.drawPixmap(QPointF(inner.left() + 34, inner.top() + 9), band)
+            self.app.draw_shimmer(p, QRectF(inner.left() + 34, inner.top() + 9, band.width() / band.devicePixelRatio(),
                                             band.height() / band.devicePixelRatio()), band)
             p.setOpacity(1)
-        elif v > 0.01:
-            p.setPen(QPen(QColor(150, 120, 45, int(200 * v)), 1.5))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRoundedRect(r.adjusted(1, 1, -1, -1), 14, 14)
         if self.hasFocus():
-            p.setPen(QPen(QColor(240, 239, 236, 160), 1, Qt.PenStyle.DashLine))
-            p.drawRoundedRect(r.adjusted(5, 5, -5, -5), 11, 11)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(255, 241, 192, 170), 1, Qt.PenStyle.DashLine))
+            p.drawRoundedRect(inner.adjusted(4, 4, -4, -4), 4, 4)
 
 
 class Progress(QWidget):
@@ -333,15 +433,22 @@ class Progress(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(0, 4, self.width(), self.height() - 8)
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(38, 38, 38, 230))
+        p.setPen(QPen(QColor(BRONZE), 1))
+        p.setBrush(QColor(12, 9, 6, 235))
         p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
-        fill = QRectF(r.left(), r.top(), max(r.height(), r.width() * self.value), r.height())
+        fill = QRectF(r.left(), r.top(), max(r.height(), r.width() * self.value), r.height()).adjusted(1, 1, -1, -1)
         g = QLinearGradient(fill.topLeft(), fill.topRight())
-        g.setColorAt(0, QColor("#7a1a14"))
-        g.setColorAt(1, QColor(RED_HI))
+        g.setColorAt(0, QColor("#5e110c"))
+        g.setColorAt(0.7, QColor(RED))
+        g.setColorAt(1, QColor("#f08a3c"))  # the molten end
+        p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(g)
-        p.drawRoundedRect(fill, r.height() / 2, r.height() / 2)
+        p.drawRoundedRect(fill, fill.height() / 2, fill.height() / 2)
+        hl = QLinearGradient(0, fill.top(), 0, fill.bottom())
+        hl.setColorAt(0, QColor(255, 230, 170, 70))
+        hl.setColorAt(0.5, QColor(255, 230, 170, 0))
+        p.setBrush(hl)
+        p.drawRoundedRect(fill, fill.height() / 2, fill.height() / 2)
         if not self.app.reduce_motion and self.value < 0.999:
             x = fill.left() + (time.monotonic() * 160) % max(1, fill.width() + 80) - 40
             sg = QLinearGradient(x - 40, 0, x + 40, 0)
@@ -353,8 +460,12 @@ class Progress(QWidget):
             p.setClipPath(path)
             p.fillRect(fill, sg)
             p.setClipping(False)
-        p.setPen(QColor(TEXT))
-        p.setFont(QFont("Segoe UI", 9))
+        f = QFont("Segoe UI", 9)
+        f.setWeight(QFont.Weight.DemiBold)
+        p.setFont(f)
+        p.setPen(QColor(0, 0, 0, 180))
+        p.drawText(r.translated(0, 1), Qt.AlignmentFlag.AlignCenter, self.text)
+        p.setPen(QColor("#fbf3df"))
         p.drawText(r, Qt.AlignmentFlag.AlignCenter, self.text)
 
 
@@ -459,6 +570,13 @@ class ControlsDialog(QDialog):
         self.setWindowTitle(T("Controls"))
         self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
         v = QVBoxLayout(self)
+        l = QLabel(T("Controls"))
+        l.setObjectName("bigq")
+        v.addWidget(l)
+        v.addWidget(Ornament(160))
+        l = QLabel(self.L.KEYS)  # the default keys (the main page's footer showed them before)
+        l.setWordWrap(True)
+        v.addWidget(l)
         l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F2, F3, F11, F12 "
                    "and Alt+F4 stay fixed; Enter/Space/click/Start still skip movies. The gamepad's left stick is always the "
                    "PSP stick, and its right stick evades (L + R + stick) unless that is turned off below.")
@@ -585,7 +703,8 @@ class Window(QWidget):
         self.L = L
         self.cfg = L.load_config()
         launcher_i18n.set_language(self.cfg.get("ui_language", "en"))
-        if launcher_i18n.language() in launcher_i18n.RTL:
+        self.rtl = launcher_i18n.language() in launcher_i18n.RTL
+        if self.rtl:
             QApplication.instance().setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.no_art = env_on("GOW_NO_DISC_ART")
         self.app_icon = QPixmap(str(assets_dir() / "icon.png"))
@@ -742,11 +861,9 @@ class Window(QWidget):
                 q[4] -= 0.0035 * STEP
                 region += QRect(int(q[0] - q[7]), int(q[1] - q[7]), int(2 * q[7]) + 2, int(2 * q[7]) + 2)
             self.particles = [q for q in self.particles if q[4] > 0 and q[1] > -20]
-            bh = 40
             if int(t * 10) != getattr(self, 'shim_t', -1):
                 self.shim_t = int(t * 10)
-                region += QRect(0, 0, self.width(), bh)
-                region += QRect(0, self.height() - bh, self.width(), bh)
+                region += QRect(0, TOP, self.width(), 24)
             if self.view == "main" and self.play.isVisible():
                 cpt = self.play.mapTo(self, self.play.rect().center())
                 rad = int(self.play.width() * 1.25)
@@ -771,7 +888,7 @@ class Window(QWidget):
         if self.card_tick == 0 and not self.reduce_motion:
             for c in self.cards.values():
                 if c.selected and c.isVisible():
-                    c.update(0, 0, c.width(), 40)
+                    c.update(0, 0, c.width(), 60)
 
     def new_particle(self):
         w, h = self.width(), self.height()
@@ -865,40 +982,76 @@ class Window(QWidget):
             p.setBrush(g)
             p.drawEllipse(QPointF(0, 0), rad, rad)
             p.restore()
+            # the forged frame around Play: a dark ring, a gold hairline, and rules ending in diamonds on both sides
+            pr = QRectF(self.play.mapTo(self, QPoint(0, 0)), QSizeF(self.play.size())).adjusted(-6, -6, 6, 6)
+            on = self.play.isEnabled()
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.setPen(QPen(QColor(0, 0, 0, 160), 4))
+            p.drawRoundedRect(pr.adjusted(2, 2, -2, -2), 6, 6)
+            p.setPen(QPen(QColor(232, 194, 90, 170 if on else 70), 1))
+            p.drawRoundedRect(pr, 8, 8)
+            cy = pr.center().y()
+            for sgn, x0 in ((-1, pr.left() - 10), (1, pr.right() + 10)):
+                rg = QLinearGradient(x0, 0, x0 + sgn * 150, 0)
+                rg.setColorAt(0, QColor(232, 194, 90, 160 if on else 60))
+                rg.setColorAt(1, QColor(232, 194, 90, 0))
+                p.setPen(QPen(QBrush(rg), 1))
+                p.drawLine(QPointF(x0, cy), QPointF(x0 + sgn * 150, cy))
+                diamond(p, QPointF(x0, cy), 4, QColor(GOLD_HI if on else BRONZE))
         # embers
         for q in self.particles:
             p.setOpacity(max(0.0, min(1.0, q[4])) * 0.85)
             s = q[7] * (0.6 + 0.4 * q[4])
             p.drawPixmap(QRectF(q[0] - s / 2, q[1] - s / 2, s, s), self.ember, QRectF(self.ember.rect()))
         p.setOpacity(1)
-        # meander borders, shimmering
+        # the top bar: a dark band with the title on the reading side, closed by the shimmering meander
+        tg = QLinearGradient(0, 0, 0, TOP)
+        tg.setColorAt(0, QColor(8, 5, 3, 235))
+        tg.setColorAt(1, QColor(20, 14, 9, 170))
+        p.fillRect(QRectF(0, 0, W, TOP), tg)
         band = self.meander_pix(W)
         bh = band.height() / band.devicePixelRatio()
-        for y in (6, H - 6 - bh):
-            p.drawPixmap(QPointF(0, y), band)
-            self.draw_shimmer(p, QRectF(0, y, W, bh), band)
-        # title
-        f = QFont("Cinzel", 24)
-        f.setWeight(QFont.Weight.Bold)
-        f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 108)
+        p.drawPixmap(QPointF(0, TOP), band)
+        self.draw_shimmer(p, QRectF(0, TOP, W, bh), band)
+        f = QFont("Cinzel", 20)
+        f.setWeight(QFont.Weight.Black)
+        f.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 112)
+        f2 = QFont("Cinzel", 9)
+        f2.setWeight(QFont.Weight.Bold)
+        f2.setLetterSpacing(QFont.SpacingType.PercentageSpacing, 118)
+        title, sub = "GOD OF WAR PSP", "NATIVE PC PORTS \u00b7 UNOFFICIAL"
+        tw = QFontMetricsF(f).horizontalAdvance(title)
+        sw = QFontMetricsF(f2).horizontalAdvance(sub)
+        x = W - 30 - tw if self.rtl else 30
+        sx = x - 16 - sw if self.rtl else x + tw + 16
+        base = TOP / 2 + 9
         p.setFont(f)
-        p.setPen(QColor(0, 0, 0, 160))
-        p.drawText(QRectF(2, 38, W, 50), Qt.AlignmentFlag.AlignHCenter, "GOD OF WAR PSP")
-        tg = QLinearGradient(0, 40, 0, 84)
-        tg.setColorAt(0, QColor("#f3dd8a"))
-        tg.setColorAt(0.55, QColor(GOLD))
-        tg.setColorAt(1, QColor("#8a6a12"))
-        p.setPen(QPen(tg, 1))
-        p.drawText(QRectF(0, 36, W, 50), Qt.AlignmentFlag.AlignHCenter, "GOD OF WAR PSP")
-        f2 = QFont("Cinzel", 11)
-        p.setFont(f2)
-        p.setPen(QColor(TEXT2))
-        p.drawText(QRectF(0, 86, W, 24), Qt.AlignmentFlag.AlignHCenter, "native PC ports (unofficial)")
+        p.setPen(QColor(0, 0, 0, 170))
+        p.drawText(QPointF(x + 1, base + 2), title)
+        gg = QLinearGradient(0, base - 22, 0, base + 2)
+        gg.setColorAt(0, QColor("#fff0b8"))
+        gg.setColorAt(0.5, QColor(GOLD))
+        gg.setColorAt(1, QColor(GOLD_LO))
+        p.setPen(QPen(QBrush(gg), 1))
+        p.drawText(QPointF(x, base), title)
+        if self.width() > 980 + sw / 2:  # the subtitle only where it can't reach the icons
+            p.setFont(f2)
+            p.setPen(QColor(TEXT2))
+            p.drawText(QPointF(sx, base - 2), sub)
+        # the footer: a gold rule that fades out at both ends
+        fy = H - FOOT
+        p.fillRect(QRectF(0, fy, W, FOOT), QColor(8, 5, 3, 150))
+        rg = QLinearGradient(0, 0, W, 0)
+        rg.setColorAt(0, QColor(212, 174, 63, 0))
+        rg.setColorAt(0.5, QColor(212, 174, 63, 120))
+        rg.setColorAt(1, QColor(212, 174, 63, 0))
+        p.setPen(QPen(QBrush(rg), 1))
+        p.drawLine(QPointF(0, fy), QPointF(W, fy))
 
     # --- UI ----------------------------------------------------------------------------------------------
     def build_ui(self):
         root = QVBoxLayout(self)
-        root.setContentsMargins(44, 120, 44, 34)
+        root.setContentsMargins(44, TOP + 34, 44, 4)
         root.setSpacing(0)
         self.pages = QWidget()
         self.pages.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -907,11 +1060,12 @@ class Window(QWidget):
         self.p_welcome = QWidget(self.pages)
         v = QVBoxLayout(self.p_welcome)
         v.addStretch(2)
-        for text, name in (("Step 1 of 3", "dim"), ("Choose the folder with your games", "bigq")):
+        for text, name in (("Step 1 of 3", "step"), ("Choose the folder with your games", "bigq")):
             l = QLabel(T(text))
             l.setObjectName(name)
             l.setAlignment(Qt.AlignmentFlag.AlignCenter)
             v.addWidget(l)
+        v.addWidget(Ornament(), 0, Qt.AlignmentFlag.AlignHCenter)
         l = QLabel("Your own disc images (.chd or .iso) of Chains of Olympus and/or Ghost of Sparta.\n"
                    "The launcher finds each game by its disc ID, not by the file name.")
         l.setObjectName("dim")
@@ -934,14 +1088,15 @@ class Window(QWidget):
         v = QVBoxLayout(self.p_prep)
         v.addStretch(2)
         l = QLabel(T("Step 2 of 3"))
-        l.setObjectName("dim")
+        l.setObjectName("step")
         l.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(l)
         self.prep_title = QLabel(T(""))
         self.prep_title.setObjectName("bigq")
         self.prep_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(self.prep_title)
-        v.addSpacing(20)
+        v.addWidget(Ornament(), 0, Qt.AlignmentFlag.AlignHCenter)
+        v.addSpacing(16)
         self.prep_prog = Progress(self)
         self.prep_prog.setMaximumWidth(620)
         h = QHBoxLayout()
@@ -972,10 +1127,14 @@ class Window(QWidget):
             cards.addWidget(c)
             self.cards[g] = c
         v.addLayout(cards, 5)
-        v.addSpacing(12)
-        fr = QHBoxLayout()
+        v.addSpacing(10)
+        bar = QFrame()
+        bar.setObjectName("bar")
+        fr = QHBoxLayout(bar)
+        fr.setContentsMargins(14, 6, 6, 6)
         l = QLabel(T("Game folder"))
         l.setObjectName("head")
+        l.setStyleSheet("font-size: 10pt;")
         fr.addWidget(l)
         self.folder = QLineEdit(self.cfg.get("game_folder", ""))
         self.folder.setReadOnly(True)
@@ -984,7 +1143,18 @@ class Window(QWidget):
         b = QPushButton(T("Change\u2026"))
         b.clicked.connect(self.choose_folder)
         fr.addWidget(b)
-        v.addLayout(fr)
+        self.b_build = QPushButton(T("Build"))
+        self.b_build.clicked.connect(lambda: self.do_build())
+        fr.addWidget(self.b_build)
+        v.addWidget(bar)
+        v.addSpacing(8)
+        self.prog = Progress(self)
+        self.prog.hide()
+        h = QHBoxLayout()
+        h.addStretch(1)
+        h.addWidget(self.prog, 3)
+        h.addStretch(1)
+        v.addLayout(h)
         v.addStretch(1)
         self.play = QPushButton(T("PLAY"))
         self.play.setObjectName("play")
@@ -994,80 +1164,91 @@ class Window(QWidget):
         h.addWidget(self.play)
         h.addStretch()
         v.addLayout(h)
+        v.addSpacing(12)
         h = QHBoxLayout()
+        h.setSpacing(2)
         h.addStretch()
         self.b_steam = QPushButton(T("Add to Steam"))
         self.b_steam.setObjectName("link")
         self.b_steam.setToolTip("Adds the selected game to Steam as a non-Steam game that starts it directly. Close Steam first.")
         self.b_steam.clicked.connect(self.do_add_steam)
-        h.addWidget(self.b_steam)
         self.b_lnk = QPushButton(T("Create desktop shortcut"))
         self.b_lnk.setObjectName("link")
         self.b_lnk.setToolTip("A desktop shortcut that starts the selected game directly, with the launcher's settings.")
         self.b_lnk.clicked.connect(self.do_shortcut)
-        h.addWidget(self.b_lnk)
-        h.addStretch()
-        v.addLayout(h)
-        v.addSpacing(4)
-        h = QHBoxLayout()
-        h.addStretch()
-        self.b_build = QPushButton(T("Build"))
-        self.b_build.clicked.connect(lambda: self.do_build())
-        h.addWidget(self.b_build)
-        self.prog = Progress(self)
-        self.prog.hide()
-        h.addWidget(self.prog)
         lb = QPushButton(T("Show log"))
         lb.setObjectName("link")
         lb.clicked.connect(self.show_log)
-        h.addWidget(lb)
+        for i, b in enumerate((self.b_steam, self.b_lnk, lb)):
+            if i:
+                dot = QLabel("\u00b7")
+                dot.setObjectName("dim")
+                h.addWidget(dot)
+            h.addWidget(b)
         h.addStretch()
         v.addLayout(h)
-        v.addSpacing(8)
-        # footer
+        v.addSpacing(10)
+        # footer: the version, then the links (the keys moved to the Controls button's tooltip and dialog)
         foot = QHBoxLayout()
-        foot.setContentsMargins(0, 6, 0, 0)
-        k = QLabel(self.L.KEYS)
+        foot.setContentsMargins(0, 8, 0, 6)
+        k = QLabel(f"v{self.L.VERSION}")
         k.setObjectName("dim")
-        k.setWordWrap(True)
         k.setStyleSheet("font-size: 8pt;")
-        foot.addWidget(k, 1)
+        foot.addWidget(k)
+        foot.addStretch(1)
         for text, fn in (("Check for updates", lambda: self.check_update(manual=True)),
                          ("Report a bug", self.report_bug), ("Open logs folder", self.open_logs),
                          ("GitHub", lambda: webbrowser.open(REPO_URL)), ("License (GPL-3.0)", self.open_license),
                          ("Third-party notices", self.open_notices)):
             b = QPushButton(T(text))
             b.setObjectName("link")
+            b.setStyleSheet("font-size: 9pt;")
             b.clicked.connect(fn)
             foot.addWidget(b)
         root.addLayout(foot)
         # gear + options panel
-        self.gear = QPushButton("\u2699", self)
-        self.gear.setObjectName("gear")
-        self.gear.setToolTip(T("Options (F1)"))
-        self.gear.setFixedSize(42, 42)
+        mdl2 = "Segoe MDL2 Assets" in QFontDatabase.families()
+        self.gear = self.icon_button("\ue713" if mdl2 else "\u2699", T("Options (F1)"), mdl2)
+        self.gear.setCheckable(True)
         self.gear.clicked.connect(self.toggle_options)
+        self.b_controls = self.icon_button("\ue765" if mdl2 else "\u2328", T("Controls") + "\n\n" + self.L.KEYS, mdl2)
+        self.b_controls.clicked.connect(lambda: ControlsDialog(self).exec())
         self.build_options()
         self.options_open = False
         self.page_anim = None
         for pg in (self.p_welcome, self.p_prep, self.p_main):
             pg.hide()
 
+    def icon_button(self, glyph, tip, mdl2):
+        b = QPushButton(glyph, self)
+        b.setObjectName("icon")
+        b.setStyleSheet(f"font-family: '{'Segoe MDL2 Assets' if mdl2 else 'Segoe UI Symbol'}';")
+        b.setToolTip(tip)
+        b.setFixedSize(38, 38)
+        return b
+
     def build_options(self):
         panel = self.panel = QFrame(self)
         panel.setObjectName("panel")
-        panel.setStyleSheet(f"QFrame#panel {{ background: rgba(24,24,24,238); border-left: 1px solid #4a3d18; }}")
+        side = "right" if self.rtl else "left"  # the edge that faces the page
+        panel.setStyleSheet(f"QFrame#panel {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 rgba(30,22,15,252), "
+                            f"stop:1 rgba(14,10,7,252)); border-{side}: 1px solid {GOLD_LO}; }}")
         panel.hide()
         outer = QVBoxLayout(panel)
         outer.setContentsMargins(0, 0, 0, 0)
         head = QHBoxLayout()
-        head.setContentsMargins(20, 16, 12, 6)
+        head.setContentsMargins(20, 14, 12, 4)
         l = QLabel(T("Options"))
         l.setObjectName("bigq")
         head.addWidget(l)
         head.addStretch()
         head.addSpacing(56)  # the gear (which closes the panel, as Esc does) sits here
         outer.addLayout(head)
+        orn = QHBoxLayout()
+        orn.setContentsMargins(20, 0, 20, 6)
+        orn.addWidget(Ornament(160))
+        orn.addStretch()
+        outer.addLayout(orn)
         sc = QScrollArea()
         sc.setWidgetResizable(True)
         sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1075,25 +1256,31 @@ class Window(QWidget):
         sc.setWidget(body)
         outer.addWidget(sc, 1)
         v = QVBoxLayout(body)
-        v.setContentsMargins(20, 4, 20, 20)
+        v.setContentsMargins(16, 4, 16, 20)
+        v.setSpacing(6)
         l = QLabel(T("Preset"))
         l.setObjectName("head")
         v.addWidget(l)
-        row = QGridLayout()
+        seg = QFrame()
+        seg.setObjectName("segment")
+        row = QHBoxLayout(seg)  # one joined control: the chosen preset glows like the Play button
+        row.setContentsMargins(3, 3, 3, 3)
+        row.setSpacing(2)
         self.preset_btn = {}
-        for i, name in enumerate(PRESETS):
+        for name in PRESETS:
             b = QPushButton(T(name))
             b.setObjectName("preset")
             b.clicked.connect(lambda _=False, n=name: self.apply_preset(n))
-            row.addWidget(b, 0, i)
+            row.addWidget(b, 1)
             self.preset_btn[name] = b
-        v.addLayout(row)
+        v.addWidget(seg)
         self.custom_lbl = QLabel(T("Custom"))
         v.addWidget(self.custom_lbl)
-        v.addSpacing(8)
+        v.addSpacing(4)
+        pv = self.plaque(v)
         l = QLabel(T("Display"))
         l.setObjectName("head")
-        v.addWidget(l)
+        pv.addWidget(l)
         grid = QGridLayout()
         grid.setColumnStretch(1, 1)
         self.combo = {}
@@ -1109,7 +1296,7 @@ class Window(QWidget):
             cb.currentTextChanged.connect(self.on_option)
             grid.addWidget(cb, i, 1)
             self.combo[key] = (cb, table)
-        v.addLayout(grid)
+        pv.addLayout(grid)
         self.combo["fps"][0].setToolTip("Above 60 the game runs smoother if your PC holds that rate every frame. If it can't, "
                                         "the game skips ahead to keep time and the sound gets choppy: go back to 60.")
         self.chk = {}
@@ -1120,12 +1307,12 @@ class Window(QWidget):
             ch = QCheckBox(T(text))
             ch.setChecked(bool(c.get(key)))
             ch.toggled.connect(self.on_option)
-            v.addWidget(ch)
+            pv.addWidget(ch)
             self.chk[key] = ch
-        v.addSpacing(8)
+        pv = self.plaque(v)
         l = QLabel(T("Game"))
         l.setObjectName("head")
-        v.addWidget(l)
+        pv.addWidget(l)
         g = QGridLayout()
         g.setColumnStretch(1, 1)
         g.addWidget(QLabel(T("Language")), 0, 0)
@@ -1150,7 +1337,7 @@ class Window(QWidget):
             hl.addWidget(lab)
             g.addLayout(hl, i, 1)
             self.vol[key] = s
-        v.addLayout(g)
+        pv.addLayout(g)
         for key, text, tip in (("skip_movies", "Skip the movies (cutscene videos)", "Every movie ends as it starts, as if skipped (without this, any movie "
                                 "can be skipped with Enter, Space, a click or Start)."),
                                ("god", "Infinite health (cheat)", "Kratos's health stays full. Falling into a pit still "
@@ -1165,16 +1352,18 @@ class Window(QWidget):
             ch.setToolTip(tip)
             ch.setChecked(bool(c.get(key, key == "rumble")))
             ch.toggled.connect(lambda *_: self.collect())
-            v.addWidget(ch)
+            pv.addWidget(ch)
             self.chk[key] = ch
-        v.addSpacing(8)
+        v.addSpacing(4)
         self.adv_btn = QPushButton(T("Advanced  \u25b8"))
+        self.adv_btn.setObjectName("section")
         self.adv_btn.setCheckable(True)
         self.adv_btn.toggled.connect(self.toggle_adv)
         v.addWidget(self.adv_btn)
-        self.adv = QWidget()
+        self.adv = QFrame()
+        self.adv.setObjectName("plaque")
         a = QGridLayout(self.adv)
-        a.setContentsMargins(0, 6, 0, 0)
+        a.setContentsMargins(12, 10, 12, 12)
         a.setColumnStretch(1, 1)
         arows = [("Renderer", "renderer", RENDERER, c["renderer"]), ("Effects resolution", "fx", FX, 1 if int(c["fx_scale"]) == 1 else 0),
                  ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"])), ("Graphics API", "api", GPU_API, c.get("gpu_api", "")),
@@ -1267,6 +1456,16 @@ class Window(QWidget):
         v.addStretch()
         self.update_presets()
 
+    def plaque(self, v):
+        """A framed group of options in the panel; returns the layout to fill."""
+        f = QFrame()
+        f.setObjectName("plaque")
+        lay = QVBoxLayout(f)
+        lay.setContentsMargins(12, 8, 12, 12)
+        lay.setSpacing(6)
+        v.addWidget(f)
+        return lay
+
     def update_tpack(self):
         ok, text = self.L.texture_pack_status(self.tpack.text().strip())
         self.tpack_lbl.setText(text)
@@ -1283,7 +1482,10 @@ class Window(QWidget):
         self.adv_btn.setText(T("Advanced  \u25be") if on else T("Advanced  \u25b8"))
 
     def panel_rect(self, open_):
-        w = min(440, int(self.width() * 0.42))
+        """Where the Options panel is, open or closed: it slides in from the right, from the left right to left."""
+        w = min(440, int(self.width() * 0.44))  # 440 from the smallest window up: the texts are measured at 440
+        if self.rtl:
+            return ((0 if open_ else -w), 0, w, self.height())
         return (self.width() - (w if open_ else 0), 0, w, self.height())
 
     def toggle_options(self):
@@ -1294,6 +1496,7 @@ class Window(QWidget):
         self.panel.show()
         self.panel.raise_()
         self.gear.raise_()
+        self.gear.setChecked(self.options_open)
         if self.reduce_motion:
             self.panel.move(x1, y)
             self.panel.setVisible(self.options_open)
@@ -1313,7 +1516,10 @@ class Window(QWidget):
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.cache_dirty = True
-        self.gear.move(self.width() - 70, 22)
+        y = (TOP - self.gear.height()) // 2
+        for i, b in enumerate((self.gear, self.b_controls)):  # the icons sit at the end of the top bar
+            x = 26 + i * 48
+            b.move(x if self.rtl else self.width() - x - b.width(), y)
         x, y, w, h = self.panel_rect(self.options_open)
         self.panel.setGeometry(x, y, w, h)
         for pg in (self.p_welcome, self.p_prep, self.p_main):
@@ -1325,6 +1531,7 @@ class Window(QWidget):
         old = pages.get(self.view)
         self.view = name
         self.gear.setVisible(name == "main")
+        self.b_controls.setVisible(name == "main")
         new.setGeometry(0, 0, self.pages.width(), self.pages.height())
         if old is new:
             return
