@@ -73,9 +73,9 @@ You only download **one file**, the launcher. No Python, no manual setup.
 
 > **Windows warning?** `GoWLauncher.exe` is unsigned and built with PyInstaller, so Windows SmartScreen may show
 > "Windows protected your PC" (click **More info**, then **Run anyway**), and some antivirus programs flag
-> PyInstaller programs as a false positive. Check that your download is the real one (v1.3.1 SHA-256):
-> - `GoW_PSP_Launcher-v1.3.1.zip`: `ab947409ce82a15153d3441c394a09e58553f9c32b0d6cd48540cc2fbf2990f8`
-> - `GoW_PSP\GoWLauncher.exe`: `b075c4a67343a11dd900c44339fd9a7345d2bd2ccf4fc5bf32bb3aaade8d584f`
+> PyInstaller programs as a false positive. Check that your download is the real one (v1.4.0 SHA-256):
+> - `GoW_PSP_Launcher-v1.4.0.zip`: `a212651f306f214646ab72df9592a05daad70cb2c019074523a0fc24bf51a03e`
+> - `GoW_PSP\GoWLauncher.exe`: `0a9c4afd8e04d31fa59309a0cd3fb4bda94a8d7fb9ac335de899e28038795474`
 >
 > (PowerShell: `Get-FileHash <file>`). Each release lists its hashes in the release notes.
 
