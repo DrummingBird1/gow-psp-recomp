@@ -8,6 +8,13 @@ For players of the launcher (`GoWLauncher.exe`). Developers: see the main [READM
 positive. Check the SHA-256 against the release notes or the release's `SHA256SUMS.txt`
 (PowerShell: `Get-FileHash GoWLauncher.exe`). If it matches, click **More info**, then **Run anyway**.
 
+From the release after v1.4.0 on, each release's ZIP and exe also have a build provenance from GitHub: proof that this repository's
+CI built them from the tagged source. With the [GitHub CLI](https://cli.github.com/):
+
+```
+gh attestation verify GoW_PSP_Launcher-vX.Y.Z.zip --repo DrummingBird1/gow-psp-recomp
+```
+
 ## Where are my files?
 
 Everything the launcher creates is in `GoW_PSP_data` next to `GoWLauncher.exe`:

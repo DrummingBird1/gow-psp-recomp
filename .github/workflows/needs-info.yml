@@ -1,0 +1,48 @@
+# Issues waiting for the reporter (label "needs-info"):
+# - when the issue's author comments, the label comes off (the issue is no longer waiting);
+# - an issue that still has the label after 30 days without any activity gets a reminder, and is closed 7 days
+#   later if nobody answers. Closed issues can be reopened. Pull requests and other issues are never touched.
+name: needs-info
+
+on:
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  answered:
+    if: github.event_name == 'issue_comment' && !github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            if (context.payload.comment.user.login !== issue.user.login) return;
+            if (!issue.labels.some(l => l.name === "needs-info")) return;
+            await github.rest.issues.removeLabel({ ...context.repo, issue_number: issue.number, name: "needs-info" });
+
+  stale:
+    if: github.event_name != 'issue_comment'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/stale@v9
+        with:
+          only-labels: needs-info
+          days-before-issue-stale: 30
+          days-before-issue-close: 7
+          days-before-pr-stale: -1
+          days-before-pr-close: -1
+          stale-issue-label: stale
+          stale-issue-message: >
+            This issue is waiting for an answer (label `needs-info`) and has had no activity for 30 days. It will be
+            closed in 7 days unless someone replies. It can be reopened at any time.
+          close-issue-message: >
+            Closed because the information asked for didn't come. If it still happens, comment here or open a new
+            issue with the zip from *Report a bug*.
+          close-issue-reason: not_planned
