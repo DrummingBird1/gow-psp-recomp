@@ -116,6 +116,7 @@ compiles it locally, once.
 | V | Select | Back |
 | I / J / K / L | analog stick | left stick |
 | O / U (hold) | spin the analog stick clockwise / counter-clockwise, for the "rotate the stick" prompts | rotate the left stick |
+| C (hold) | turbo: the face buttons and L/R you hold press and release 10 times a second, for the "press repeatedly" prompts | right stick click |
 | | evade (L + R + stick) | right stick |
 
 - **Skip a movie:** Enter, Space, a mouse click, or gamepad Start or Cross. The game goes on to the menu or level as if

@@ -392,7 +392,8 @@ PSP_LABELS = [("up", "D-pad up"), ("down", "D-pad down"), ("left", "D-pad left")
               ("cross", "Cross \u2715"), ("circle", "Circle \u25cb"), ("square", "Square \u25a1"), ("triangle", "Triangle \u25b3"),
               ("l", "L"), ("r", "R"), ("start", "Start"), ("select", "Select"), ("stick_up", "Stick up (keyboard)"),
               ("stick_down", "Stick down (keyboard)"), ("stick_left", "Stick left (keyboard)"), ("stick_right", "Stick right (keyboard)"),
-              ("stick_spin_cw", "Spin the stick clockwise"), ("stick_spin_ccw", "Spin the stick counter-clockwise")]
+              ("stick_spin_cw", "Spin the stick clockwise"), ("stick_spin_ccw", "Spin the stick counter-clockwise"),
+              ("turbo", "Turbo (held: repeats the held buttons)")]
 PAD_LABELS = [("(none)", ""), ("A / Cross", "a"), ("B / Circle", "b"), ("X / Square", "x"), ("Y / Triangle", "y"),
               ("LB / L1", "leftshoulder"), ("RB / R1", "rightshoulder"), ("LT / L2", "lefttrigger"), ("RT / R2", "righttrigger"),
               ("Back / Share", "back"), ("Start / Options", "start"), ("D-pad up", "dpup"), ("D-pad down", "dpdown"),

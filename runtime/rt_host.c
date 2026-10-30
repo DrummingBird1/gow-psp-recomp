@@ -353,14 +353,15 @@ static uint64_t now_us(void) { return SDL_GetTicksNS() / 1000; }
  *                           lefttrigger righttrigger dpup dpdown dpleft dpright leftstick rightstick)
  *   l = Q, Mouse Right      mouse buttons as Mouse Left, Mouse Right, Mouse Middle, Mouse 4, Mouse 5
  *   stick_spin_cw = O       held: the stick goes round at full tilt (stick_spin_ccw: the other way)
+ *   turbo = C               held: the face buttons and L/R that are held press and release 10 times a second
  * '#' starts a comment; the comma key is "Comma". Unknown names are reported and skipped; the game keeps running. */
-enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, B_SPIN_CW, B_SPIN_CCW, NBIND };
+enum { B_STICK_UP = 12, B_STICK_DOWN, B_STICK_LEFT, B_STICK_RIGHT, B_SPIN_CW, B_SPIN_CCW, B_TURBO, NBIND };
 #define PAD_LT 100  /* the triggers are axes: pseudo button numbers */
 #define PAD_RT 101
 #define MOUSE_KEY 1000  /* mouse buttons are "keys" MOUSE_KEY + SDL button number (1 left .. 5 X2) */
 static const char *const b_names[NBIND] = { "up", "down", "left", "right", "cross", "circle", "square", "triangle",
                                             "l", "r", "start", "select", "stick_up", "stick_down", "stick_left", "stick_right",
-                                            "stick_spin_cw", "stick_spin_ccw" };
+                                            "stick_spin_cw", "stick_spin_ccw", "turbo" };
 static const uint32_t b_bits[12] = { PSP_UP, PSP_DOWN, PSP_LEFT, PSP_RIGHT, PSP_CROSS, PSP_CIRCLE, PSP_SQUARE, PSP_TRIANGLE,
                                      PSP_LTRIGGER, PSP_RTRIGGER, PSP_START, PSP_SELECT };
 static const char *const mouse_names[6] = { NULL, "Mouse Left", "Mouse Middle", "Mouse Right", "Mouse 4", "Mouse 5" };
@@ -379,6 +380,7 @@ static struct { int nk, np; int k[4]; int p[4]; } g_bind[NBIND] = {
     { 1, 1, { SDL_SCANCODE_V }, { SDL_GAMEPAD_BUTTON_BACK } },
     { 1, 0, { SDL_SCANCODE_I } }, { 1, 0, { SDL_SCANCODE_K } }, { 1, 0, { SDL_SCANCODE_J } }, { 1, 0, { SDL_SCANCODE_L } },
     { 1, 0, { SDL_SCANCODE_O } }, { 1, 0, { SDL_SCANCODE_U } },
+    { 1, 1, { SDL_SCANCODE_C }, { SDL_GAMEPAD_BUTTON_RIGHT_STICK } },
 };
 
 static char *trim(char *s) {
@@ -682,7 +684,7 @@ int rt_host_init(const HostOptions *o) {
     if (g_o.gpu) {
         if (g_o.fullscreen) { g_fullscreen = 1; SDL_SetWindowFullscreen(g_win, true); }
         printf("[host] window %dx%d (SDL GPU renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-               "IJKL = stick, O/U = spin the stick, F11 fullscreen, F12 screenshot, F3 frame rate, F2 buttons, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
+               "IJKL = stick, O/U = spin the stick, C = turbo, F11 fullscreen, F12 screenshot, F3 frame rate, F2 buttons, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", win_w, DISP_H * scale);
         g_title_t = now_us();
         pump();
         return 1;
@@ -699,7 +701,7 @@ int rt_host_init(const HostOptions *o) {
     SDL_RenderClear(g_ren);
     SDL_RenderPresent(g_ren);
     printf("[host] window %dx%d (%s renderer); keys: arrows, Z/X/A/S, Q/W, Space/Enter = start, V = select, "
-           "IJKL = stick, O/U = spin the stick, F11 fullscreen, F12 screenshot, F3 frame rate, F2 buttons, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
+           "IJKL = stick, O/U = spin the stick, C = turbo, F11 fullscreen, F12 screenshot, F3 frame rate, F2 buttons, Esc quit (asks), Alt+F4 quit, Enter/Space/click skips a movie\n", DISP_W * scale, DISP_H * scale, SDL_GetRendererName(g_ren));
     g_title_t = now_us();
     pump();
     return 1;
@@ -896,6 +898,10 @@ static int live_input(uint32_t *out_b, int *lx, int *ly, uint64_t now_virt_us) {
             else stick[i - B_STICK_UP] = 1;
         }
         if (b & PSP_START && (SDL_GetModState() & SDL_KMOD_ALT)) b &= ~(uint32_t)PSP_START;  /* Alt+Enter is fullscreen */
+        /* turbo, for the "press repeatedly" prompts (issue #26): 50 ms down, 50 ms up, by virtual time so that a
+         * replay matches; each half is still seen when the game reads the pad at 30 FPS */
+        if (stick[B_TURBO - B_STICK_UP] && (now_virt_us / 50000) & 1)
+            b &= ~(uint32_t)(PSP_CROSS | PSP_CIRCLE | PSP_SQUARE | PSP_TRIANGLE | PSP_LTRIGGER | PSP_RTRIGGER);
         if (stick[2]) ax = 0;
         if (stick[3]) ax = 255;
         if (stick[0]) ay = 0;
