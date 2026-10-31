@@ -1184,50 +1184,66 @@ static int icon_lum(uint32_t c) {
     return (int)((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF));
 }
 
-/* The in-world use prompt is a square texture of one white PSP circle on a dark disc,
- * with transparent corners. Font atlases and opaque world textures must not match. */
+/* Full circular use-button (dark bezel + white O) filling most of a square, corners
+ * empty. A glow/halo is a thin bright ring with a hollow centre — those must not match. */
 static int is_world_circle_prompt(const uint32_t *px, int w, int h) {
-    if (w != h || (w != 16 && w != 32 && w != 64 && w != 128)) return 0;
+    if (w != h || (w != 32 && w != 64 && w != 128)) return 0;
     uint32_t c00 = px[0], c10 = px[w - 1], c01 = px[(h - 1) * w], c11 = px[h * w - 1];
     if ((c00 >> 24) >= 32 || (c10 >> 24) >= 32 || (c01 >> 24) >= 32 || (c11 >> 24) >= 32) return 0;
     int mid = w / 2, opaque = 0, bright = 0, hole = 0, ring = 0, chroma = 0;
-    int r0 = w * 28 / 100, r1 = w * 46 / 100;
-    if (r1 <= r0) r1 = r0 + 1;
+    int bezel_n = 0, bezel_dark = 0, face_n = 0, face_dark = 0;
+    int r_face = w * 28 / 100, r_o0 = w * 18 / 100, r_o1 = w * 32 / 100, r_bez = w * 40 / 100;
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             uint32_t c = px[y * w + x];
-            if ((c >> 24) < 40) continue;
-            opaque++;
-            int L = icon_lum(c);
-            if (L < 420) continue;
-            int cr = (int)(c & 0xFF), cg = (int)((c >> 8) & 0xFF), cb = (int)((c >> 16) & 0xFF);
-            int dcr = cr - cg, dcg = cg - cb;
-            if (dcr < 0) dcr = -dcr;
-            if (dcg < 0) dcg = -dcg;
-            chroma += dcr + dcg;
-            bright++;
+            int a = (int)(c >> 24), L = icon_lum(c);
             int dx = x - mid, dy = y - mid, d2 = dx * dx + dy * dy;
-            if (d2 <= (w * w) / 16) hole++;
-            else if (d2 >= r0 * r0 && d2 <= r1 * r1) ring++;
+            if (a >= 40) opaque++;
+            if (a >= 140 && L >= 420) {
+                int cr = (int)(c & 0xFF), cg = (int)((c >> 8) & 0xFF), cb = (int)((c >> 16) & 0xFF);
+                int dcr = cr - cg, dcg = cg - cb;
+                if (dcr < 0) dcr = -dcr;
+                if (dcg < 0) dcg = -dcg;
+                chroma += dcr + dcg;
+                bright++;
+                if (d2 <= (w * w) / 36) hole++;
+                else if (d2 >= r_o0 * r_o0 && d2 <= r_o1 * r_o1) ring++;
+            }
+            if (d2 >= r_bez * r_bez && d2 <= (w * 48 / 100) * (w * 48 / 100)) {
+                bezel_n++;
+                if (a >= 160 && L < 280) bezel_dark++;
+            }
+            if (d2 <= r_face * r_face) {
+                face_n++;
+                if (a >= 160 && L < 300) face_dark++;
+            }
         }
     }
-    if (opaque < w * 2 || opaque * 2 > w * h) return 0;
+    /* Inscribed disc is ~78% of the square; a halo is a few percent. */
+    if (opaque * 100 < w * h * 45 || opaque * 100 > w * h * 85) return 0;
+    if (bezel_n < 8 || bezel_dark * 2 < bezel_n) return 0;
+    if (face_n < 8 || face_dark * 2 < face_n) return 0;
     if (bright < w || chroma > bright * 24) return 0;
-    if (ring <= hole * 3 || ring * 2 < bright) return 0;
+    if (ring <= hole * 2 || ring * 3 < bright) return 0;
     return 1;
 }
 
 static void patch_world_circle_prompt(uint32_t *px, int w, int mode) {
+    /* Keep the original bezel; redraw only the inner face (the O). */
+    int inner = w * 58 / 100;
+    if (inner < 16) inner = 16;
+    if (inner > w) inner = w;
+    int cx = (w - inner) / 2, cy = (w - inner) / 2;
     const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
     if (mode == 2) {
-        draw_xbox_face(px, w, 0, 0, w, "B", 0xFF9696FFu, 0xFF242448u);
+        draw_xbox_face(px, w, cx, cy, inner, "B", 0xFF9696FFu, 0xFF242448u);
         return;
     }
     if (!strcmp(lab, "LMB") || !strcmp(lab, "RMB") || !strcmp(lab, "MMB")) {
-        draw_mouse_n(px, w, 0, 0, w, !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2);
+        draw_mouse_n(px, w, cx, cy, inner, !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2);
         return;
     }
-    draw_xbox_face(px, w, 0, 0, w, lab, 0xFFFFFFFFu, 0xFF404040u);
+    draw_xbox_face(px, w, cx, cy, inner, lab, 0xFFFFFFFFu, 0xFF404040u);
 }
 
 /* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
