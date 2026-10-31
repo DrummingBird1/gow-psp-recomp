@@ -116,7 +116,7 @@ typedef struct {
     int stencil_dirty;         /* stencil written since its values were last copied into the alpha channel */
     int want_s;                /* scale to change to after the frame (0: none) */
 } Target;
-typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift, icon_atlas, icon_ring; } TexEntry;
+typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift, icon_atlas; } TexEntry;
 typedef struct { uint64_t key; SDL_GPUGraphicsPipeline *p; } Pipe;
 typedef struct { uint32_t key; SDL_GPUSampler *s; } Samp;
 /* pooled textures: render-to-texture snapshots, staging for scaled uploads */
@@ -1176,105 +1176,6 @@ static int is_button_icon_atlas(const uint32_t *px, int w, int h) {
     return 0;
 }
 
-static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, int s, const char *label, uint32_t fg, uint32_t rim);
-static void draw_kb_keycap(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label);
-static void draw_mouse_n(uint32_t *px, int w, int cx, int cy, int s, int btn);
-
-static int icon_lum(uint32_t c) {
-    return (int)((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF));
-}
-
-/* White PSP circle glyph (hard ring, little grey falloff). Glow sprites are soft and fail this. */
-static int is_hard_circle_glyph(const uint32_t *px, int w, int h) {
-    if (w != h || (w != 16 && w != 32 && w != 64 && w != 128)) return 0;
-    uint32_t c00 = px[0], c10 = px[w - 1], c01 = px[(h - 1) * w], c11 = px[h * w - 1];
-    if ((c00 >> 24) >= 40 || (c10 >> 24) >= 40 || (c01 >> 24) >= 40 || (c11 >> 24) >= 40) return 0;
-    int mid = w / 2, bright = 0, midg = 0, hole = 0, ring = 0, chroma = 0;
-    int r0 = w * 18 / 100, r1 = w * 48 / 100;
-    if (r1 <= r0) r1 = r0 + 1;
-    for (int y = 0; y < h; y++) {
-        for (int x = 0; x < w; x++) {
-            uint32_t c = px[y * w + x];
-            if ((c >> 24) < 40) continue;
-            int L = icon_lum(c);
-            int dx = x - mid, dy = y - mid, d2 = dx * dx + dy * dy;
-            if (L >= 400) {
-                int cr = (int)(c & 0xFF), cg = (int)((c >> 8) & 0xFF), cb = (int)((c >> 16) & 0xFF);
-                int dcr = cr - cg, dcg = cg - cb;
-                if (dcr < 0) dcr = -dcr;
-                if (dcg < 0) dcg = -dcg;
-                chroma += dcr + dcg;
-                bright++;
-                if (d2 <= (w * w) / 36) hole++;
-                else if (d2 >= r0 * r0 && d2 <= r1 * r1) ring++;
-            } else if (L >= 90) midg++;
-        }
-    }
-    if (bright < w || midg > bright) return 0;
-    if (chroma > bright * 24) return 0;
-    if (ring <= hole) return 0;
-    return 1;
-}
-
-static void draw_circle_prompt_pixels(uint32_t *px, int w, int mode) {
-    const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
-    if (mode == 2) {
-        draw_xbox_face(px, w, 0, 0, w, "B", 0xFF9696FFu, 0xFF242448u);
-        return;
-    }
-    if (!strcmp(lab, "LMB") || !strcmp(lab, "RMB") || !strcmp(lab, "MMB")) {
-        draw_mouse_n(px, w, 0, 0, w, !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2);
-        return;
-    }
-    draw_xbox_face(px, w, 0, 0, w, lab, 0xFFFFFFFFu, 0xFF404040u);
-}
-
-enum { PROMPT_CACHE = 4 };
-static struct { SDL_GPUTexture *tex; int w, h, mode; char lab[12]; } g_prompt[PROMPT_CACHE];
-
-static SDL_GPUTexture *prompt_gpu_tex(int w, int h) {
-    int mode = rt_host_button_icon_mode();
-    const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
-    if (w < 8 || h < 8 || w > 256 || h > 256) return NULL;
-    for (int i = 0; i < PROMPT_CACHE; i++)
-        if (g_prompt[i].tex && g_prompt[i].w == w && g_prompt[i].h == h && g_prompt[i].mode == mode &&
-            !strcmp(g_prompt[i].lab, lab))
-            return g_prompt[i].tex;
-    int slot = -1;
-    for (int i = 0; i < PROMPT_CACHE; i++)
-        if (!g_prompt[i].tex) { slot = i; break; }
-    if (slot < 0) {
-        /* Drop the oldest only after the frame that still samples it has been submitted. */
-        if (g_nrelease >= (int)(sizeof(g_release) / sizeof(g_release[0]))) return g_prompt[0].tex;
-        g_release[g_nrelease++] = g_prompt[0].tex;
-        memmove(&g_prompt[0], &g_prompt[1], (PROMPT_CACHE - 1) * sizeof(g_prompt[0]));
-        memset(&g_prompt[PROMPT_CACHE - 1], 0, sizeof(g_prompt[0]));
-        slot = PROMPT_CACHE - 1;
-    }
-    SDL_GPUTexture *tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, 1,
-                                       SDL_GPU_SAMPLECOUNT_1);
-    if (!tex) return NULL;
-    size_t bytes = (size_t)w * h * 4, off = (g_upsize + 511) & ~(size_t)511;
-    grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
-    uint32_t *px = (uint32_t *)(g_upbytes + off);
-    memset(px, 0, bytes);
-    draw_circle_prompt_pixels(px, w, mode);
-    grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
-    memset(&g_ups[g_nups], 0, sizeof(Upload));
-    g_ups[g_nups].tex = tex;
-    g_ups[g_nups].offset = (uint32_t)off;
-    g_ups[g_nups].w = w;
-    g_ups[g_nups].h = h;
-    g_nups++;
-    g_upsize = off + bytes;
-    g_prompt[slot].tex = tex;
-    g_prompt[slot].w = w;
-    g_prompt[slot].h = h;
-    g_prompt[slot].mode = mode;
-    snprintf(g_prompt[slot].lab, sizeof(g_prompt[slot].lab), "%s", lab);
-    return tex;
-}
-
 /* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
 static void put_cell_px(uint32_t *px, int w, int cx, int cy, int ch, int x, int row, uint32_t col) {
     px[(cy + ch - 1 - row) * w + (cx + x)] = col;
@@ -1530,7 +1431,6 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
     e->replaced = 0;
     int atlas = rt_gpu_opt.button_icons ? is_button_icon_atlas(rgba, w, h) : 0;
     e->icon_atlas = atlas != 0;
-    e->icon_ring = !atlas && rt_gpu_opt.button_icons && is_hard_circle_glyph(rgba, w, h);
     e->used = g_frame;
     g_tex_count++;
     for (int l = 0; l < nl; l++) {
@@ -1565,7 +1465,7 @@ static void evict_textures(void) {
     g_tex_count = 0;
     for (size_t i = 0; i < TEX_SLOTS; i++) {
         if (!old[i].key) continue;
-        if (g_frame - old[i].used > 300 || (drop_icons && (old[i].icon_atlas || old[i].icon_ring))) {
+        if (g_frame - old[i].used > 300 || (drop_icons && old[i].icon_atlas)) {
             if (!old[i].replaced) SDL_ReleaseGPUTexture(g_dev, old[i].tex);  /* a pack's picture stays */
             continue;
         }
@@ -1621,22 +1521,6 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
             if (e->key) {
                 tex = e->tex;
                 e->used = g_frame;
-                if (e->icon_ring && rt_host_button_icon_mode() > 1) {
-                    float bx0 = 1e30f, by0 = 1e30f, bx1 = -1e30f, by1 = -1e30f;
-                    for (uint32_t i = 0; i < n; i++) {
-                        if (v[i].x < bx0) bx0 = v[i].x;
-                        if (v[i].x > bx1) bx1 = v[i].x;
-                        if (v[i].y < by0) by0 = v[i].y;
-                        if (v[i].y > by1) by1 = v[i].y;
-                    }
-                    float bw = bx1 - bx0, bh = by1 - by0;
-                    /* Use-prompt is a small round HUD/billboard; glow is a large screen quad. */
-                    if (bw >= 28.f && bh >= 28.f && bw <= 140.f && bh <= 140.f &&
-                        bw < bh * 1.35f && bh < bw * 1.35f) {
-                        SDL_GPUTexture *rep = prompt_gpu_tex(e->w, e->h);
-                        if (rep) tex = rep;
-                    }
-                }
                 if (e->replaced) {  /* a pack's picture: its own mip chain, filtered as it is */
                     static GpuDraw dr;
                     dr = *d;
@@ -2622,8 +2506,6 @@ void rt_gpu_shutdown(void) {
     SDL_ReleaseGPUSampler(g_dev, g_point);
     SDL_ReleaseGPUSampler(g_dev, g_linear);
     SDL_ReleaseGPUTexture(g_dev, g_white);
-    for (int i = 0; i < PROMPT_CACHE; i++)
-        if (g_prompt[i].tex) { SDL_ReleaseGPUTexture(g_dev, g_prompt[i].tex); g_prompt[i].tex = NULL; }
     if (g_vbuf) SDL_ReleaseGPUBuffer(g_dev, g_vbuf);
     if (g_tbuf) SDL_ReleaseGPUTransferBuffer(g_dev, g_tbuf);
     SDL_ReleaseGPUShader(g_dev, g_vs);
