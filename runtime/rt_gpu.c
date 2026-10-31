@@ -1191,21 +1191,8 @@ static void draw_cell_text(uint32_t *px, int w, int cx, int cy, int cw, int ch, 
     if (len <= 0) return;
     if (len > 4) len = 4;
     if (len == 1 && cw >= 16 && ch >= 14) {
+        /* 1-char bold 6x7 glyph centered in 16x16 */
         uint16_t g = icon_glyph3x5(s[0]);
-        if (cw >= 28) {
-            int sc = (cw - 4) / 6;
-            if (sc < 2) sc = 2;
-            int gw = 3 * sc, gh = 5 * sc;
-            int x0 = (cw - gw) / 2, y0 = (ch - gh) / 2;
-            for (int r = 0; r < 5; r++)
-                for (int c = 0; c < 3; c++) {
-                    if (!((g >> ((4 - r) * 3 + (2 - c))) & 1)) continue;
-                    for (int dy = 0; dy < sc; dy++)
-                        for (int dx = 0; dx < sc; dx++)
-                            put_cell_px(px, w, cx, cy, ch, x0 + c * sc + dx, y0 + r * sc + dy, fg);
-                }
-            return;
-        }
         int x0 = (cw - 6) / 2, y0 = (ch - 7) / 2;
         static const int rmap[7] = { 0, 0, 1, 2, 2, 3, 4 };
         for (int r = 0; r < 7; r++) {
@@ -1260,20 +1247,18 @@ static void draw_cell_text(uint32_t *px, int w, int cx, int cy, int cw, int ch, 
     }
 }
 
-static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, int s, const char *label, uint32_t fg, uint32_t rim) {
-    if (s < 8) s = 8;
-    clear_cell(px, w, cx, cy, s, s);
-    float k = (float)s / 16.0f, mid = (s - 1) * 0.5f;
-    for (int r = 0; r < s; r++) {
-        for (int x = 0; x < s; x++) {
-            float dx = (float)x - mid, dy = (float)r - mid;
+static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, const char *label, uint32_t fg, uint32_t rim) {
+    clear_cell(px, w, cx, cy, 16, 16);
+    for (int r = 0; r < 16; r++) {
+        for (int x = 0; x < 16; x++) {
+            float dx = (float)x - 7.5f, dy = (float)r - 7.5f;
             float d2 = dx * dx + dy * dy;
-            if (d2 <= 30.0f * k * k) put_cell_px(px, w, cx, cy, s, x, r, 0xFF202020u);
-            else if (d2 <= 44.0f * k * k) put_cell_px(px, w, cx, cy, s, x, r, rim);
-            else if (d2 <= 54.0f * k * k) put_cell_px(px, w, cx, cy, s, x, r, 0xB0101010u);
+            if (d2 <= 30.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF202020u);
+            else if (d2 <= 44.0f) put_cell_px(px, w, cx, cy, 16, x, r, rim);
+            else if (d2 <= 54.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xB0101010u);
         }
     }
-    draw_cell_text(px, w, cx, cy, s, s, label, fg);
+    draw_cell_text(px, w, cx, cy, 16, 16, label, fg);
 }
 
 static void draw_xbox_bumper(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label) {
@@ -1288,34 +1273,27 @@ static void draw_xbox_bumper(uint32_t *px, int w, int cx, int cy, int cw, int ch
     draw_cell_text(px, w, cx, cy, cw, ch, label, 0xFFFFFFFFu);
 }
 
-static void draw_mouse_n(uint32_t *px, int w, int cx, int cy, int s, int btn) {
-    if (s < 8) s = 8;
-    clear_cell(px, w, cx, cy, s, s);
-    for (int r = 1; r < s - 1; r++) {
-        int t = r * 16 / s, m;
-        if (t <= 1 || t >= 14) m = s * 5 / 16;
-        else if (t == 2 || t == 13) m = s * 4 / 16;
-        else m = s * 3 / 16;
-        if (m < 1) m = 1;
-        for (int x = m; x < s - m; x++) {
-            int xt = x * 16 / s;
-            int border = (t == 1 || t == 14 || x == m || x == s - m - 1 || t == 7 || (t < 7 && (xt == 7 || xt == 8)));
-            uint32_t col = border ? 0xFF141414u : (t > 7 ? 0xFF545454u : 0xFF282828u);
-            if (!border && t >= 2 && t <= 6) {
-                if (btn == 1 && xt <= 6) col = 0xFFFFFFFFu;
-                else if (btn == 3 && xt >= 9) col = 0xFFFFFFFFu;
-                else if (btn == 2 && (xt == 7 || xt == 8)) col = 0xFFFFFFFFu;
+static void draw_mouse_16(uint32_t *px, int w, int cx, int cy, int btn) {
+    clear_cell(px, w, cx, cy, 16, 16);
+    for (int r = 1; r < 15; r++) {
+        int m = (r == 1 || r == 14) ? 5 : (r == 2 || r == 13) ? 4 : 3;
+        for (int x = m; x < 16 - m; x++) {
+            int border = (r == 1 || r == 14 || x == m || x == 15 - m || r == 7 || (r < 7 && (x == 7 || x == 8)));
+            uint32_t col = border ? 0xFF141414u : (r > 7 ? 0xFF545454u : 0xFF282828u);
+            if (!border && r >= 2 && r <= 6) {
+                if (btn == 1 && x <= 6) col = 0xFFFFFFFFu;
+                else if (btn == 3 && x >= 9) col = 0xFFFFFFFFu;
+                else if (btn == 2 && (x == 7 || x == 8)) col = 0xFFFFFFFFu;
             }
-            if (btn == 2 && t >= 3 && t <= 5 && (xt == 7 || xt == 8)) col = 0xFFFFFFFFu;
-            put_cell_px(px, w, cx, cy, s, x, r, col);
+            if (btn == 2 && r >= 3 && r <= 5 && (x == 7 || x == 8)) col = 0xFFFFFFFFu;
+            put_cell_px(px, w, cx, cy, 16, x, r, col);
         }
     }
 }
 
 static void draw_kb_keycap(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label) {
-    if (!strcmp(label, "LMB") || !strcmp(label, "RMB") || !strcmp(label, "MMB")) {
-        int s = cw < ch ? cw : ch;
-        draw_mouse_n(px, w, cx, cy, s, !strcmp(label, "LMB") ? 1 : !strcmp(label, "RMB") ? 3 : 2);
+    if (cw == 16 && (!strcmp(label, "LMB") || !strcmp(label, "RMB") || !strcmp(label, "MMB"))) {
+        draw_mouse_16(px, w, cx, cy, !strcmp(label, "LMB") ? 1 : !strcmp(label, "RMB") ? 3 : 2);
         return;
     }
     clear_cell(px, w, cx, cy, cw, ch);
@@ -1357,10 +1335,10 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
         if (mode == 2) {
             draw_xbox_bumper(px, w, 35, 112, 30, 14, "RB");
             draw_xbox_bumper(px, w, 65, 112, 31, 14, "LB");
-            draw_xbox_face(px, w, 1, 144, 16, "B", 0xFF9696FFu, 0xFF242448u);
-            draw_xbox_face(px, w, 52, 161, 16, "A", 0xFF96FF96u, 0xFF244424u);
-            draw_xbox_face(px, w, 69, 161, 16, "Y", 0xFF8CF0FFu, 0xFF203C48u);
-            draw_xbox_face(px, w, 103, 161, 16, "X", 0xFFFFD896u, 0xFF483020u);
+            draw_xbox_face(px, w, 1, 144, "B", 0xFF9696FFu, 0xFF242448u);
+            draw_xbox_face(px, w, 52, 161, "A", 0xFF96FF96u, 0xFF244424u);
+            draw_xbox_face(px, w, 69, 161, "Y", 0xFF8CF0FFu, 0xFF203C48u);
+            draw_xbox_face(px, w, 103, 161, "X", 0xFFFFD896u, 0xFF483020u);
         } else if (mode == 3) {
             draw_kb_keycap(px, w, 1, 112, 33, 14, rt_host_button_label(RT_BIND_START));
             draw_kb_keycap(px, w, 35, 112, 30, 14, rt_host_button_label(RT_BIND_R));
@@ -1377,10 +1355,10 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
             draw_xbox_bumper(px, w, 33, 44, 31, 14, "BACK");
             draw_xbox_bumper(px, w, 0, 44, 32, 14, "LB");
             draw_xbox_bumper(px, w, 0, 59, 32, 14, "RB");
-            draw_xbox_face(px, w, 0, 74, 16, "X", 0xFFFFD896u, 0xFF483020u);
-            draw_xbox_face(px, w, 17, 74, 16, "B", 0xFF9696FFu, 0xFF242448u);
-            draw_xbox_face(px, w, 17, 91, 16, "A", 0xFF96FF96u, 0xFF244424u);
-            draw_xbox_face(px, w, 34, 91, 16, "Y", 0xFF8CF0FFu, 0xFF203C48u);
+            draw_xbox_face(px, w, 0, 74, "X", 0xFFFFD896u, 0xFF483020u);
+            draw_xbox_face(px, w, 17, 74, "B", 0xFF9696FFu, 0xFF242448u);
+            draw_xbox_face(px, w, 17, 91, "A", 0xFF96FF96u, 0xFF244424u);
+            draw_xbox_face(px, w, 34, 91, "Y", 0xFF8CF0FFu, 0xFF203C48u);
         } else if (mode == 3) {
             draw_kb_keycap(px, w, 0, 29, 31, 14, rt_host_button_label(RT_BIND_START));
             draw_kb_keycap(px, w, 33, 44, 31, 14, rt_host_button_label(RT_BIND_SELECT));
@@ -1394,8 +1372,6 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
         }
     }
 }
-
-
 
 void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_t *rgba) {
     key |= 1;
