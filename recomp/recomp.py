@@ -11,6 +11,7 @@ image.bin (relocated image) and module.json (metadata for tests and tooling).
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import random
 import sys
@@ -44,6 +45,85 @@ def load_nids(path: Path) -> dict[int, str]:
         if len(f) >= 2:
             out[int(f[0], 16)] = f[1]
     return out
+
+
+def auto_analyze(mod: PspModule) -> tuple[dict[int, FuncInfo], dict[int, list[int]]]:
+    base = mod.base
+    text = mod.section(".text")
+    t_lo, t_hi = base + text.addr, base + text.addr + text.size
+    rodata = mod.section(".rodata")
+    r_lo, r_hi = base + rodata.addr, base + rodata.addr + rodata.size
+    hilo_by_lo = {lo: val for _hi, lo, val in mod.hilo_values}
+    rodata_refs = sorted(set(val for _hi, _lo, val in mod.hilo_values if r_lo <= val < r_hi))
+    jumptables: dict[int, list[int]] = {}
+    jt_rodata_addrs: set[int] = set()
+    for pc in range(t_lo, t_hi, 4):
+        ins = decode(mod.u32(pc), pc)
+        if ins.flow == JR and ins.rs != 31:
+            tbl = next((hilo_by_lo[pc - off] for off in range(4, 32, 4)
+                        if pc - off in hilo_by_lo and r_lo <= hilo_by_lo[pc - off] < r_hi), None)
+            if not tbl:
+                continue
+            n_bound = None
+            for off in range(4, 64, 4):
+                bi = decode(mod.u32(pc - off), pc - off)
+                prev = decode(mod.u32(pc - off - 4), pc - off - 4)
+                if prev.flow == BRANCH and prev.likely:
+                    continue
+                if bi.op in ("sltiu", "slti") and 0 < bi.uimm < 2048:
+                    n_bound = bi.uimm
+                    break
+            idx = bisect.bisect_right(rodata_refs, tbl)
+            next_ref = rodata_refs[idx] if idx < len(rodata_refs) else r_hi
+            pts, addr = [], tbl
+            while addr < min(next_ref, r_hi):
+                val = mod.addr32_values.get(addr, 0)
+                if not (t_lo <= val < t_hi) or (val & 3):
+                    break
+                pts.append(val)
+                jt_rodata_addrs.add(addr)
+                addr += 4
+                if n_bound and len(pts) >= n_bound:
+                    break
+            if pts:
+                jumptables[pc] = sorted(set(pts))
+    entries = {mod.entry_addr}
+    for pc in range(t_lo, t_hi, 4):
+        ins = decode(mod.u32(pc), pc)
+        if ins.flow == CALL and t_lo <= ins.target < t_hi:
+            entries.add(ins.target)
+        elif ins.flow == BRANCH and ins.link and t_lo <= ins.target < t_hi:
+            entries.add(ins.target)
+    for _hi_a, _lo_a, val in mod.hilo_values:
+        if t_lo <= val < t_hi and not (val & 3):
+            entries.add(val)
+    for a, val in mod.addr32_values.items():
+        if a not in jt_rodata_addrs and t_lo <= val < t_hi and not (val & 3):
+            entries.add(val)
+    funcs: dict[int, FuncInfo] = {}
+    for entry in sorted(entries):
+        fi = FuncInfo(entry=entry, name=f"FUN_{entry - base:08x}", addrs=[entry])
+        i = decode(mod.u32(entry), entry)
+        fi.insns[entry] = i
+        fi.has_vfpu = i.is_vfpu
+        fi.has_jalr = i.flow == JALR
+        fi.has_indirect_jr = i.flow == JR and i.rs != 31
+        funcs[entry] = fi
+    return funcs, jumptables
+
+
+def detect_co_switch(mod: PspModule) -> tuple[int, int, int] | None:
+    base = mod.base
+    text = mod.section(".text")
+    t_lo, t_hi = base + text.addr, base + text.addr + text.size
+    for pc in range(t_lo, t_hi - 0x70, 4):
+        if mod.u32(pc) == 0x27BDFFA0 and mod.u32(pc + 4) == 0xAFA40000 and mod.u32(pc + 8) == 0xAFBF0004:
+            i_lui = decode(mod.u32(pc + 0x68), pc + 0x68)
+            i_lw = decode(mod.u32(pc + 0x6C), pc + 0x6C)
+            if i_lui.op == "lui" and i_lw.op == "lw":
+                swap_slot = ((i_lui.uimm << 16) + i_lw.imm) & 0xFFFFFFFF
+                return pc, swap_slot, (swap_slot + 8) & 0xFFFFFFFF
+    return None
 
 
 def main() -> int:
@@ -88,6 +168,8 @@ def main() -> int:
                 fi.has_indirect_jr = True
         funcs[entry] = fi
     jumptables = {int(j["at"], 16) + delta: [int(t, 16) + delta for t in j["targets"]] for j in g["jumptables"]}
+    if mod.section(".text").size != int(g["text"][1], 16) - int(g["text"][0], 16) + 1:
+        funcs, jumptables = auto_analyze(mod)
 
     # Body completion: follow control flow from each entry ourselves and add reachable code
     # that Ghidra left out of the function (e.g. a fall-through it stopped at). Other
@@ -227,6 +309,12 @@ def main() -> int:
     game_id = Path(args.elf).name.split("_")[0]
     rt_cfg = json.loads((Path(__file__).parent / "runtime_funcs.json").read_text(encoding="utf-8"))
     runtime_funcs = {int(a, 16): call for a, call in rt_cfg.get(game_id, {}).items()}
+    co_info = detect_co_switch(mod)
+    if co_info is not None:
+        co_pc, swap_slot, cur_slot = co_info
+        runtime_funcs = {co_pc: f"rt_co_switch(c, 0x{swap_slot:08X}u, 0x{cur_slot:08X}u)"}
+        known_ids = {0x08B36148: "UCUS98653", 0x08B36158: "UCES00842", 0x08C15D88: "UCUS98737", 0x08C173D0: "UCES01473"}
+        game_id = known_ids.get(swap_slot, game_id)
     for a in runtime_funcs:
         if a not in generated:
             print(f"{game_id}: runtime function 0x{a:08X} is not a generated function")
