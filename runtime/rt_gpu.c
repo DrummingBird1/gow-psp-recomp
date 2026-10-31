@@ -1409,7 +1409,7 @@ static void patch_world_circle_glyph(uint32_t *px, int w, int h, int mode) {
                 int x1 = (int)((x + 1) * s), y1 = (int)((r + 1) * s);
                 for (int yy = y0; yy < y1 && yy < h; yy++)
                     for (int xx = x0; xx < x1 && xx < w; xx++)
-                        px[yy * w + xx] = col;
+                        px[(h - 1 - yy) * w + xx] = col;
             }
         }
         return;
@@ -1438,7 +1438,7 @@ static void patch_world_circle_glyph(uint32_t *px, int w, int h, int mode) {
                     for (int dx = 0; dx < pix; dx++) {
                         int xx = px0 + dx, yy = py0 + dy;
                         if ((unsigned)xx < (unsigned)w && (unsigned)yy < (unsigned)h)
-                            px[yy * w + xx] = 0xFFFFFFFFu;
+                            px[(h - 1 - yy) * w + xx] = 0xFFFFFFFFu;
                     }
             }
     }
