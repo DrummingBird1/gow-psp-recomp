@@ -53,5 +53,13 @@ int rt_host_take_movie_skip(void);
 /* The display's refresh (rt_hle.c): 59.94 Hz, or --fps N. */
 void rt_display_set_hz(double hz);
 double rt_display_hz(void);
+enum {
+    RT_BIND_UP = 0, RT_BIND_DOWN, RT_BIND_LEFT, RT_BIND_RIGHT,
+    RT_BIND_CROSS, RT_BIND_CIRCLE, RT_BIND_SQUARE, RT_BIND_TRIANGLE,
+    RT_BIND_L, RT_BIND_R, RT_BIND_START, RT_BIND_SELECT,
+    RT_BIND_STICK_UP, RT_BIND_STICK_DOWN, RT_BIND_STICK_LEFT, RT_BIND_STICK_RIGHT,
+};
+int rt_host_button_icon_mode(void);
+const char *rt_host_button_label(int bind_idx);
 
 #endif

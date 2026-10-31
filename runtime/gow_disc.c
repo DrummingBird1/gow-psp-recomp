@@ -169,8 +169,15 @@ static int decrypt_eboot(const char *out) {
     uint32_t n;
     uint8_t *in = read_disc_file("PSP_GAME/SYSDIR/EBOOT.BIN", &n);
     if (!in) return 0;
+    if (n < (256u << 10)) {  /* CFW-patched ISOs (e.g. Prometheus) move the real EBOOT to EBOOT.OLD */
+        uint32_t old_n = 0;
+        uint8_t *old_in = read_disc_file("PSP_GAME/SYSDIR/EBOOT.OLD", &old_n);
+        if (old_in && old_n > n) { free(in); in = old_in; n = old_n; }
+        else free(old_in);
+    }
     if (n >= 4 && !memcmp(in, "\x7f" "ELF", 4)) {  /* not encrypted */
         int ok = write_file(out, in, n);
+        if (ok) printf("decrypted EBOOT.BIN (%u bytes of ELF, %u written) to %s\n", n, n, out);
         free(in);
         return ok;
     }

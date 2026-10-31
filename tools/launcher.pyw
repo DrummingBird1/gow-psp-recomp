@@ -44,14 +44,14 @@ def data_root():
 ROOT = data_root() if FROZEN else Path(__file__).resolve().parent.parent
 CONFIG = Path(os.environ.get("GOW_LAUNCHER_CONFIG") or ROOT / "build" / "launcher.json")
 GAMES = {
-    "coo": {"id": "UCUS98653", "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
-    "gos": {"id": "UCUS98737", "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
+    "coo": {"id": "UCUS98653", "ids": ("UCUS98653", "UCES00842", "NPUG80325", "NPEG00023", "UCAS40198", "UCJS10084", "ULJM05348", "UCKS45084", "UCET00844", "UCUS98705"), "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
+    "gos": {"id": "UCUS98737", "ids": ("UCUS98737", "UCES01401", "UCES01473", "NPUG80500", "NPEG00044", "NPEG00045", "UCAS40308", "NPHG00092", "UCJS10114", "UCKS45165", "UCJB98016"), "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
 }
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "show_input": False, "crt": False,
-    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "language": "en", "ui_language": "en", "button_icons": "auto", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -129,7 +129,7 @@ def write_controls(cfg):
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
-           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "he", "ar"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es", "de", "it", "ru"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "he", "ar"), "button_icons": ("auto", "kb", "ps", "xbox"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
 BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
 
@@ -389,6 +389,8 @@ def play_command(cfg, game):
         cmd += ["--fps", str(cfg["fps"])]
     if cfg.get("controls"):
         cmd += ["--controls", str(ROOT / "build" / "controls.ini")]
+    if cfg.get("button_icons", "auto") in ("auto", "kb", "xbox"):
+        cmd += ["--button-icons", cfg.get("button_icons", "auto")]
     if not cfg.get("stick_evade", True):
         cmd.append("--no-stick-evade")
     if cfg.get("language", "en") != "en":
@@ -431,12 +433,12 @@ def ppsspp_saves(folder):
     [(game, path, encrypted)]. PPSSPP encrypts saves unless EncryptSave is off in its ppsspp.ini; the port reads plain ones."""
     d = Path(folder)
     for sub in ("PSP/SAVEDATA", "SAVEDATA", ""):
-        if (d / sub).is_dir() and any((d / sub).glob("UCUS987*")):
+        if (d / sub).is_dir() and any((d / sub).glob(did + "*") for g in GAMES.values() for did in g.get("ids", (g["id"],))):
             d = d / sub
             break
     out = []
     for game, g in GAMES.items():
-        for p in sorted(d.glob(g["id"] + "*")):
+        for p in sorted({p for did in g.get("ids", (g["id"],)) for p in d.glob(did + "*")}):
             sfo = p / "PARAM.SFO"
             if not sfo.is_file():
                 continue
@@ -589,7 +591,7 @@ def disc_tool_steps(tools):
 
 def scan_folder(folder, out=print):
     """{game: disc image path} for the .chd/.iso files in folder (and its direct subfolders), by disc ID."""
-    ids = {g["id"]: k for k, g in GAMES.items()}
+    ids = {did: k for k, g in GAMES.items() for did in g.get("ids", (g["id"],))}
     found = {}
     base = Path(folder)
     cands = [p for pat in ("*.chd", "*.iso", "*/*.chd", "*/*.iso") for p in sorted(base.glob(pat), key=lambda q: str(q).lower())]
@@ -599,7 +601,7 @@ def scan_folder(folder, out=print):
                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         except (OSError, subprocess.TimeoutExpired):
             continue
-        disc_id = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
+        disc_id = r.stdout.strip().splitlines()[0].replace("-", "").strip().upper() if r.returncode == 0 and r.stdout.strip() else ""
         out(f"{f.name}: {disc_id or 'not a PSP disc'}")
         if disc_id in ids and ids[disc_id] not in found:
             found[ids[disc_id]] = str(f)
@@ -673,7 +675,8 @@ def build_steps(cfg, game, tools=None):
 
     def needs_recomp():
         digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
-        return not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest
+        return (not (gen_dir(game) / "image.bin").exists() or not any(gen_dir(game).glob("funcs_*.c"))
+                or not stamp.exists() or stamp.read_text().strip() != digest)
 
     steps.append((recomp_command(python) + ["--elf", str(eboot),
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
@@ -728,7 +731,7 @@ def build_with(cfg, game, tools, out=print):
             if why:
                 out(toolchain.ERROR + why)
             return False
-        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != GAMES[game]["id"]):
+        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].replace("-", "").strip().upper() not in GAMES[game].get("ids", (GAMES[game]["id"],))):
             out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} "
                 f"({GAMES[game]['title']})")
             return False

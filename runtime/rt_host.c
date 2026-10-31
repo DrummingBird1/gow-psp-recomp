@@ -455,11 +455,74 @@ void rt_host_rumble(float strength, int ms) {
     for (int i = 0; i < 8; i++) if (g_pads[i]) SDL_RumbleGamepad(g_pads[i], lo, hi, (Uint32)ms);
 }
 
+static int g_active_dev = 3;  /* 1 PlayStation pad, 2 Xbox/other pad, 3 Keyboard + Mouse */
+
+static int pad_icon_mode(SDL_Gamepad *gp) {
+    if (!gp) return 2;
+    SDL_GamepadType t = SDL_GetGamepadType(gp);
+    if (t == SDL_GAMEPAD_TYPE_PS3 || t == SDL_GAMEPAD_TYPE_PS4 || t == SDL_GAMEPAD_TYPE_PS5) return 1;
+    const char *nm = SDL_GetGamepadName(gp);
+    if (nm && (SDL_strstr(nm, "PlayStation") || SDL_strstr(nm, "DualShock") || SDL_strstr(nm, "DualSense") ||
+               SDL_strstr(nm, "PS4") || SDL_strstr(nm, "PS5") || SDL_strstr(nm, "PS3")))
+        return 1;
+    return 2;
+}
+
+int rt_host_button_icon_mode(void) {
+    if (rt_gpu_opt.button_icons == 1) return g_active_dev;  /* auto */
+    if (rt_gpu_opt.button_icons == 2) return 2;             /* xbox */
+    if (rt_gpu_opt.button_icons == 3) return 3;             /* kb */
+    return 1;                                               /* ps (default) */
+}
+
+const char *rt_host_button_label(int bind_idx) {
+    static char bufs[NBIND][8];
+    if (bind_idx < 0 || bind_idx >= NBIND) return "";
+    if (g_bind[bind_idx].nk <= 0) return "?";
+    int sc = g_bind[bind_idx].k[0];
+    if (sc == MOUSE_KEY + 1) return "LMB";
+    if (sc == MOUSE_KEY + 2) return "MMB";
+    if (sc == MOUSE_KEY + 3) return "RMB";
+    if (sc == MOUSE_KEY + 4) return "M4";
+    if (sc == MOUSE_KEY + 5) return "M5";
+    if (sc == SDL_SCANCODE_SPACE) return "SPC";
+    if (sc == SDL_SCANCODE_RETURN || sc == SDL_SCANCODE_KP_ENTER) return "ENT";
+    if (sc == SDL_SCANCODE_LSHIFT || sc == SDL_SCANCODE_RSHIFT) return "SHF";
+    if (sc == SDL_SCANCODE_LCTRL || sc == SDL_SCANCODE_RCTRL) return "CTL";
+    if (sc == SDL_SCANCODE_LALT || sc == SDL_SCANCODE_RALT) return "ALT";
+    if (sc == SDL_SCANCODE_TAB) return "TAB";
+    if (sc == SDL_SCANCODE_BACKSPACE) return "BSP";
+    if (sc == SDL_SCANCODE_CAPSLOCK) return "CPS";
+    if (sc == SDL_SCANCODE_ESCAPE) return "ESC";
+    if (sc == SDL_SCANCODE_UP) return "^";
+    if (sc == SDL_SCANCODE_DOWN) return "v";
+    if (sc == SDL_SCANCODE_LEFT) return "<";
+    if (sc == SDL_SCANCODE_RIGHT) return ">";
+    const char *nm = SDL_GetScancodeName((SDL_Scancode)sc);
+    if (!nm || !*nm) return "?";
+    if (!SDL_strncasecmp(nm, "Keypad ", 7)) nm += 7;
+    else if (!SDL_strncasecmp(nm, "Left ", 5)) nm += 5;
+    else if (!SDL_strncasecmp(nm, "Right ", 6)) nm += 6;
+    char *out = bufs[bind_idx];
+    int o = 0;
+    for (int i = 0; nm[i] && o < 3; i++) {
+        char c = nm[i];
+        if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+        if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) out[o++] = c;
+    }
+    if (!o) { out[0] = nm[0]; o = 1; }
+    out[o] = 0;
+    return out;
+}
+
 static void open_pad(SDL_JoystickID id) {
     for (int i = 0; i < 8; i++)
         if (!g_pads[i]) {
             g_pads[i] = SDL_OpenGamepad(id);
-            if (g_pads[i]) printf("[host] gamepad connected: %s\n", SDL_GetGamepadName(g_pads[i]));
+            if (g_pads[i]) {
+                printf("[host] gamepad connected: %s\n", SDL_GetGamepadName(g_pads[i]));
+                g_active_dev = pad_icon_mode(g_pads[i]);
+            }
             return;
         }
 }
@@ -816,14 +879,8 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
             pump();
             ahead = (int64_t)(g_wall0 + (next_virt - g_virt0)) - (int64_t)now_us();
         }
-    } else if (rt_display_hz() > 61 && next_virt > now_virt && -ahead >= SKIP_MIN_US && -ahead <= SKIP_MAX_US) {
-        /* never skip past the sound a channel still has queued: its next block would start late and
-         * leave a dropout (heard as choppy sound over the music); what can't be skipped now is
-         * skipped later or, past SKIP_MAX_US, dropped */
-        uint64_t want = (uint64_t)-ahead, budget = rt_audio_skip_budget_us(next_virt);  /* the skip comes on top of next_virt */
-        budget = budget > SKIP_HEADROOM_US ? budget - SKIP_HEADROOM_US : 0;
-        uint64_t sk = want < budget ? want : budget;
-        if (sk < want) g_skips_capped++;
+    } else if ((k_idle_vblank || g_movie_on) && rt_display_hz() > 61 && next_virt > now_virt && -ahead >= SKIP_MIN_US && -ahead <= SKIP_MAX_US) {
+        uint64_t sk = (uint64_t)-ahead;
         if (sk >= SKIP_MIN_US) {
             k_idle_skip = sk;
             rec_skip(now_virt, next_virt, k_idle_skip);
@@ -900,10 +957,10 @@ static int live_input(uint32_t *out_b, int *lx, int *ly, uint64_t now_virt_us) {
             int on = 0;
             for (int j = 0; j < g_bind[i].nk; j++) {
                 int sc = g_bind[i].k[j];
-                on |= sc >= MOUSE_KEY ? (mb & SDL_BUTTON_MASK(sc - MOUSE_KEY)) != 0 : k[sc];
+                if (sc >= MOUSE_KEY ? (mb & SDL_BUTTON_MASK(sc - MOUSE_KEY)) != 0 : k[sc]) { on = 1; g_active_dev = 3; }
             }
             for (int p = 0; p < 8; p++)
-                if (g_pads[p]) for (int j = 0; j < g_bind[i].np; j++) on |= pad_down(g_pads[p], g_bind[i].p[j]);
+                if (g_pads[p]) for (int j = 0; j < g_bind[i].np; j++) if (pad_down(g_pads[p], g_bind[i].p[j])) { on = 1; g_active_dev = pad_icon_mode(g_pads[p]); }
             if (!on) continue;
             if (i < 12) b |= b_bits[i];
             else stick[i - B_STICK_UP] = 1;
@@ -923,7 +980,7 @@ static int live_input(uint32_t *out_b, int *lx, int *ly, uint64_t now_virt_us) {
             SDL_Gamepad *gp = g_pads[i];
             if (!gp) continue;
             int x = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY);
-            if (abs(x) > 6000 || abs(y) > 6000) { ax = (x + 32768) >> 8; ay = (y + 32768) >> 8; }
+            if (abs(x) > 6000 || abs(y) > 6000) { ax = (x + 32768) >> 8; ay = (y + 32768) >> 8; if (abs(x) > 12000 || abs(y) > 12000) g_active_dev = pad_icon_mode(gp); }
             /* the right stick evades, as in the PS2 games: the PSP's evade is L + R + the stick in that direction */
             if (!g_o.no_stick_evade) {
                 int rx = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTX), ry = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_RIGHTY);
@@ -960,4 +1017,6 @@ static int live_input(uint32_t *b, int *lx, int *ly, uint64_t now_us) { (void)b;
 void rt_host_movie_playing(int on) { (void)on; }
 int rt_host_take_movie_skip(void) { return replay_movie_skip(); }
 void rt_host_rumble(float strength, int ms) { (void)strength; (void)ms; }
+int rt_host_button_icon_mode(void) { return 1; }
+const char *rt_host_button_label(int bind_idx) { (void)bind_idx; return ""; }
 #endif

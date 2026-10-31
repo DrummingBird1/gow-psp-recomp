@@ -57,7 +57,8 @@ FX = [("Match resolution", 0), ("Original glow", 1)]
 ANISO = [("Off", 1), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
 GPU_API = [("Auto (Direct3D 12)", ""), ("Direct3D 12", "direct3d12"), ("Vulkan", "vulkan")]
 GPU_POWER = [("Fast (dedicated)", "high"), ("Power saving (integrated)", "low")]
-LANGUAGE = [("English", "en"), ("French", "fr"), ("Spanish", "es")]
+LANGUAGE = [("English", "en"), ("French", "fr"), ("Spanish", "es"), ("German", "de"), ("Italian", "it"), ("Russian", "ru")]
+BUTTON_ICONS = [("Auto (by active device)", "auto"), ("Keyboard + Mouse", "kb"), ("PlayStation (\u25a1 \u25b3 \u25cb \u2715)", "ps"), ("Xbox (X Y B A)", "xbox")]
 
 
 def label_of(table, value):
@@ -524,7 +525,7 @@ class KeyButton(QPushButton):
 
     def listen(self):
         self.waiting = True
-        self.setText("press a key\u2026")
+        self.setText(T("press a key\u2026"))
         self.grabKeyboard()
 
     def keyPressEvent(self, e):
@@ -568,13 +569,17 @@ class ControlsDialog(QDialog):
         super().__init__(win)
         self.win, self.L = win, win.L
         self.setWindowTitle(T("Controls"))
-        self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }}")
+        self.setStyleSheet(STYLE + f"QDialog {{ background: {BG}; }} QScrollArea {{ background: transparent; border: 1px solid {BRONZE}; border-radius: 4px; }}")
+        scr = (win.screen() or QApplication.primaryScreen()).availableGeometry()
+        max_h = max(460, int(scr.height() * 0.85))
+        self.setMaximumHeight(max_h)
+        self.resize(min(840, int(scr.width() * 0.92)), min(680, max_h))
         v = QVBoxLayout(self)
         l = QLabel(T("Controls"))
         l.setObjectName("bigq")
         v.addWidget(l)
         v.addWidget(Ornament(160))
-        l = QLabel(self.L.KEYS)  # the default keys (the main page's footer showed them before)
+        l = QLabel(T(self.L.KEYS))  # the default keys (the main page's footer showed them before)
         l.setWordWrap(True)
         v.addWidget(l)
         l = QLabel("Click a key box, then press the key or click a mouse button (Backspace clears it). Esc, F2, F3, F11, F12 "
@@ -583,14 +588,34 @@ class ControlsDialog(QDialog):
         l.setObjectName("dim")
         l.setWordWrap(True)
         v.addWidget(l)
-        grid = QGridLayout()
-        for c, t in enumerate(("PSP button", "Key", "Key 2", "Gamepad", "Gamepad 2")):
+        l.setText(T(l.text()))
+        ic_row = QHBoxLayout()
+        ic_lbl = QLabel(T("Button icons in game"))
+        ic_lbl.setObjectName("head")
+        ic_row.addWidget(ic_lbl)
+        self.icons_cb = QComboBox()
+        self.icons_cb.addItems([T(t[0]) for t in BUTTON_ICONS])
+        self.icons_cb.setCurrentText(label_of(BUTTON_ICONS, win.cfg.get("button_icons", "auto")))
+        ic_row.addWidget(self.icons_cb, 1)
+        v.addLayout(ic_row)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_w = QWidget()
+        scroll_w.setStyleSheet(f"background: {PANEL};")
+        grid = QGridLayout(scroll_w)
+        for c, t in enumerate(("PSP button", "Key 1", "Key 2", "Gamepad 1", "Gamepad 2")):
             h = QLabel(T(t))
             h.setObjectName("head")
             grid.addWidget(h, 0, c)
         self.rows = {}
         cur = self.L.controls_of(win.cfg)
-        for r, (b, label) in enumerate(PSP_LABELS, 1):
+        for col_i, col_title in enumerate(("Reset Key 1", "Reset Key 2", "Reset Gamepad 1", "Reset Gamepad 2")):
+            rb = QPushButton(T("Reset"))
+            rb.setToolTip(T(col_title))
+            rb.setStyleSheet("padding: 3px 8px; font-size: 8.5pt;")
+            rb.clicked.connect(lambda _=False, ci=col_i: self.reset_column(ci))
+            grid.addWidget(rb, 1, 1 + col_i)
+        for r, (b, label) in enumerate(PSP_LABELS, 2):
             keys, pads = cur[b]
             grid.addWidget(QLabel(T(label)), r, 0)
             kb = [KeyButton(keys[i] if i < len(keys) else "") for i in range(2)]
@@ -601,14 +626,15 @@ class ControlsDialog(QDialog):
             for i in range(2):
                 cb = QComboBox()
                 cb.setMinimumWidth(150)
-                cb.addItems([t for t, _ in PAD_LABELS])
+                cb.addItems([T(t) for t, _ in PAD_LABELS])
                 cb.setCurrentText(label_of(PAD_LABELS, pads[i] if i < len(pads) else ""))
                 cb.setEnabled(not b.startswith("stick") or b.startswith("stick_spin"))  # a pad button can spin the stick
                 cb.currentTextChanged.connect(lambda _t, cb=cb: self.pad_set(cb))
                 grid.addWidget(cb, r, 3 + i)
                 pc.append(cb)
             self.rows[b] = (kb, pc)
-        v.addLayout(grid)
+        scroll.setWidget(scroll_w)
+        v.addWidget(scroll, 1)
         self.evade = QCheckBox(T("Gamepad right stick evades (L + R + stick, as in the PS2 games)"))
         self.evade.setChecked(bool(win.cfg.get("stick_evade", True)))
         v.addWidget(self.evade)
@@ -675,6 +701,21 @@ class ControlsDialog(QDialog):
         self.warn.setText("\n".join(probs[:6]))
         self.ok.setEnabled(not any("reserved" in p for p in probs))
 
+    def reset_column(self, col_idx):
+        for b, (kb, pc) in self.rows.items():
+            keys, pads = self.L.CONTROLS[b]
+            if col_idx == 0:
+                kb[0].key = keys[0] if len(keys) > 0 else ""
+                kb[0].setText(kb[0].key or "\u2014")
+            elif col_idx == 1:
+                kb[1].key = keys[1] if len(keys) > 1 else ""
+                kb[1].setText(kb[1].key or "\u2014")
+            elif col_idx == 2:
+                pc[0].setCurrentText(label_of(PAD_LABELS, pads[0] if len(pads) > 0 else ""))
+            elif col_idx == 3:
+                pc[1].setCurrentText(label_of(PAD_LABELS, pads[1] if len(pads) > 1 else ""))
+        self.check()
+
     def defaults(self):
         for b, (kb, pc) in self.rows.items():
             keys, pads = self.L.CONTROLS[b]
@@ -693,6 +734,7 @@ class ControlsDialog(QDialog):
         self.win.cfg["controls"] = {b: {"keys": k, "pad": p} for b, (k, p) in cur.items()
                                     if (k, p) != tuple(dflt[b]) and (k, p) != (dflt[b][0][:2], dflt[b][1][:2])}
         self.win.cfg["stick_evade"] = self.evade.isChecked()
+        self.win.cfg["button_icons"] = value_of(BUTTON_ICONS, self.icons_cb.currentText())
         self.win.collect()
         self.accept()
 
