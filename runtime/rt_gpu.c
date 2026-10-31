@@ -1176,6 +1176,97 @@ static int is_button_icon_atlas(const uint32_t *px, int w, int h) {
     return 0;
 }
 
+static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, int s, const char *label, uint32_t fg, uint32_t rim);
+static void draw_kb_keycap(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label);
+
+static int icon_lum(uint32_t c) {
+    return (int)((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF));
+}
+
+/* 1 = circle, 2 = cross, 3 = triangle, 4 = square, 0 = none.
+ * World-space use-prompts are a single PSP face glyph on their own texture (or a
+ * second copy in the HUD atlas), not the 16x16 cells patch_button_icons knows. */
+static int classify_face_cell(const uint32_t *px, int w, int h, int cx, int cy, int s) {
+    if (s < 12 || cx < 0 || cy < 0 || cx + s > w || cy + s > h) return 0;
+    int mid = s / 2, ring = 0, hole = 0, diag = 0, axis = 0, top = 0, bright = 0, chroma = 0;
+    int r0 = s * 3 / 10, r1 = s * 48 / 100;
+    if (r1 <= r0) r1 = r0 + 1;
+    for (int y = 0; y < s; y++) {
+        for (int x = 0; x < s; x++) {
+            uint32_t c = px[(cy + y) * w + (cx + x)];
+            if ((c >> 24) < 140) continue;
+            int L = icon_lum(c);
+            if (L < 420) continue;
+            int cr = (int)(c & 0xFF), cg = (int)((c >> 8) & 0xFF), cb = (int)((c >> 16) & 0xFF);
+            int dcr = cr - cg, dcg = cg - cb;
+            if (dcr < 0) dcr = -dcr;
+            if (dcg < 0) dcg = -dcg;
+            chroma += dcr + dcg;
+            bright++;
+            int dx = x - mid, dy = y - mid;
+            int d2 = dx * dx + dy * dy;
+            if (d2 <= (s * s) / 16) hole++;
+            else if (d2 >= r0 * r0 && d2 <= r1 * r1) ring++;
+            if (dx < 0) dx = -dx;
+            if (dy < 0) dy = -dy;
+            if (dx + dy > 0 && (dx - dy < 2 && dy - dx < 2)) diag++;
+            if (dx < 2 || dy < 2) axis++;
+            if (y < mid) top++;
+        }
+    }
+    if (bright < s || bright > s * s * 3 / 4) return 0;
+    if (chroma > bright * 40) return 0;  /* coloured art, not a white PSP glyph */
+    int inner = hole * 4, annulus = ring;
+    if (annulus > inner && annulus * 3 > bright) return 1;           /* hollow ring = circle */
+    if (diag * 5 > bright * 2 && diag > axis) return 2;              /* X */
+    if (top * 5 > bright * 3 && hole * 3 < bright) return 3;         /* peak on top = triangle */
+    if (axis * 5 > bright * 2 && hole * 2 < bright) return 4;        /* axis-aligned box */
+    return 0;
+}
+
+static int face_bind_of(int kind) {
+    if (kind == 1) return RT_BIND_CIRCLE;
+    if (kind == 2) return RT_BIND_CROSS;
+    if (kind == 3) return RT_BIND_TRIANGLE;
+    return RT_BIND_SQUARE;
+}
+
+static void draw_face_replacement(uint32_t *px, int w, int cx, int cy, int s, int kind, int mode) {
+    static const char *xbox[5] = { "", "B", "A", "Y", "X" };
+    static const uint32_t fg[5] = { 0, 0xFF9696FFu, 0xFF96FF96u, 0xFF8CF0FFu, 0xFFFFD896u };
+    static const uint32_t rim[5] = { 0, 0xFF242448u, 0xFF244424u, 0xFF203C48u, 0xFF483020u };
+    if (kind < 1 || kind > 4) return;
+    if (mode == 2) draw_xbox_face(px, w, cx, cy, s, xbox[kind], fg[kind], rim[kind]);
+    else draw_kb_keycap(px, w, cx, cy, s, s, rt_host_button_label(face_bind_of(kind)));
+}
+
+static int standalone_prompt_kind(const uint32_t *px, int w, int h, int *ox, int *oy, int *os) {
+    if (w < 16 || h < 16 || w > 256 || h > 256) return 0;
+    int x0 = w, y0 = h, x1 = 0, y1 = 0, opaque = 0;
+    for (int y = 0; y < h; y++)
+        for (int x = 0; x < w; x++) {
+            if ((px[y * w + x] >> 24) < 40) continue;
+            opaque++;
+            if (x < x0) x0 = x;
+            if (y < y0) y0 = y;
+            if (x > x1) x1 = x;
+            if (y > y1) y1 = y;
+        }
+    if (opaque < 20) return 0;
+    int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    if (bw < 12 || bh < 12 || bw > 128 || bh > 128) return 0;
+    if (bw * 4 < bh * 3 || bh * 4 < bw * 3) return 0;  /* roughly square */
+    int s = bw > bh ? bw : bh;
+    int kind = classify_face_cell(px, w, h, x0, y0, s < bw && s < bh ? s : (bw < bh ? bw : bh));
+    if (!kind) kind = classify_face_cell(px, w, h, x0, y0, bw < bh ? bw : bh);
+    if (!kind && w == h) kind = classify_face_cell(px, w, h, 0, 0, w);
+    if (!kind) return 0;
+    *ox = x0;
+    *oy = y0;
+    *os = bw < bh ? bw : bh;
+    return kind;
+}
+
 /* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
 static void put_cell_px(uint32_t *px, int w, int cx, int cy, int ch, int x, int row, uint32_t col) {
     px[(cy + ch - 1 - row) * w + (cx + x)] = col;
@@ -1191,19 +1282,18 @@ static void draw_cell_text(uint32_t *px, int w, int cx, int cy, int cw, int ch, 
     if (len <= 0) return;
     if (len > 4) len = 4;
     if (len == 1 && cw >= 16 && ch >= 14) {
-        /* 1-char bold 6x7 glyph centered in 16x16 */
         uint16_t g = icon_glyph3x5(s[0]);
-        int x0 = (cw - 6) / 2, y0 = (ch - 7) / 2;
-        static const int rmap[7] = { 0, 0, 1, 2, 2, 3, 4 };
-        for (int r = 0; r < 7; r++) {
-            int gr = rmap[r];
+        int sc = cw >= 28 ? (cw - 4) / 6 : 2;
+        if (sc < 2) sc = 2;
+        int gw = 3 * sc, gh = 5 * sc;
+        int x0 = (cw - gw) / 2, y0 = (ch - gh) / 2;
+        for (int r = 0; r < 5; r++)
             for (int c = 0; c < 3; c++) {
-                if ((g >> ((4 - gr) * 3 + (2 - c))) & 1) {
-                    put_cell_px(px, w, cx, cy, ch, x0 + c * 2, y0 + r, fg);
-                    put_cell_px(px, w, cx, cy, ch, x0 + c * 2 + 1, y0 + r, fg);
-                }
+                if (!((g >> ((4 - r) * 3 + (2 - c))) & 1)) continue;
+                for (int dy = 0; dy < sc; dy++)
+                    for (int dx = 0; dx < sc; dx++)
+                        put_cell_px(px, w, cx, cy, ch, x0 + c * sc + dx, y0 + r * sc + dy, fg);
             }
-        }
         return;
     }
     if (cw >= 26 && len <= 4) {
@@ -1247,18 +1337,20 @@ static void draw_cell_text(uint32_t *px, int w, int cx, int cy, int cw, int ch, 
     }
 }
 
-static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, const char *label, uint32_t fg, uint32_t rim) {
-    clear_cell(px, w, cx, cy, 16, 16);
-    for (int r = 0; r < 16; r++) {
-        for (int x = 0; x < 16; x++) {
-            float dx = (float)x - 7.5f, dy = (float)r - 7.5f;
+static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, int s, const char *label, uint32_t fg, uint32_t rim) {
+    if (s < 8) s = 8;
+    clear_cell(px, w, cx, cy, s, s);
+    float k = (float)s / 16.0f, mid = (s - 1) * 0.5f;
+    for (int r = 0; r < s; r++) {
+        for (int x = 0; x < s; x++) {
+            float dx = (float)x - mid, dy = (float)r - mid;
             float d2 = dx * dx + dy * dy;
-            if (d2 <= 30.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF202020u);
-            else if (d2 <= 44.0f) put_cell_px(px, w, cx, cy, 16, x, r, rim);
-            else if (d2 <= 54.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xB0101010u);
+            if (d2 <= 30.0f * k * k) put_cell_px(px, w, cx, cy, s, x, r, 0xFF202020u);
+            else if (d2 <= 44.0f * k * k) put_cell_px(px, w, cx, cy, s, x, r, rim);
+            else if (d2 <= 54.0f * k * k) put_cell_px(px, w, cx, cy, s, x, r, 0xB0101010u);
         }
     }
-    draw_cell_text(px, w, cx, cy, 16, 16, label, fg);
+    draw_cell_text(px, w, cx, cy, s, s, label, fg);
 }
 
 static void draw_xbox_bumper(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label) {
@@ -1335,10 +1427,10 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
         if (mode == 2) {
             draw_xbox_bumper(px, w, 35, 112, 30, 14, "RB");
             draw_xbox_bumper(px, w, 65, 112, 31, 14, "LB");
-            draw_xbox_face(px, w, 1, 144, "B", 0xFF9696FFu, 0xFF242448u);
-            draw_xbox_face(px, w, 52, 161, "A", 0xFF96FF96u, 0xFF244424u);
-            draw_xbox_face(px, w, 69, 161, "Y", 0xFF8CF0FFu, 0xFF203C48u);
-            draw_xbox_face(px, w, 103, 161, "X", 0xFFFFD896u, 0xFF483020u);
+            draw_xbox_face(px, w, 1, 144, 16, "B", 0xFF9696FFu, 0xFF242448u);
+            draw_xbox_face(px, w, 52, 161, 16, "A", 0xFF96FF96u, 0xFF244424u);
+            draw_xbox_face(px, w, 69, 161, 16, "Y", 0xFF8CF0FFu, 0xFF203C48u);
+            draw_xbox_face(px, w, 103, 161, 16, "X", 0xFFFFD896u, 0xFF483020u);
         } else if (mode == 3) {
             draw_kb_keycap(px, w, 1, 112, 33, 14, rt_host_button_label(RT_BIND_START));
             draw_kb_keycap(px, w, 35, 112, 30, 14, rt_host_button_label(RT_BIND_R));
@@ -1355,10 +1447,10 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
             draw_xbox_bumper(px, w, 33, 44, 31, 14, "BACK");
             draw_xbox_bumper(px, w, 0, 44, 32, 14, "LB");
             draw_xbox_bumper(px, w, 0, 59, 32, 14, "RB");
-            draw_xbox_face(px, w, 0, 74, "X", 0xFFFFD896u, 0xFF483020u);
-            draw_xbox_face(px, w, 17, 74, "B", 0xFF9696FFu, 0xFF242448u);
-            draw_xbox_face(px, w, 17, 91, "A", 0xFF96FF96u, 0xFF244424u);
-            draw_xbox_face(px, w, 34, 91, "Y", 0xFF8CF0FFu, 0xFF203C48u);
+            draw_xbox_face(px, w, 0, 74, 16, "X", 0xFFFFD896u, 0xFF483020u);
+            draw_xbox_face(px, w, 17, 74, 16, "B", 0xFF9696FFu, 0xFF242448u);
+            draw_xbox_face(px, w, 17, 91, 16, "A", 0xFF96FF96u, 0xFF244424u);
+            draw_xbox_face(px, w, 34, 91, 16, "Y", 0xFF8CF0FFu, 0xFF203C48u);
         } else if (mode == 3) {
             draw_kb_keycap(px, w, 0, 29, 31, 14, rt_host_button_label(RT_BIND_START));
             draw_kb_keycap(px, w, 33, 44, 31, 14, rt_host_button_label(RT_BIND_SELECT));
@@ -1371,6 +1463,50 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
             draw_kb_keycap(px, w, 34, 91, 16, 16, rt_host_button_label(RT_BIND_TRIANGLE));
         }
     }
+}
+
+/* Extra 16x16 face glyphs in the HUD atlases, plus the large in-world use prompt
+ * (the glowing circle over objects) which is its own texture. */
+static int patch_loose_button_icons(uint32_t *px, int w, int h, int atlas, int mode) {
+    if (mode <= 1) return 0;
+    int n = 0;
+    if (atlas) {
+        unsigned char seen[(256 / 8) * 256];
+        if (w > 256 || h > 256) return 0;
+        memset(seen, 0, (size_t)((w + 7) / 8) * (size_t)h);
+        int ymin = atlas == 1 ? 140 : atlas == 2 ? 70 : 0;
+        for (int y = ymin; y + 16 <= h; y++) {
+            for (int x = 0; x + 16 <= w; x++) {
+                if (seen[y * ((w + 7) / 8) + (x >> 3)] & (1u << (x & 7))) continue;
+                if (!check_icon_cell(px, w, x, y)) continue;
+                int kind = classify_face_cell(px, w, h, x, y, 16);
+                if (!kind) continue;
+                draw_face_replacement(px, w, x, y, 16, kind, mode);
+                n++;
+                for (int dy = 0; dy < 16; dy++)
+                    for (int dx = 0; dx < 16; dx++)
+                        seen[(y + dy) * ((w + 7) / 8) + ((x + dx) >> 3)] |= (unsigned char)(1u << ((x + dx) & 7));
+            }
+        }
+        return n;
+    }
+    int ox, oy, os, kind = standalone_prompt_kind(px, w, h, &ox, &oy, &os);
+    if (kind) {
+        draw_face_replacement(px, w, ox, oy, os, kind, mode);
+        return 1;
+    }
+    if (w < 16 || h < 16 || w > 256 || h > 256) return 0;
+    for (int y = 0; y + 16 <= h; y++) {
+        for (int x = 0; x + 16 <= w; x++) {
+            if (!check_icon_cell(px, w, x, y)) continue;
+            kind = classify_face_cell(px, w, h, x, y, 16);
+            if (!kind) continue;
+            draw_face_replacement(px, w, x, y, 16, kind, mode);
+            n++;
+            x += 15;
+        }
+    }
+    return n;
 }
 
 void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_t *rgba) {
@@ -1414,7 +1550,12 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
         size_t bytes = (size_t)lw * lh * 4, off = (g_upsize + 511) & ~(size_t)511;
         grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
         memcpy(g_upbytes + off, rgba, bytes);
-        if (l == 0 && atlas) patch_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, rt_host_button_icon_mode());
+        if (l == 0 && rt_gpu_opt.button_icons) {
+            int mode = rt_host_button_icon_mode();
+            if (atlas) patch_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, mode);
+            if (patch_loose_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, mode))
+                e->icon_atlas = 1;
+        }
         rgba += (size_t)lw * lh;
         g_upsize = off + bytes;
         grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
