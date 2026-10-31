@@ -116,7 +116,7 @@ typedef struct {
     int stencil_dirty;         /* stencil written since its values were last copied into the alpha channel */
     int want_s;                /* scale to change to after the frame (0: none) */
 } Target;
-typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift, icon_atlas; } TexEntry;
+typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift, icon_atlas, icon_ring; } TexEntry;
 typedef struct { uint64_t key; SDL_GPUGraphicsPipeline *p; } Pipe;
 typedef struct { uint32_t key; SDL_GPUSampler *s; } Samp;
 /* pooled textures: render-to-texture snapshots, staging for scaled uploads */
@@ -1184,22 +1184,21 @@ static int icon_lum(uint32_t c) {
     return (int)((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF));
 }
 
-/* Full circular use-button (dark bezel + white O) filling most of a square, corners
- * empty. A glow/halo is a thin bright ring with a hollow centre — those must not match. */
-static int is_world_circle_prompt(const uint32_t *px, int w, int h) {
-    if (w != h || (w != 32 && w != 64 && w != 128)) return 0;
+/* White PSP circle glyph (hard ring, little grey falloff). Glow sprites are soft and fail this. */
+static int is_hard_circle_glyph(const uint32_t *px, int w, int h) {
+    if (w != h || (w != 16 && w != 32 && w != 64 && w != 128)) return 0;
     uint32_t c00 = px[0], c10 = px[w - 1], c01 = px[(h - 1) * w], c11 = px[h * w - 1];
-    if ((c00 >> 24) >= 32 || (c10 >> 24) >= 32 || (c01 >> 24) >= 32 || (c11 >> 24) >= 32) return 0;
-    int mid = w / 2, opaque = 0, bright = 0, hole = 0, ring = 0, chroma = 0;
-    int bezel_n = 0, bezel_dark = 0, face_n = 0, face_dark = 0;
-    int r_face = w * 28 / 100, r_o0 = w * 18 / 100, r_o1 = w * 32 / 100, r_bez = w * 40 / 100;
+    if ((c00 >> 24) >= 40 || (c10 >> 24) >= 40 || (c01 >> 24) >= 40 || (c11 >> 24) >= 40) return 0;
+    int mid = w / 2, bright = 0, midg = 0, hole = 0, ring = 0, chroma = 0;
+    int r0 = w * 18 / 100, r1 = w * 48 / 100;
+    if (r1 <= r0) r1 = r0 + 1;
     for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
             uint32_t c = px[y * w + x];
-            int a = (int)(c >> 24), L = icon_lum(c);
+            if ((c >> 24) < 40) continue;
+            int L = icon_lum(c);
             int dx = x - mid, dy = y - mid, d2 = dx * dx + dy * dy;
-            if (a >= 40) opaque++;
-            if (a >= 140 && L >= 420) {
+            if (L >= 400) {
                 int cr = (int)(c & 0xFF), cg = (int)((c >> 8) & 0xFF), cb = (int)((c >> 16) & 0xFF);
                 int dcr = cr - cg, dcg = cg - cb;
                 if (dcr < 0) dcr = -dcr;
@@ -1207,43 +1206,61 @@ static int is_world_circle_prompt(const uint32_t *px, int w, int h) {
                 chroma += dcr + dcg;
                 bright++;
                 if (d2 <= (w * w) / 36) hole++;
-                else if (d2 >= r_o0 * r_o0 && d2 <= r_o1 * r_o1) ring++;
-            }
-            if (d2 >= r_bez * r_bez && d2 <= (w * 48 / 100) * (w * 48 / 100)) {
-                bezel_n++;
-                if (a >= 160 && L < 280) bezel_dark++;
-            }
-            if (d2 <= r_face * r_face) {
-                face_n++;
-                if (a >= 160 && L < 300) face_dark++;
-            }
+                else if (d2 >= r0 * r0 && d2 <= r1 * r1) ring++;
+            } else if (L >= 90) midg++;
         }
     }
-    /* Inscribed disc is ~78% of the square; a halo is a few percent. */
-    if (opaque * 100 < w * h * 45 || opaque * 100 > w * h * 85) return 0;
-    if (bezel_n < 8 || bezel_dark * 2 < bezel_n) return 0;
-    if (face_n < 8 || face_dark * 2 < face_n) return 0;
-    if (bright < w || chroma > bright * 24) return 0;
-    if (ring <= hole * 2 || ring * 3 < bright) return 0;
+    if (bright < w || midg > bright) return 0;
+    if (chroma > bright * 24) return 0;
+    if (ring <= hole) return 0;
     return 1;
 }
 
-static void patch_world_circle_prompt(uint32_t *px, int w, int mode) {
-    /* Keep the original bezel; redraw only the inner face (the O). */
-    int inner = w * 58 / 100;
-    if (inner < 16) inner = 16;
-    if (inner > w) inner = w;
-    int cx = (w - inner) / 2, cy = (w - inner) / 2;
+static void draw_circle_prompt_pixels(uint32_t *px, int w, int mode) {
     const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
     if (mode == 2) {
-        draw_xbox_face(px, w, cx, cy, inner, "B", 0xFF9696FFu, 0xFF242448u);
+        draw_xbox_face(px, w, 0, 0, w, "B", 0xFF9696FFu, 0xFF242448u);
         return;
     }
     if (!strcmp(lab, "LMB") || !strcmp(lab, "RMB") || !strcmp(lab, "MMB")) {
-        draw_mouse_n(px, w, cx, cy, inner, !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2);
+        draw_mouse_n(px, w, 0, 0, w, !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2);
         return;
     }
-    draw_xbox_face(px, w, cx, cy, inner, lab, 0xFFFFFFFFu, 0xFF404040u);
+    draw_xbox_face(px, w, 0, 0, w, lab, 0xFFFFFFFFu, 0xFF404040u);
+}
+
+static SDL_GPUTexture *g_prompt_gpu;
+static int g_prompt_w, g_prompt_h, g_prompt_mode;
+static char g_prompt_lab[12];
+
+static SDL_GPUTexture *prompt_gpu_tex(int w, int h) {
+    int mode = rt_host_button_icon_mode();
+    const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
+    if (g_prompt_gpu && g_prompt_w == w && g_prompt_h == h && g_prompt_mode == mode && !strcmp(g_prompt_lab, lab))
+        return g_prompt_gpu;
+    if (g_prompt_gpu) SDL_ReleaseGPUTexture(g_dev, g_prompt_gpu);
+    g_prompt_gpu = NULL;
+    if (w < 8 || h < 8) return NULL;
+    g_prompt_gpu = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, 1, SDL_GPU_SAMPLECOUNT_1);
+    if (!g_prompt_gpu) return NULL;
+    size_t bytes = (size_t)w * h * 4, off = (g_upsize + 511) & ~(size_t)511;
+    grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
+    uint32_t *px = (uint32_t *)(g_upbytes + off);
+    memset(px, 0, bytes);
+    draw_circle_prompt_pixels(px, w, mode);
+    grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
+    g_ups[g_nups].tex = g_prompt_gpu;
+    g_ups[g_nups].offset = (uint32_t)off;
+    g_ups[g_nups].w = w;
+    g_ups[g_nups].h = h;
+    g_ups[g_nups].level = 0;
+    g_nups++;
+    g_upsize = off + bytes;
+    g_prompt_w = w;
+    g_prompt_h = h;
+    g_prompt_mode = mode;
+    snprintf(g_prompt_lab, sizeof(g_prompt_lab), "%s", lab);
+    return g_prompt_gpu;
 }
 
 /* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
@@ -1501,6 +1518,7 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
     e->replaced = 0;
     int atlas = rt_gpu_opt.button_icons ? is_button_icon_atlas(rgba, w, h) : 0;
     e->icon_atlas = atlas != 0;
+    e->icon_ring = !atlas && rt_gpu_opt.button_icons && is_hard_circle_glyph(rgba, w, h);
     e->used = g_frame;
     g_tex_count++;
     for (int l = 0; l < nl; l++) {
@@ -1508,14 +1526,7 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
         size_t bytes = (size_t)lw * lh * 4, off = (g_upsize + 511) & ~(size_t)511;
         grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
         memcpy(g_upbytes + off, rgba, bytes);
-        if (l == 0 && rt_gpu_opt.button_icons) {
-            int mode = rt_host_button_icon_mode();
-            if (atlas) patch_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, mode);
-            else if (mode > 1 && is_world_circle_prompt((uint32_t *)(g_upbytes + off), lw, lh)) {
-                patch_world_circle_prompt((uint32_t *)(g_upbytes + off), lw, mode);
-                e->icon_atlas = 1;
-            }
-        }
+        if (l == 0 && atlas) patch_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, rt_host_button_icon_mode());
         rgba += (size_t)lw * lh;
         g_upsize = off + bytes;
         grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
@@ -1542,7 +1553,7 @@ static void evict_textures(void) {
     g_tex_count = 0;
     for (size_t i = 0; i < TEX_SLOTS; i++) {
         if (!old[i].key) continue;
-        if (g_frame - old[i].used > 300 || (drop_icons && old[i].icon_atlas)) {
+        if (g_frame - old[i].used > 300 || (drop_icons && (old[i].icon_atlas || old[i].icon_ring))) {
             if (!old[i].replaced) SDL_ReleaseGPUTexture(g_dev, old[i].tex);  /* a pack's picture stays */
             continue;
         }
@@ -1598,6 +1609,22 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
             if (e->key) {
                 tex = e->tex;
                 e->used = g_frame;
+                if (e->icon_ring && rt_host_button_icon_mode() > 1) {
+                    float bx0 = 1e30f, by0 = 1e30f, bx1 = -1e30f, by1 = -1e30f;
+                    for (uint32_t i = 0; i < n; i++) {
+                        if (v[i].x < bx0) bx0 = v[i].x;
+                        if (v[i].x > bx1) bx1 = v[i].x;
+                        if (v[i].y < by0) by0 = v[i].y;
+                        if (v[i].y > by1) by1 = v[i].y;
+                    }
+                    float bw = bx1 - bx0, bh = by1 - by0;
+                    /* Use-prompt is a small round HUD/billboard; glow is a large screen quad. */
+                    if (bw >= 28.f && bh >= 28.f && bw <= 140.f && bh <= 140.f &&
+                        bw < bh * 1.35f && bh < bw * 1.35f) {
+                        SDL_GPUTexture *rep = prompt_gpu_tex(e->w, e->h);
+                        if (rep) tex = rep;
+                    }
+                }
                 if (e->replaced) {  /* a pack's picture: its own mip chain, filtered as it is */
                     static GpuDraw dr;
                     dr = *d;
@@ -2583,6 +2610,7 @@ void rt_gpu_shutdown(void) {
     SDL_ReleaseGPUSampler(g_dev, g_point);
     SDL_ReleaseGPUSampler(g_dev, g_linear);
     SDL_ReleaseGPUTexture(g_dev, g_white);
+    if (g_prompt_gpu) { SDL_ReleaseGPUTexture(g_dev, g_prompt_gpu); g_prompt_gpu = NULL; }
     if (g_vbuf) SDL_ReleaseGPUBuffer(g_dev, g_vbuf);
     if (g_tbuf) SDL_ReleaseGPUTransferBuffer(g_dev, g_tbuf);
     SDL_ReleaseGPUShader(g_dev, g_vs);
