@@ -1229,38 +1229,50 @@ static void draw_circle_prompt_pixels(uint32_t *px, int w, int mode) {
     draw_xbox_face(px, w, 0, 0, w, lab, 0xFFFFFFFFu, 0xFF404040u);
 }
 
-static SDL_GPUTexture *g_prompt_gpu;
-static int g_prompt_w, g_prompt_h, g_prompt_mode;
-static char g_prompt_lab[12];
+enum { PROMPT_CACHE = 4 };
+static struct { SDL_GPUTexture *tex; int w, h, mode; char lab[12]; } g_prompt[PROMPT_CACHE];
 
 static SDL_GPUTexture *prompt_gpu_tex(int w, int h) {
     int mode = rt_host_button_icon_mode();
     const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
-    if (g_prompt_gpu && g_prompt_w == w && g_prompt_h == h && g_prompt_mode == mode && !strcmp(g_prompt_lab, lab))
-        return g_prompt_gpu;
-    if (g_prompt_gpu) SDL_ReleaseGPUTexture(g_dev, g_prompt_gpu);
-    g_prompt_gpu = NULL;
-    if (w < 8 || h < 8) return NULL;
-    g_prompt_gpu = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, 1, SDL_GPU_SAMPLECOUNT_1);
-    if (!g_prompt_gpu) return NULL;
+    if (w < 8 || h < 8 || w > 256 || h > 256) return NULL;
+    for (int i = 0; i < PROMPT_CACHE; i++)
+        if (g_prompt[i].tex && g_prompt[i].w == w && g_prompt[i].h == h && g_prompt[i].mode == mode &&
+            !strcmp(g_prompt[i].lab, lab))
+            return g_prompt[i].tex;
+    int slot = -1;
+    for (int i = 0; i < PROMPT_CACHE; i++)
+        if (!g_prompt[i].tex) { slot = i; break; }
+    if (slot < 0) {
+        /* Drop the oldest only after the frame that still samples it has been submitted. */
+        if (g_nrelease >= (int)(sizeof(g_release) / sizeof(g_release[0]))) return g_prompt[0].tex;
+        g_release[g_nrelease++] = g_prompt[0].tex;
+        memmove(&g_prompt[0], &g_prompt[1], (PROMPT_CACHE - 1) * sizeof(g_prompt[0]));
+        memset(&g_prompt[PROMPT_CACHE - 1], 0, sizeof(g_prompt[0]));
+        slot = PROMPT_CACHE - 1;
+    }
+    SDL_GPUTexture *tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, 1,
+                                       SDL_GPU_SAMPLECOUNT_1);
+    if (!tex) return NULL;
     size_t bytes = (size_t)w * h * 4, off = (g_upsize + 511) & ~(size_t)511;
     grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
     uint32_t *px = (uint32_t *)(g_upbytes + off);
     memset(px, 0, bytes);
     draw_circle_prompt_pixels(px, w, mode);
     grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
-    g_ups[g_nups].tex = g_prompt_gpu;
+    memset(&g_ups[g_nups], 0, sizeof(Upload));
+    g_ups[g_nups].tex = tex;
     g_ups[g_nups].offset = (uint32_t)off;
     g_ups[g_nups].w = w;
     g_ups[g_nups].h = h;
-    g_ups[g_nups].level = 0;
     g_nups++;
     g_upsize = off + bytes;
-    g_prompt_w = w;
-    g_prompt_h = h;
-    g_prompt_mode = mode;
-    snprintf(g_prompt_lab, sizeof(g_prompt_lab), "%s", lab);
-    return g_prompt_gpu;
+    g_prompt[slot].tex = tex;
+    g_prompt[slot].w = w;
+    g_prompt[slot].h = h;
+    g_prompt[slot].mode = mode;
+    snprintf(g_prompt[slot].lab, sizeof(g_prompt[slot].lab), "%s", lab);
+    return tex;
 }
 
 /* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
@@ -2610,7 +2622,8 @@ void rt_gpu_shutdown(void) {
     SDL_ReleaseGPUSampler(g_dev, g_point);
     SDL_ReleaseGPUSampler(g_dev, g_linear);
     SDL_ReleaseGPUTexture(g_dev, g_white);
-    if (g_prompt_gpu) { SDL_ReleaseGPUTexture(g_dev, g_prompt_gpu); g_prompt_gpu = NULL; }
+    for (int i = 0; i < PROMPT_CACHE; i++)
+        if (g_prompt[i].tex) { SDL_ReleaseGPUTexture(g_dev, g_prompt[i].tex); g_prompt[i].tex = NULL; }
     if (g_vbuf) SDL_ReleaseGPUBuffer(g_dev, g_vbuf);
     if (g_tbuf) SDL_ReleaseGPUTransferBuffer(g_dev, g_tbuf);
     SDL_ReleaseGPUShader(g_dev, g_vs);
