@@ -1178,23 +1178,26 @@ static int is_button_icon_atlas(const uint32_t *px, int w, int h) {
 
 static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, int s, const char *label, uint32_t fg, uint32_t rim);
 static void draw_kb_keycap(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label);
+static void draw_mouse_n(uint32_t *px, int w, int cx, int cy, int s, int btn);
 
 static int icon_lum(uint32_t c) {
     return (int)((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF));
 }
 
-/* 1 = circle, 2 = cross, 3 = triangle, 4 = square, 0 = none.
- * World-space use-prompts are a single PSP face glyph on their own texture (or a
- * second copy in the HUD atlas), not the 16x16 cells patch_button_icons knows. */
-static int classify_face_cell(const uint32_t *px, int w, int h, int cx, int cy, int s) {
-    if (s < 12 || cx < 0 || cy < 0 || cx + s > w || cy + s > h) return 0;
-    int mid = s / 2, ring = 0, hole = 0, diag = 0, axis = 0, top = 0, bright = 0, chroma = 0;
-    int r0 = s * 3 / 10, r1 = s * 48 / 100;
+/* The in-world use prompt is a square texture of one white PSP circle on a dark disc,
+ * with transparent corners. Font atlases and opaque world textures must not match. */
+static int is_world_circle_prompt(const uint32_t *px, int w, int h) {
+    if (w != h || (w != 16 && w != 32 && w != 64 && w != 128)) return 0;
+    uint32_t c00 = px[0], c10 = px[w - 1], c01 = px[(h - 1) * w], c11 = px[h * w - 1];
+    if ((c00 >> 24) >= 32 || (c10 >> 24) >= 32 || (c01 >> 24) >= 32 || (c11 >> 24) >= 32) return 0;
+    int mid = w / 2, opaque = 0, bright = 0, hole = 0, ring = 0, chroma = 0;
+    int r0 = w * 28 / 100, r1 = w * 46 / 100;
     if (r1 <= r0) r1 = r0 + 1;
-    for (int y = 0; y < s; y++) {
-        for (int x = 0; x < s; x++) {
-            uint32_t c = px[(cy + y) * w + (cx + x)];
-            if ((c >> 24) < 140) continue;
+    for (int y = 0; y < h; y++) {
+        for (int x = 0; x < w; x++) {
+            uint32_t c = px[y * w + x];
+            if ((c >> 24) < 40) continue;
+            opaque++;
             int L = icon_lum(c);
             if (L < 420) continue;
             int cr = (int)(c & 0xFF), cg = (int)((c >> 8) & 0xFF), cb = (int)((c >> 16) & 0xFF);
@@ -1203,68 +1206,28 @@ static int classify_face_cell(const uint32_t *px, int w, int h, int cx, int cy, 
             if (dcg < 0) dcg = -dcg;
             chroma += dcr + dcg;
             bright++;
-            int dx = x - mid, dy = y - mid;
-            int d2 = dx * dx + dy * dy;
-            if (d2 <= (s * s) / 16) hole++;
+            int dx = x - mid, dy = y - mid, d2 = dx * dx + dy * dy;
+            if (d2 <= (w * w) / 16) hole++;
             else if (d2 >= r0 * r0 && d2 <= r1 * r1) ring++;
-            if (dx < 0) dx = -dx;
-            if (dy < 0) dy = -dy;
-            if (dx + dy > 0 && (dx - dy < 2 && dy - dx < 2)) diag++;
-            if (dx < 2 || dy < 2) axis++;
-            if (y < mid) top++;
         }
     }
-    if (bright < s || bright > s * s * 3 / 4) return 0;
-    if (chroma > bright * 40) return 0;  /* coloured art, not a white PSP glyph */
-    int inner = hole * 4, annulus = ring;
-    if (annulus > inner && annulus * 3 > bright) return 1;           /* hollow ring = circle */
-    if (diag * 5 > bright * 2 && diag > axis) return 2;              /* X */
-    if (top * 5 > bright * 3 && hole * 3 < bright) return 3;         /* peak on top = triangle */
-    if (axis * 5 > bright * 2 && hole * 2 < bright) return 4;        /* axis-aligned box */
-    return 0;
+    if (opaque < w * 2 || opaque * 2 > w * h) return 0;
+    if (bright < w || chroma > bright * 24) return 0;
+    if (ring <= hole * 3 || ring * 2 < bright) return 0;
+    return 1;
 }
 
-static int face_bind_of(int kind) {
-    if (kind == 1) return RT_BIND_CIRCLE;
-    if (kind == 2) return RT_BIND_CROSS;
-    if (kind == 3) return RT_BIND_TRIANGLE;
-    return RT_BIND_SQUARE;
-}
-
-static void draw_face_replacement(uint32_t *px, int w, int cx, int cy, int s, int kind, int mode) {
-    static const char *xbox[5] = { "", "B", "A", "Y", "X" };
-    static const uint32_t fg[5] = { 0, 0xFF9696FFu, 0xFF96FF96u, 0xFF8CF0FFu, 0xFFFFD896u };
-    static const uint32_t rim[5] = { 0, 0xFF242448u, 0xFF244424u, 0xFF203C48u, 0xFF483020u };
-    if (kind < 1 || kind > 4) return;
-    if (mode == 2) draw_xbox_face(px, w, cx, cy, s, xbox[kind], fg[kind], rim[kind]);
-    else draw_kb_keycap(px, w, cx, cy, s, s, rt_host_button_label(face_bind_of(kind)));
-}
-
-static int standalone_prompt_kind(const uint32_t *px, int w, int h, int *ox, int *oy, int *os) {
-    if (w < 16 || h < 16 || w > 256 || h > 256) return 0;
-    int x0 = w, y0 = h, x1 = 0, y1 = 0, opaque = 0;
-    for (int y = 0; y < h; y++)
-        for (int x = 0; x < w; x++) {
-            if ((px[y * w + x] >> 24) < 40) continue;
-            opaque++;
-            if (x < x0) x0 = x;
-            if (y < y0) y0 = y;
-            if (x > x1) x1 = x;
-            if (y > y1) y1 = y;
-        }
-    if (opaque < 20) return 0;
-    int bw = x1 - x0 + 1, bh = y1 - y0 + 1;
-    if (bw < 12 || bh < 12 || bw > 128 || bh > 128) return 0;
-    if (bw * 4 < bh * 3 || bh * 4 < bw * 3) return 0;  /* roughly square */
-    int s = bw > bh ? bw : bh;
-    int kind = classify_face_cell(px, w, h, x0, y0, s < bw && s < bh ? s : (bw < bh ? bw : bh));
-    if (!kind) kind = classify_face_cell(px, w, h, x0, y0, bw < bh ? bw : bh);
-    if (!kind && w == h) kind = classify_face_cell(px, w, h, 0, 0, w);
-    if (!kind) return 0;
-    *ox = x0;
-    *oy = y0;
-    *os = bw < bh ? bw : bh;
-    return kind;
+static void patch_world_circle_prompt(uint32_t *px, int w, int mode) {
+    const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
+    if (mode == 2) {
+        draw_xbox_face(px, w, 0, 0, w, "B", 0xFF9696FFu, 0xFF242448u);
+        return;
+    }
+    if (!strcmp(lab, "LMB") || !strcmp(lab, "RMB") || !strcmp(lab, "MMB")) {
+        draw_mouse_n(px, w, 0, 0, w, !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2);
+        return;
+    }
+    draw_xbox_face(px, w, 0, 0, w, lab, 0xFFFFFFFFu, 0xFF404040u);
 }
 
 /* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
@@ -1283,17 +1246,31 @@ static void draw_cell_text(uint32_t *px, int w, int cx, int cy, int cw, int ch, 
     if (len > 4) len = 4;
     if (len == 1 && cw >= 16 && ch >= 14) {
         uint16_t g = icon_glyph3x5(s[0]);
-        int sc = cw >= 28 ? (cw - 4) / 6 : 2;
-        if (sc < 2) sc = 2;
-        int gw = 3 * sc, gh = 5 * sc;
-        int x0 = (cw - gw) / 2, y0 = (ch - gh) / 2;
-        for (int r = 0; r < 5; r++)
+        if (cw >= 28) {
+            int sc = (cw - 4) / 6;
+            if (sc < 2) sc = 2;
+            int gw = 3 * sc, gh = 5 * sc;
+            int x0 = (cw - gw) / 2, y0 = (ch - gh) / 2;
+            for (int r = 0; r < 5; r++)
+                for (int c = 0; c < 3; c++) {
+                    if (!((g >> ((4 - r) * 3 + (2 - c))) & 1)) continue;
+                    for (int dy = 0; dy < sc; dy++)
+                        for (int dx = 0; dx < sc; dx++)
+                            put_cell_px(px, w, cx, cy, ch, x0 + c * sc + dx, y0 + r * sc + dy, fg);
+                }
+            return;
+        }
+        int x0 = (cw - 6) / 2, y0 = (ch - 7) / 2;
+        static const int rmap[7] = { 0, 0, 1, 2, 2, 3, 4 };
+        for (int r = 0; r < 7; r++) {
+            int gr = rmap[r];
             for (int c = 0; c < 3; c++) {
-                if (!((g >> ((4 - r) * 3 + (2 - c))) & 1)) continue;
-                for (int dy = 0; dy < sc; dy++)
-                    for (int dx = 0; dx < sc; dx++)
-                        put_cell_px(px, w, cx, cy, ch, x0 + c * sc + dx, y0 + r * sc + dy, fg);
+                if ((g >> ((4 - gr) * 3 + (2 - c))) & 1) {
+                    put_cell_px(px, w, cx, cy, ch, x0 + c * 2, y0 + r, fg);
+                    put_cell_px(px, w, cx, cy, ch, x0 + c * 2 + 1, y0 + r, fg);
+                }
             }
+        }
         return;
     }
     if (cw >= 26 && len <= 4) {
@@ -1365,27 +1342,34 @@ static void draw_xbox_bumper(uint32_t *px, int w, int cx, int cy, int cw, int ch
     draw_cell_text(px, w, cx, cy, cw, ch, label, 0xFFFFFFFFu);
 }
 
-static void draw_mouse_16(uint32_t *px, int w, int cx, int cy, int btn) {
-    clear_cell(px, w, cx, cy, 16, 16);
-    for (int r = 1; r < 15; r++) {
-        int m = (r == 1 || r == 14) ? 5 : (r == 2 || r == 13) ? 4 : 3;
-        for (int x = m; x < 16 - m; x++) {
-            int border = (r == 1 || r == 14 || x == m || x == 15 - m || r == 7 || (r < 7 && (x == 7 || x == 8)));
-            uint32_t col = border ? 0xFF141414u : (r > 7 ? 0xFF545454u : 0xFF282828u);
-            if (!border && r >= 2 && r <= 6) {
-                if (btn == 1 && x <= 6) col = 0xFFFFFFFFu;
-                else if (btn == 3 && x >= 9) col = 0xFFFFFFFFu;
-                else if (btn == 2 && (x == 7 || x == 8)) col = 0xFFFFFFFFu;
+static void draw_mouse_n(uint32_t *px, int w, int cx, int cy, int s, int btn) {
+    if (s < 8) s = 8;
+    clear_cell(px, w, cx, cy, s, s);
+    for (int r = 1; r < s - 1; r++) {
+        int t = r * 16 / s, m;
+        if (t <= 1 || t >= 14) m = s * 5 / 16;
+        else if (t == 2 || t == 13) m = s * 4 / 16;
+        else m = s * 3 / 16;
+        if (m < 1) m = 1;
+        for (int x = m; x < s - m; x++) {
+            int xt = x * 16 / s;
+            int border = (t == 1 || t == 14 || x == m || x == s - m - 1 || t == 7 || (t < 7 && (xt == 7 || xt == 8)));
+            uint32_t col = border ? 0xFF141414u : (t > 7 ? 0xFF545454u : 0xFF282828u);
+            if (!border && t >= 2 && t <= 6) {
+                if (btn == 1 && xt <= 6) col = 0xFFFFFFFFu;
+                else if (btn == 3 && xt >= 9) col = 0xFFFFFFFFu;
+                else if (btn == 2 && (xt == 7 || xt == 8)) col = 0xFFFFFFFFu;
             }
-            if (btn == 2 && r >= 3 && r <= 5 && (x == 7 || x == 8)) col = 0xFFFFFFFFu;
-            put_cell_px(px, w, cx, cy, 16, x, r, col);
+            if (btn == 2 && t >= 3 && t <= 5 && (xt == 7 || xt == 8)) col = 0xFFFFFFFFu;
+            put_cell_px(px, w, cx, cy, s, x, r, col);
         }
     }
 }
 
 static void draw_kb_keycap(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label) {
-    if (cw == 16 && (!strcmp(label, "LMB") || !strcmp(label, "RMB") || !strcmp(label, "MMB"))) {
-        draw_mouse_16(px, w, cx, cy, !strcmp(label, "LMB") ? 1 : !strcmp(label, "RMB") ? 3 : 2);
+    if (!strcmp(label, "LMB") || !strcmp(label, "RMB") || !strcmp(label, "MMB")) {
+        int s = cw < ch ? cw : ch;
+        draw_mouse_n(px, w, cx, cy, s, !strcmp(label, "LMB") ? 1 : !strcmp(label, "RMB") ? 3 : 2);
         return;
     }
     clear_cell(px, w, cx, cy, cw, ch);
@@ -1465,49 +1449,7 @@ static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) 
     }
 }
 
-/* Extra 16x16 face glyphs in the HUD atlases, plus the large in-world use prompt
- * (the glowing circle over objects) which is its own texture. */
-static int patch_loose_button_icons(uint32_t *px, int w, int h, int atlas, int mode) {
-    if (mode <= 1) return 0;
-    int n = 0;
-    if (atlas) {
-        unsigned char seen[(256 / 8) * 256];
-        if (w > 256 || h > 256) return 0;
-        memset(seen, 0, (size_t)((w + 7) / 8) * (size_t)h);
-        int ymin = atlas == 1 ? 140 : atlas == 2 ? 70 : 0;
-        for (int y = ymin; y + 16 <= h; y++) {
-            for (int x = 0; x + 16 <= w; x++) {
-                if (seen[y * ((w + 7) / 8) + (x >> 3)] & (1u << (x & 7))) continue;
-                if (!check_icon_cell(px, w, x, y)) continue;
-                int kind = classify_face_cell(px, w, h, x, y, 16);
-                if (!kind) continue;
-                draw_face_replacement(px, w, x, y, 16, kind, mode);
-                n++;
-                for (int dy = 0; dy < 16; dy++)
-                    for (int dx = 0; dx < 16; dx++)
-                        seen[(y + dy) * ((w + 7) / 8) + ((x + dx) >> 3)] |= (unsigned char)(1u << ((x + dx) & 7));
-            }
-        }
-        return n;
-    }
-    int ox, oy, os, kind = standalone_prompt_kind(px, w, h, &ox, &oy, &os);
-    if (kind) {
-        draw_face_replacement(px, w, ox, oy, os, kind, mode);
-        return 1;
-    }
-    if (w < 16 || h < 16 || w > 256 || h > 256) return 0;
-    for (int y = 0; y + 16 <= h; y++) {
-        for (int x = 0; x + 16 <= w; x++) {
-            if (!check_icon_cell(px, w, x, y)) continue;
-            kind = classify_face_cell(px, w, h, x, y, 16);
-            if (!kind) continue;
-            draw_face_replacement(px, w, x, y, 16, kind, mode);
-            n++;
-            x += 15;
-        }
-    }
-    return n;
-}
+
 
 void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_t *rgba) {
     key |= 1;
@@ -1553,8 +1495,10 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
         if (l == 0 && rt_gpu_opt.button_icons) {
             int mode = rt_host_button_icon_mode();
             if (atlas) patch_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, mode);
-            if (patch_loose_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, mode))
+            else if (mode > 1 && is_world_circle_prompt((uint32_t *)(g_upbytes + off), lw, lh)) {
+                patch_world_circle_prompt((uint32_t *)(g_upbytes + off), lw, mode);
                 e->icon_atlas = 1;
+            }
         }
         rgba += (size_t)lw * lh;
         g_upsize = off + bytes;
