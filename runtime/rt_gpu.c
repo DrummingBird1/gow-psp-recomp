@@ -73,6 +73,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     else if (!strcmp(a, "--texture-dump")) o->texture_dump = v;
     else if (!strcmp(a, "--texture-pack")) o->texture_pack = v;
     else if (!strcmp(a, "--gpu-power")) o->low_power = !strcmp(v, "low");
+    else if (!strcmp(a, "--button-icons")) o->button_icons = !strcmp(v, "auto") ? 1 : !strcmp(v, "xbox") ? 2 : !strcmp(v, "kb") ? 3 : 0;
     else if (!strcmp(a, "--aspect")) {  /* W:H or a number */
         const char *colon = strchr(v, ':');
         double w = atof(v), h = colon ? atof(colon + 1) : 1.0;
@@ -115,7 +116,7 @@ typedef struct {
     int stencil_dirty;         /* stencil written since its values were last copied into the alpha channel */
     int want_s;                /* scale to change to after the frame (0: none) */
 } Target;
-typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift; } TexEntry;
+typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift, icon_atlas; } TexEntry;
 typedef struct { uint64_t key; SDL_GPUGraphicsPipeline *p; } Pipe;
 typedef struct { uint32_t key; SDL_GPUSampler *s; } Samp;
 /* pooled textures: render-to-texture snapshots, staging for scaled uploads */
@@ -1129,6 +1130,320 @@ int rt_gpu_texture_resident(uint64_t key) {
     return 1;
 }
 
+static uint16_t icon_glyph3x5(char ch) {
+    static const uint16_t digits[10] = { 0x7B6F, 0x2C97, 0x73E7, 0x73CF, 0x5BC9, 0x79CF, 0x79EF, 0x7249, 0x7BEF, 0x7BCF };
+    static const uint16_t letters[26] = {
+        0x2BED, 0x6BAE, 0x7927, 0x6B6E, 0x79E7, 0x79E4, 0x796F, 0x5BED, 0x7497, 0x126F, 0x5BAD, 0x4927, 0x5FED,
+        0x7B6D, 0x7B6F, 0x7BE4, 0x7B79, 0x6BAD, 0x79CF, 0x7492, 0x5B6F, 0x5B6A, 0x5BFD, 0x5AAD, 0x5A92, 0x72A7
+    };
+    if (ch >= 'a' && ch <= 'z') ch = (char)(ch - 'a' + 'A');
+    if (ch >= '0' && ch <= '9') return digits[ch - '0'];
+    if (ch >= 'A' && ch <= 'Z') return letters[ch - 'A'];
+    if (ch == '^') return 0x2E92;
+    if (ch == 'v') return 0x24BA;
+    if (ch == '<') return 0x15D1;
+    if (ch == '>') return 0x45D4;
+    return 0;
+}
+
+static int check_icon_cell(const uint32_t *px, int w, int cx, int cy) {
+    if ((px[cy * w + cx] >> 24) >= 32) return 0;
+    const int rx[4] = { cx + 8, cx + 8, cx + 2, cx + 13 };
+    const int ry[4] = { cy + 2, cy + 13, cy + 8, cy + 8 };
+    for (int i = 0; i < 4; i++) {
+        uint32_t c = px[ry[i] * w + rx[i]];
+        if ((c >> 24) < 180 || (c & 0xFF) > 80) return 0;
+    }
+    int bright = 0;
+    for (int y = cy + 4; y < cy + 12; y++)
+        for (int x = cx + 4; x < cx + 12; x++) {
+            uint32_t c = px[y * w + x];
+            if ((c >> 24) > 180 && (c & 0xFF) > 180) bright++;
+        }
+    return bright >= 6;
+}
+
+/* 1 = Chains of Olympus 128x256 font/icon atlas; 2 = Ghost of Sparta 64x128 button atlas */
+static int is_button_icon_atlas(const uint32_t *px, int w, int h) {
+    if (w == 128 && h == 256 &&
+        check_icon_cell(px, w, 1, 144) && check_icon_cell(px, w, 52, 161) &&
+        check_icon_cell(px, w, 69, 161) && check_icon_cell(px, w, 103, 161))
+        return 1;
+    if (w == 64 && h == 128 &&
+        check_icon_cell(px, w, 0, 74) && check_icon_cell(px, w, 17, 74) &&
+        check_icon_cell(px, w, 17, 91) && check_icon_cell(px, w, 34, 91))
+        return 2;
+    return 0;
+}
+
+/* Glyphs in the PSP font/icon atlases are stored vertically flipped (visual top = cy + ch - 1). */
+static void put_cell_px(uint32_t *px, int w, int cx, int cy, int ch, int x, int row, uint32_t col) {
+    px[(cy + ch - 1 - row) * w + (cx + x)] = col;
+}
+
+static void clear_cell(uint32_t *px, int w, int cx, int cy, int cw, int ch) {
+    for (int y = 0; y < ch; y++)
+        for (int x = 0; x < cw; x++) px[(cy + y) * w + (cx + x)] = 0;
+}
+
+static void draw_cell_text(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *s, uint32_t fg) {
+    int len = (int)strlen(s);
+    if (len <= 0) return;
+    if (len > 4) len = 4;
+    if (len == 1 && cw >= 16 && ch >= 14) {
+        /* 1-char bold 6x7 glyph centered in 16x16 */
+        uint16_t g = icon_glyph3x5(s[0]);
+        int x0 = (cw - 6) / 2, y0 = (ch - 7) / 2;
+        static const int rmap[7] = { 0, 0, 1, 2, 2, 3, 4 };
+        for (int r = 0; r < 7; r++) {
+            int gr = rmap[r];
+            for (int c = 0; c < 3; c++) {
+                if ((g >> ((4 - gr) * 3 + (2 - c))) & 1) {
+                    put_cell_px(px, w, cx, cy, ch, x0 + c * 2, y0 + r, fg);
+                    put_cell_px(px, w, cx, cy, ch, x0 + c * 2 + 1, y0 + r, fg);
+                }
+            }
+        }
+        return;
+    }
+    if (cw >= 26 && len <= 4) {
+        /* wide shoulder/menu badge (30..32 x 14): bold 5px-wide (2+1+2) x 6px-tall chars */
+        int char_w = len <= 2 ? 6 : 4;
+        int step = char_w + 1;
+        int tw = len * step - 1;
+        int x0 = (cw - tw) / 2, y0 = (ch - 6) / 2;
+        static const int rmap6[6] = { 0, 1, 2, 2, 3, 4 };
+        for (int i = 0; i < len; i++) {
+            uint16_t g = icon_glyph3x5(s[i]);
+            int bx = x0 + i * step;
+            for (int r = 0; r < 6; r++) {
+                int gr = rmap6[r];
+                for (int c = 0; c < 3; c++) {
+                    if (!((g >> ((4 - gr) * 3 + (2 - c))) & 1)) continue;
+                    if (char_w == 6) {
+                        put_cell_px(px, w, cx, cy, ch, bx + c * 2, y0 + r, fg);
+                        put_cell_px(px, w, cx, cy, ch, bx + c * 2 + 1, y0 + r, fg);
+                    } else {
+                        put_cell_px(px, w, cx, cy, ch, bx + c, y0 + r, fg);
+                        if (c == 0) put_cell_px(px, w, cx, cy, ch, bx + 1, y0 + r, fg);
+                    }
+                }
+            }
+        }
+        return;
+    }
+    /* 2..3 chars in 16x16 keycap: crisp 3x5 (or 3x6) glyphs */
+    int tw = len * 4 - 1;
+    int x0 = (cw - tw) / 2;
+    if (x0 < 2) x0 = 2;
+    int y0 = (ch - 5) / 2;
+    for (int i = 0; i < len; i++) {
+        uint16_t g = icon_glyph3x5(s[i]);
+        int bx = x0 + i * 4;
+        for (int r = 0; r < 5; r++)
+            for (int c = 0; c < 3; c++)
+                if (((g >> ((4 - r) * 3 + (2 - c))) & 1) && bx + c < cw - 1)
+                    put_cell_px(px, w, cx, cy, ch, bx + c, y0 + r, fg);
+    }
+}
+
+static void draw_xbox_face(uint32_t *px, int w, int cx, int cy, const char *label, uint32_t fg, uint32_t rim) {
+    clear_cell(px, w, cx, cy, 16, 16);
+    for (int r = 0; r < 16; r++) {
+        for (int x = 0; x < 16; x++) {
+            float dx = (float)x - 7.5f, dy = (float)r - 7.5f;
+            float d2 = dx * dx + dy * dy;
+            if (d2 <= 30.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF202020u);
+            else if (d2 <= 44.0f) put_cell_px(px, w, cx, cy, 16, x, r, rim);
+            else if (d2 <= 54.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xB0101010u);
+        }
+    }
+    draw_cell_text(px, w, cx, cy, 16, 16, label, fg);
+}
+
+static void draw_xbox_bumper(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label) {
+    clear_cell(px, w, cx, cy, cw, ch);
+    for (int r = 1; r < ch - 1; r++) {
+        int m = (r == 1 || r == ch - 2) ? 4 : (r == 2 || r == ch - 3) ? 2 : 1;
+        for (int x = m; x < cw - m; x++) {
+            uint32_t col = (r <= 2) ? 0xFFE0E0E0u : (r == ch - 2 || x == m || x == cw - m - 1) ? 0xFF141414u : 0xFF282828u;
+            put_cell_px(px, w, cx, cy, ch, x, r, col);
+        }
+    }
+    draw_cell_text(px, w, cx, cy, cw, ch, label, 0xFFFFFFFFu);
+}
+
+static void draw_mouse_16(uint32_t *px, int w, int cx, int cy, int btn) {
+    clear_cell(px, w, cx, cy, 16, 16);
+    for (int r = 1; r < 15; r++) {
+        int m = (r == 1 || r == 14) ? 5 : (r == 2 || r == 13) ? 4 : 3;
+        for (int x = m; x < 16 - m; x++) {
+            int border = (r == 1 || r == 14 || x == m || x == 15 - m || r == 7 || (r < 7 && (x == 7 || x == 8)));
+            uint32_t col = border ? 0xFF141414u : (r > 7 ? 0xFF545454u : 0xFF282828u);
+            if (!border && r >= 2 && r <= 6) {
+                if (btn == 1 && x <= 6) col = 0xFFFFFFFFu;
+                else if (btn == 3 && x >= 9) col = 0xFFFFFFFFu;
+                else if (btn == 2 && (x == 7 || x == 8)) col = 0xFFFFFFFFu;
+            }
+            if (btn == 2 && r >= 3 && r <= 5 && (x == 7 || x == 8)) col = 0xFFFFFFFFu;
+            put_cell_px(px, w, cx, cy, 16, x, r, col);
+        }
+    }
+}
+
+static void draw_kb_keycap(uint32_t *px, int w, int cx, int cy, int cw, int ch, const char *label) {
+    if (cw == 16 && (!strcmp(label, "LMB") || !strcmp(label, "RMB") || !strcmp(label, "MMB"))) {
+        draw_mouse_16(px, w, cx, cy, !strcmp(label, "LMB") ? 1 : !strcmp(label, "RMB") ? 3 : 2);
+        return;
+    }
+    clear_cell(px, w, cx, cy, cw, ch);
+    for (int r = 1; r < ch - 1; r++) {
+        int m = (r == 1 || r == ch - 2) ? 2 : 1;
+        for (int x = m; x < cw - m; x++) {
+            uint32_t col = 0xFF282828u;
+            if (r == 1 || r == ch - 2 || x == m || x == cw - m - 1) col = 0xFF121212u;
+            else if (r == 2) col = 0xFF686868u;
+            else if (r == ch - 3) col = 0xFF1A1A1Au;
+            else if (x == m + 1 || x == cw - m - 2) col = 0xFF424242u;
+            put_cell_px(px, w, cx, cy, ch, x, r, col);
+        }
+    }
+    draw_cell_text(px, w, cx, cy, cw, ch, label, 0xFFFFFFFFu);
+}
+
+static void draw_kb_stick(uint32_t *px, int w, int cx, int cy) {
+    clear_cell(px, w, cx, cy, 16, 16);
+    /* Analog stick icon: outer circular bezel with stick cap in center */
+    for (int r = 0; r < 16; r++) {
+        for (int x = 0; x < 16; x++) {
+            float dx = (float)x - 7.5f, dy = (float)r - 7.5f;
+            float d2 = dx * dx + dy * dy;
+            if (d2 <= 10.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFFFFFFFFu);
+            else if (d2 <= 18.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF707070u);
+            else if (d2 <= 36.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF1C1C1Cu);
+            else if (d2 <= 48.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF606060u);
+            else if (d2 <= 56.0f) put_cell_px(px, w, cx, cy, 16, x, r, 0xFF101010u);
+        }
+    }
+}
+
+static void patch_button_icons(uint32_t *px, int w, int h, int atlas, int mode) {
+    (void)h;
+    if (mode <= 1) return;  /* 1 = PlayStation: keep original PSP icons */
+    if (atlas == 1) {
+        /* Chains of Olympus (128x256) */
+        if (mode == 2) {
+            draw_xbox_bumper(px, w, 35, 112, 30, 14, "RB");
+            draw_xbox_bumper(px, w, 65, 112, 31, 14, "LB");
+            draw_xbox_face(px, w, 1, 144, "B", 0xFF9696FFu, 0xFF242448u);
+            draw_xbox_face(px, w, 52, 161, "A", 0xFF96FF96u, 0xFF244424u);
+            draw_xbox_face(px, w, 69, 161, "Y", 0xFF8CF0FFu, 0xFF203C48u);
+            draw_xbox_face(px, w, 103, 161, "X", 0xFFFFD896u, 0xFF483020u);
+        } else if (mode == 3) {
+            draw_kb_keycap(px, w, 1, 112, 33, 14, rt_host_button_label(RT_BIND_START));
+            draw_kb_keycap(px, w, 35, 112, 30, 14, rt_host_button_label(RT_BIND_R));
+            draw_kb_keycap(px, w, 65, 112, 31, 14, rt_host_button_label(RT_BIND_L));
+            draw_kb_keycap(px, w, 1, 144, 16, 16, rt_host_button_label(RT_BIND_CIRCLE));
+            draw_kb_stick(px, w, 35, 161);
+            draw_kb_keycap(px, w, 52, 161, 16, 16, rt_host_button_label(RT_BIND_CROSS));
+            draw_kb_keycap(px, w, 69, 161, 16, 16, rt_host_button_label(RT_BIND_TRIANGLE));
+            draw_kb_keycap(px, w, 103, 161, 16, 16, rt_host_button_label(RT_BIND_SQUARE));
+        }
+    } else if (atlas == 2) {
+        /* Ghost of Sparta (64x128) */
+        if (mode == 2) {
+            draw_xbox_bumper(px, w, 33, 44, 31, 14, "BACK");
+            draw_xbox_bumper(px, w, 0, 44, 32, 14, "LB");
+            draw_xbox_bumper(px, w, 0, 59, 32, 14, "RB");
+            draw_xbox_face(px, w, 0, 74, "X", 0xFFFFD896u, 0xFF483020u);
+            draw_xbox_face(px, w, 17, 74, "B", 0xFF9696FFu, 0xFF242448u);
+            draw_xbox_face(px, w, 17, 91, "A", 0xFF96FF96u, 0xFF244424u);
+            draw_xbox_face(px, w, 34, 91, "Y", 0xFF8CF0FFu, 0xFF203C48u);
+        } else if (mode == 3) {
+            draw_kb_keycap(px, w, 0, 29, 31, 14, rt_host_button_label(RT_BIND_START));
+            draw_kb_keycap(px, w, 33, 44, 31, 14, rt_host_button_label(RT_BIND_SELECT));
+            draw_kb_keycap(px, w, 0, 44, 32, 14, rt_host_button_label(RT_BIND_L));
+            draw_kb_keycap(px, w, 0, 59, 32, 14, rt_host_button_label(RT_BIND_R));
+            draw_kb_keycap(px, w, 0, 74, 16, 16, rt_host_button_label(RT_BIND_SQUARE));
+            draw_kb_keycap(px, w, 17, 74, 16, 16, rt_host_button_label(RT_BIND_CIRCLE));
+            draw_kb_stick(px, w, 0, 91);
+            draw_kb_keycap(px, w, 17, 91, 16, 16, rt_host_button_label(RT_BIND_CROSS));
+            draw_kb_keycap(px, w, 34, 91, 16, 16, rt_host_button_label(RT_BIND_TRIANGLE));
+        }
+    }
+}
+
+/* CoO in-world use prompt: white Circle "O" glyph (64x64, transparent corners). The dark
+ * bezel is a different picture (00b0e7c3098897a5) and is left alone. */
+#define WORLD_CIRCLE_GLYPH_KEY 0x460d2aa232751c59ull
+
+static int is_world_circle_glyph(const uint32_t *px, int w, int h) {
+    return w == 64 && h == 64 && image_key(px, w, h) == WORLD_CIRCLE_GLYPH_KEY;
+}
+
+static void patch_world_circle_glyph(uint32_t *px, int w, int h, int mode) {
+    if (mode <= 1 || w != h || w < 16) return;
+    memset(px, 0, (size_t)w * (size_t)h * 4);
+    const char *lab = rt_host_button_label(RT_BIND_CIRCLE);
+    if (mode == 3 && lab && (!strcmp(lab, "LMB") || !strcmp(lab, "RMB") || !strcmp(lab, "MMB"))) {
+        int btn = !strcmp(lab, "LMB") ? 1 : !strcmp(lab, "RMB") ? 3 : 2;
+        float s = (float)w / 16.0f;
+        for (int r = 1; r < 15; r++) {
+            int m = (r == 1 || r == 14) ? 5 : (r == 2 || r == 13) ? 4 : 3;
+            for (int x = m; x < 16 - m; x++) {
+                int border = (r == 1 || r == 14 || x == m || x == 15 - m || r == 7 ||
+                              (r < 7 && (x == 7 || x == 8)));
+                int hi = 0;
+                if (!border && r >= 2 && r <= 6) {
+                    if (btn == 1 && x <= 6) hi = 1;
+                    else if (btn == 3 && x >= 9) hi = 1;
+                    else if (btn == 2 && (x == 7 || x == 8)) hi = 1;
+                }
+                if (btn == 2 && r >= 3 && r <= 5 && (x == 7 || x == 8)) hi = 1;
+                uint32_t col = 0;
+                if (border) col = 0xFFFFFFFFu;
+                else if (hi) col = 0xFFFFFFFFu;
+                else if (r > 7) col = 0xB0FFFFFFu;
+                if (!col) continue;
+                int x0 = (int)(x * s), y0 = (int)(r * s);
+                int x1 = (int)((x + 1) * s), y1 = (int)((r + 1) * s);
+                for (int yy = y0; yy < y1 && yy < h; yy++)
+                    for (int xx = x0; xx < x1 && xx < w; xx++)
+                        px[(h - 1 - yy) * w + xx] = col;
+            }
+        }
+        return;
+    }
+    const char *s = (mode == 2) ? "B" : (lab && lab[0] ? lab : "O");
+    int len = (int)strlen(s);
+    if (len > 4) len = 4;
+    int cell = w >= 48 ? 8 : 4;
+    int char_w = 3 * (cell / 2) + (cell / 2 - 1);
+    if (cell == 4) char_w = 3;
+    int step = char_w + cell / 2;
+    int tw = len * step - cell / 2;
+    int th = 5 * (cell / 2 + 1);
+    if (cell == 8) th = 5 * 5;
+    int x0 = (w - tw) / 2, y0 = (h - th) / 2;
+    int pix = cell == 8 ? 4 : 1;
+    int gap = cell == 8 ? 1 : 0;
+    for (int i = 0; i < len; i++) {
+        uint16_t g = icon_glyph3x5(s[i]);
+        int bx = x0 + i * step;
+        for (int r = 0; r < 5; r++)
+            for (int c = 0; c < 3; c++) {
+                if (!((g >> ((4 - r) * 3 + (2 - c))) & 1)) continue;
+                int px0 = bx + c * (pix + gap), py0 = y0 + r * (pix + gap);
+                for (int dy = 0; dy < pix; dy++)
+                    for (int dx = 0; dx < pix; dx++) {
+                        int xx = px0 + dx, yy = py0 + dy;
+                        if ((unsigned)xx < (unsigned)w && (unsigned)yy < (unsigned)h)
+                            px[(h - 1 - yy) * w + xx] = 0xFFFFFFFFu;
+                    }
+            }
+    }
+}
+
 void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_t *rgba) {
     key |= 1;
     TexEntry *e = tex_slot(key);
@@ -1161,6 +1476,9 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
     e->h = h;
     e->levels = nl;
     e->replaced = 0;
+    int atlas = rt_gpu_opt.button_icons ? is_button_icon_atlas(rgba, w, h) : 0;
+    int world_o = rt_gpu_opt.button_icons ? is_world_circle_glyph(rgba, w, h) : 0;
+    e->icon_atlas = atlas != 0 || world_o;
     e->used = g_frame;
     g_tex_count++;
     for (int l = 0; l < nl; l++) {
@@ -1168,6 +1486,8 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
         size_t bytes = (size_t)lw * lh * 4, off = (g_upsize + 511) & ~(size_t)511;
         grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
         memcpy(g_upbytes + off, rgba, bytes);
+        if (l == 0 && atlas) patch_button_icons((uint32_t *)(g_upbytes + off), lw, lh, atlas, rt_host_button_icon_mode());
+        if (l == 0 && world_o) patch_world_circle_glyph((uint32_t *)(g_upbytes + off), lw, lh, rt_host_button_icon_mode());
         rgba += (size_t)lw * lh;
         g_upsize = off + bytes;
         grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
@@ -1184,13 +1504,17 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
 
 /* releases textures not used for a while (after the frame was submitted) */
 static void evict_textures(void) {
-    if (g_tex_count < TEX_SLOTS / 2 && g_frame % 600) return;
+    static int last_icon_mode = -1;
+    int icon_mode = rt_host_button_icon_mode();
+    int drop_icons = (last_icon_mode >= 0 && last_icon_mode != icon_mode);
+    last_icon_mode = icon_mode;
+    if (!drop_icons && g_tex_count < TEX_SLOTS / 2 && g_frame % 600) return;
     TexEntry *old = g_tex;
     g_tex = calloc(TEX_SLOTS, sizeof(TexEntry));
     g_tex_count = 0;
     for (size_t i = 0; i < TEX_SLOTS; i++) {
         if (!old[i].key) continue;
-        if (g_frame - old[i].used > 300) {
+        if (g_frame - old[i].used > 300 || (drop_icons && old[i].icon_atlas)) {
             if (!old[i].replaced) SDL_ReleaseGPUTexture(g_dev, old[i].tex);  /* a pack's picture stays */
             continue;
         }
