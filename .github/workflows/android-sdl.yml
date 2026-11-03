@@ -1,0 +1,38 @@
+name: android-sdl
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: libsdl-org/SDL
+          ref: fa2c02bb6e21974a89ea9824bc53c9932abe5f9c
+          path: SDL
+
+      - name: libSDL3.so (arm64-v8a)
+        run: |
+          NDK="$ANDROID_NDK_LATEST_HOME"
+          cmake -S SDL -B build-sdl -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TESTS=OFF -DSDL_EXAMPLES=OFF
+          cmake --build build-sdl
+          mkdir -p out && cp build-sdl/libSDL3.so out/
+
+      - name: APK vazio com SDLActivity (melhor esforço)
+        continue-on-error: true
+        run: |
+          cd SDL
+          printf '#include <SDL3/SDL_main.h>\nint main(int c, char **v){ (void)c; (void)v; return 0; }\n' > ../stub.c
+          python3 build-scripts/create-android-project.py org.gow.shell ../stub.c
+          cd build/org.gow.shell
+          ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/*.apk ../../../out/
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-sdl
+          path: out/
