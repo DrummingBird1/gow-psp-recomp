@@ -22,7 +22,9 @@ PSP disc, with 4K, MSAA, HDR and high frame rates.
 - Saving and loading work; sound, music and movies play.
 - **No full playthrough of either game yet**, so expect bugs late in a game. Known issues are listed in the
   [phase write-ups](docs/), the [launcher acceptance test](docs/phase14-launcher.md) and the [changelog](CHANGELOG.md).
-- Windows only for now (Linux / Steam Deck planned: see the [roadmap](docs/roadmap.md)).
+- Windows only for now (Linux / Steam Deck planned).
+- **What's next:** the [roadmap](docs/roadmap.md) lists what each version shipped, what comes next and what is planned
+  later, from the requests on GitHub.
 
 ### Known issues
 
