@@ -44,8 +44,10 @@ int rt_host_wants_idle(void);
 void rt_host_movie_playing(int on);
 int rt_host_take_movie_skip(void);
 
-/* The display's refresh (rt_hle.c): 59.94 Hz, or --fps N. */
+/* Gameplay refresh (rt_hle.c): 59.94 Hz by default, or --fps N. */
 void rt_display_set_hz(double hz);
 double rt_display_hz(void);
+/* PSP MPEG playback temporarily uses the hardware's 59.94 Hz display cadence. */
+void rt_display_movie_mode(int active);
 
 #endif

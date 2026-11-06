@@ -468,6 +468,7 @@ static void screenshot(void) {
 void rt_host_movie_playing(int on) {
     if (on != g_movie_on) g_skip_req = 0;
     g_movie_on = on;
+    rt_display_movie_mode(on);
 }
 
 int rt_host_take_movie_skip(void) {
@@ -818,6 +819,6 @@ void rt_host_shutdown(void) { rt_host_record_close(); }
 int rt_host_present(uint64_t frame, uint32_t addr, uint32_t stride, uint32_t format) { (void)frame; (void)addr; (void)stride; (void)format; return 0; }
 int rt_host_idle(uint64_t now_us, uint64_t next_us) { replay_skips(now_us, next_us); return 0; }
 static int live_input(uint32_t *b, int *lx, int *ly) { (void)b; (void)lx; (void)ly; return 0; }
-void rt_host_movie_playing(int on) { (void)on; }
+void rt_host_movie_playing(int on) { rt_display_movie_mode(on); }
 int rt_host_take_movie_skip(void) { return 0; }
 #endif

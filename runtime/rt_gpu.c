@@ -1326,12 +1326,19 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
         if (o[i].y > by1) by1 = o[i].y;
     }
     /* --aspect: compensate 2D overlays on the shown framebuffer so they keep their shape after
-     * presentation scaling. Wide subtitles are overlays too; exclude only passes spanning almost
-     * the whole framebuffer in BOTH dimensions (screen effects/fades), clears, and target copies.
-     * On narrower output, cap expansion per batch so edge text cannot be clipped. */
+     * presentation scaling. Large textured through-mode quads are menu/backdrop artwork, not HUD:
+     * let those reach the wider presentation edges, while keeping small text/icons and subtitles
+     * centered. Keep the test conservative (one or two quads, large texture and broad screen area)
+     * so full-screen fades, panels, and ordinary overlays retain the existing behavior. */
     float sq = rt_gpu_aspect_squeeze();
     int full_screen_pass = bx1 - bx0 >= DISP_W - 8 && by1 - by0 >= DISP_H - 8;
-    if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && !full_screen_pass && rt_gpu_shown_fb(t->addr)) {
+    float draw_w = bx1 - bx0, draw_h = by1 - by0;
+    int wide_backdrop = d->textured && !d->tex_target && d->tex_w >= 256 && d->tex_h >= 128 && n <= 12 &&
+                        draw_w >= DISP_W * 0.75f && draw_h >= DISP_H * 0.65f &&
+                        bx0 <= DISP_W * 0.125f && bx1 >= DISP_W * 0.875f &&
+                        by0 <= DISP_H * 0.18f && by1 >= DISP_H * 0.82f;
+    if (sq != 1.0f && d->through && !d->tex_target && !(d->flags & GPU_F_CLEAR) && !full_screen_pass &&
+        !wide_backdrop && rt_gpu_shown_fb(t->addr)) {
         float cx = (float)ox + DISP_W / 2.0f;
         if (sq > 1.0f) {
             float lo = (float)ox, hi = lo + DISP_W;

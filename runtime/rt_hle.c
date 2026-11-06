@@ -86,13 +86,27 @@ void rt_hle_report(void) {
 }
 
 /* --- display ---------------------------------------------------------------- */
-/* 59.94 Hz, or --fps N (docs/phase13-graphics.md): the vblank period, the vblank count and the
- * flip pacing follow it. Both games step their logic by elapsed time, so they keep their speed. */
+/* --fps controls gameplay pacing. PSP movie players expect the display clock to remain at the
+ * hardware's 59.94 Hz cadence, so temporarily restore it while an MPEG movie is active. */
+static uint32_t g_game_vblank_us = 16683u;
 static uint32_t g_vblank_us = 16683u;
+static int g_movie_mode;
+static void apply_display_vblank(void) {
+    g_vblank_us = g_movie_mode ? 16683u : g_game_vblank_us;
+}
 void rt_display_set_hz(double hz) {
-    g_vblank_us = hz >= 30 && hz <= 1000 && (hz < 59.5 || hz > 60.5) ? (uint32_t)(1e6 / hz + 0.5) : 16683u;
+    g_game_vblank_us = hz >= 30 && hz <= 1000 && (hz < 59.5 || hz > 60.5) ? (uint32_t)(1e6 / hz + 0.5) : 16683u;
+    apply_display_vblank();
 }
 double rt_display_hz(void) { return g_vblank_us == 16683u ? 59.94 : 1e6 / g_vblank_us; }
+void rt_display_movie_mode(int active) {
+    int next = active != 0;
+    if (next == g_movie_mode) return;
+    g_movie_mode = next;
+    apply_display_vblank();
+    rt_log("[display] %s; active vblank %.2f Hz%s\n", next ? "movie mode" : "movie ended",
+           rt_display_hz(), next ? " (PSP 59.94 Hz cadence)" : " (game FPS setting restored)");
+}
 #define VBLANK_US g_vblank_us
 static uint64_t g_frames;
 static uint32_t g_fb_addr, g_fb_width, g_fb_format;

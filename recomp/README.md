@@ -125,7 +125,7 @@ Graphics options of the hardware renderer (`--renderer gpu`, `runtime/rt_gpu.c`,
 | `--msaa 2\|4\|8`, `--aniso 2-16`, `--lod-bias F` | Multisample anti-aliasing; anisotropic filtering of 3D textures; mip level offset |
 | `--fxaa`, `--sharpen 0-1` | FXAA and contrast-adaptive sharpening at the internal resolution (window and PNGs) |
 | `--hdr [auto\|hdr10\|scrgb]`, `--paper-white NITS`, `--peak-nits NITS` | HDR output with inverse tone mapping; SDR when the display has no HDR |
-| `--fps HZ` | Display refresh (vblank rate, 30-1000): both games step by elapsed time; in the window, virtual time skips ahead when the host falls behind; recorded with `--record-input` |
+| `--fps HZ` | Gameplay display/vblank cadence (30-1000); active PSP MPEG movies temporarily use the hardware's 59.94 Hz cadence; high-rate virtual-time skips are recorded with `--record-input` |
 | `--vsync` | FIFO presentation (VRR); the default is mailbox |
 | `--aspect W:H` | A wider view (e.g. 21:9) with the HUD kept in the middle |
 | `--texture-dump DIR`, `--texture-pack DIR` | Writes each texture as `DIR/<key>.png`; PNGs of any size there replace them |
