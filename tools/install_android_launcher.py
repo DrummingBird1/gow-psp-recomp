@@ -66,6 +66,14 @@ def main() -> int:
     if not any(p.get(ANDROID + "name") == install_permission for p in root.findall("uses-permission")):
         root.insert(0, ET.Element("uses-permission", {ANDROID + "name": install_permission}))
 
+    # Gravação direta em Downloads em Android 7–9; Android 10+ usa MediaStore sem permissão.
+    legacy_storage_permission = "android.permission.WRITE_EXTERNAL_STORAGE"
+    if not any(p.get(ANDROID + "name") == legacy_storage_permission for p in root.findall("uses-permission")):
+        root.insert(0, ET.Element("uses-permission", {
+            ANDROID + "name": legacy_storage_permission,
+            ANDROID + "maxSdkVersion": "28",
+        }))
+
     providers = app.findall("provider")
     provider = next((p for p in providers if p.get(ANDROID + "authorities") == "${applicationId}.fileprovider"), None)
     if provider is None:

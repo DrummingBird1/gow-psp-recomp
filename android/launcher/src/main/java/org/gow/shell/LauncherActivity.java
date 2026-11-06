@@ -5,14 +5,18 @@ import android.app.DownloadManager;
 import android.os.Environment;
 import android.app.AlertDialog;
 import android.content.ActivityNotFoundException;
+import android.content.ContentUris;
+import android.content.ContentValues;
 import android.database.Cursor;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.os.Build;
 import android.os.Bundle;
@@ -37,6 +41,7 @@ import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -69,6 +74,7 @@ public final class LauncherActivity extends Activity {
     private static final String PREFS = "gow_settings";
     private static final int PICK_GAME_ISO = 401;
     private static final int PICK_IMAGE_BIN = 402;
+    private static final int REQUEST_WRITE_LOG = 403;
     private static final String VERSION = "v1.0.1";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
     private static final String[] MODES = { "16:9", "4:3", "WIDESCREEN" };
@@ -79,6 +85,7 @@ public final class LauncherActivity extends Activity {
     private TextView status;
     private int pad;
     private String current = "main";
+    private boolean exportLogAfterPermission;
 
     // Estado pendente da tela Gráficos (só vale ao tocar em Aplicar).
     private int gRes;
@@ -138,6 +145,17 @@ public final class LauncherActivity extends Activity {
     @Override public void onBackPressed() {
         if (!"main".equals(current)) showMain();
         else super.onBackPressed();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_WRITE_LOG || !exportLogAfterPermission) return;
+        exportLogAfterPermission = false;
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            exportLogToDownloads();
+        } else {
+            toast(localized("Permissão de armazenamento negada."));
+        }
     }
 
     // ------------------------------------------------------------------ tema (so visual)
@@ -290,7 +308,7 @@ public final class LauncherActivity extends Activity {
             case "Saves": return "Saves";
             case "Backup e restauração de ms0/PSP/SAVEDATA": return "Back up and restore ms0/PSP/SAVEDATA";
             case "Logs": return "Logs";
-            case "Ver, compartilhar ou limpar o log.txt": return "View, share or clear log.txt";
+            case "Ver, exportar ou limpar o log.txt": return "View, export or clear log.txt";
             case "Argumentos avançados": return "Advanced arguments";
             case "Ver e editar o args.txt": return "View and edit args.txt";
             case "Arquivos do jogo": return "Game files";
@@ -437,7 +455,7 @@ public final class LauncherActivity extends Activity {
             case "Quadrado": return "Square";
             case "Backup": return "Back up";
             case "Ver": return "View";
-            case "Compartilhar": return "Share";
+            case "Exportar .log": return "Export .log";
             case "Limpar": return "Clear";
             case "Editar": return "Edit";
             case "Idioma Português selecionado.": return "Portuguese selected.";
@@ -477,7 +495,9 @@ public final class LauncherActivity extends Activity {
             case "LIMPAR": return "CLEAR";
             case "SALVAR": return "SAVE";
             case "Os saves atuais serão sobrescritos.": return "Current save data will be overwritten.";
-            case "Compartilhar log": return "Share log";
+            case "Log exportado para Downloads/exportar.log.": return "Log exported to Downloads/exportar.log.";
+            case "Não foi possível exportar o log para Downloads.": return "Could not export the log to Downloads.";
+            case "Permissão de armazenamento negada.": return "Storage permission denied.";
 
 
             case "Pendente": return "Missing";
@@ -1637,9 +1657,9 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Saves", "Backup e restaura\u00e7\u00e3o de ms0/PSP/SAVEDATA",
                 actions(new String[] { localized("Backup"), localized("Restaurar") },
                         new Runnable[] { this::backupSaves, this::restoreSaves }, false), false));
-        right.addView(row("Logs", "Ver, compartilhar ou limpar o log.txt",
-                actions(new String[] { localized("Ver"), localized("Compartilhar"), localized("Limpar") },
-                        new Runnable[] { this::showLog, this::shareLog, this::clearLog }, false), false));
+        right.addView(row("Logs", "Ver, exportar ou limpar o log.txt",
+                actions(new String[] { localized("Ver"), localized("Exportar .log"), localized("Limpar") },
+                        new Runnable[] { this::showLog, this::exportLogToDownloads, this::clearLog }, false), false));
         right.addView(row("Argumentos avan\u00e7ados", "Ver e editar o args.txt",
                 actions(new String[] { localized("Editar") }, new Runnable[] { this::editArgs }, false), false));
         right.addView(row("Arquivos do jogo", "Importar somente a ISO; image.bin vem no APK",
@@ -1751,17 +1771,78 @@ public final class LauncherActivity extends Activity {
         dialog().setTitle(localized("LOG")).setView(scroller).setPositiveButton(localized("FECHAR"), null).show();
     }
 
-    private void shareLog() {
-        String text = readLog(200000);
-        if (text.isEmpty()) {
+    private void exportLogToDownloads() {
+        final File source = logFile();
+        if (!source.isFile() || source.length() == 0) {
             toast(localized("Nenhum log encontrado ainda."));
             return;
         }
-        Intent send = new Intent(Intent.ACTION_SEND);
-        send.setType("text/plain");
-        send.putExtra(Intent.EXTRA_SUBJECT, "log.txt");
-        send.putExtra(Intent.EXTRA_TEXT, text);
-        startActivity(Intent.createChooser(send, localized("Compartilhar log")));
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+                && checkSelfPermission("android.permission.WRITE_EXTERNAL_STORAGE") != PackageManager.PERMISSION_GRANTED) {
+            exportLogAfterPermission = true;
+            requestPermissions(new String[] { "android.permission.WRITE_EXTERNAL_STORAGE" }, REQUEST_WRITE_LOG);
+            return;
+        }
+        new Thread(() -> {
+            final boolean ok = writeLogToDownloads(source);
+            runOnUiThread(() -> toast(localized(ok
+                    ? "Log exportado para Downloads/exportar.log."
+                    : "Não foi possível exportar o log para Downloads.")));
+        }).start();
+    }
+
+    private boolean writeLogToDownloads(File source) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                final Uri collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                final String relativePath = Environment.DIRECTORY_DOWNLOADS + "/";
+                Uri destination = null;
+                try (Cursor cursor = getContentResolver().query(collection,
+                        new String[] { MediaStore.MediaColumns._ID },
+                        MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                                + MediaStore.MediaColumns.RELATIVE_PATH + "=?",
+                        new String[] { "exportar.log", relativePath }, null)) {
+                    if (cursor != null && cursor.moveToFirst()) {
+                        destination = ContentUris.withAppendedId(collection, cursor.getLong(0));
+                    }
+                }
+                boolean created = false;
+                if (destination == null) {
+                    ContentValues values = new ContentValues();
+                    values.put(MediaStore.MediaColumns.DISPLAY_NAME, "exportar.log");
+                    values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                    values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath);
+                    destination = getContentResolver().insert(collection, values);
+                    created = true;
+                }
+                if (destination == null) return false;
+                try (FileInputStream in = new FileInputStream(source);
+                     OutputStream out = getContentResolver().openOutputStream(destination, "wt")) {
+                    if (out == null) throw new IllegalStateException("Downloads output stream unavailable");
+                    byte[] buffer = new byte[32768];
+                    int count;
+                    while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                } catch (Exception error) {
+                    if (created) getContentResolver().delete(destination, null, null);
+                    throw error;
+                }
+                return true;
+            }
+
+            File downloads = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (!downloads.isDirectory() && !downloads.mkdirs()) return false;
+            try (FileInputStream in = new FileInputStream(source);
+                 FileOutputStream out = new FileOutputStream(new File(downloads, "exportar.log"), false)) {
+                byte[] buffer = new byte[32768];
+                int count;
+                while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
+                out.getFD().sync();
+            }
+            return true;
+        } catch (Exception error) {
+            android.util.Log.e("GOW_LAUNCHER_LOG", "Failed to export log to Downloads", error);
+            return false;
+        }
     }
 
     private void clearLog() {
