@@ -6,8 +6,13 @@ on:
     paths:
       - ".github/workflows/android-dual-game.yml"
       - "tools/package_dual_game_launcher.py"
-      - "android/launcher/src/main/java/org/gow/shell/LauncherActivity.java"
-      - "android/launcher/src/main/java/org/gow/shell/GameActivity.java"
+      - "tools/install_android_launcher.py"
+      - "android/launcher/**"
+      - "runtime/**"
+      - "CMakeLists.txt"
+      - "cmake/**"
+      - "recomp/**"
+      - "re/out/**"
 
 permissions:
   contents: read

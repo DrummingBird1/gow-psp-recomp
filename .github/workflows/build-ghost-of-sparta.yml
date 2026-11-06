@@ -1,13 +1,8 @@
 name: "Teste Android — Ghost of Sparta (isolado)"
-# Build manual e isolada de Ghost of Sparta; nunca reutiliza bibliotecas de Chains of Olympus.
+# Legacy isolated Ghost of Sparta diagnostic build; never substitutes the CoO library.
 on:
+  # Isolated Ghost of Sparta diagnostic build; not the supported Dual APK.
   workflow_dispatch:
-  push:
-    branches:
-      - android
-    paths:
-      - 'android/launcher/src/main/java/org/gow/shell/LauncherActivity.java'
-      - '.github/workflows/build-ghost-of-sparta.yml'
 
 permissions:
   contents: read

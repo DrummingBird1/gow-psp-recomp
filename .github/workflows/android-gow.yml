@@ -1,25 +1,7 @@
 name: "Compilar APK Android / Build Android APK"
-# Gera o APK do God of War CoO a partir do SEU disco (secret GOW_DISC_URL).
-# O resultado contem codigo da Sony: so sai como artifact (1 dia), NUNCA em Release.
+# Legacy Chains of Olympus-only diagnostic build. The Dual workflow is the supported Android build.
 on:
-  push:
-    branches: [android, "feature/performance-hud", "mega-update", "mega-update-v2"]
-    paths:
-      - ".build-trigger"
-      - "android/launcher/**"
-      - "runtime/**"
-      - "CMakeLists.txt"
-      - "tools/install_android_launcher.py"
-      - ".github/workflows/android-gow.yml"
-  pull_request:
-    branches: [android]
-    paths:
-      - ".build-trigger"
-      - "android/launcher/**"
-      - "runtime/**"
-      - "CMakeLists.txt"
-      - "tools/install_android_launcher.py"
-      - ".github/workflows/android-gow.yml"
+  # Legacy single-game build retained for explicit diagnostics only.
   workflow_dispatch:
 
 permissions:

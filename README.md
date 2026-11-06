@@ -2,93 +2,97 @@
 
 **🇧🇷 Português | 🇺🇸 English**
 
-Projeto independente para executar a recompilação nativa de **God of War: Chains of Olympus (PSP)** no Android, usando ARM64 e SDL3. Este repositório é uma adaptação comunitária não oficial do projeto original.
+Projeto comunitário independente para Android ARM64 que reúne as recompilações nativas de **God of War: Chains of Olympus** e **God of War: Ghost of Sparta** em um único aplicativo. O launcher permite selecionar qual jogo iniciar e mantém os dados de cada título separados.
 
-An independent community port to run the native recompilation of **God of War: Chains of Olympus (PSP)** on Android, using ARM64 and SDL3. This is an unofficial adaptation of the original project.
+Independent community Android ARM64 project combining the native recompilations of **God of War: Chains of Olympus** and **God of War: Ghost of Sparta** in one app. The launcher lets players choose a game and keeps each title's data separate.
 
-> **Aviso legal / Legal notice:** projeto feito por fãs, sem afiliação ou aprovação da Sony Interactive Entertainment ou da Santa Monica Studio. God of War é uma marca de seu titular. Você deve fornecer sua própria cópia do jogo obtida legalmente. **Este repositório não distribui imagens de disco, arquivos do jogo ou conteúdo protegido por direitos autorais.**
+> **Aviso legal / Legal notice:** projeto de fãs, sem afiliação ou aprovação da Sony Interactive Entertainment ou da Santa Monica Studio. God of War é uma marca de seu titular. O usuário deve fornecer suas próprias cópias dos jogos, obtidas legalmente. Este repositório e os APKs de lançamento não devem distribuir ISOs, dumps ou outros arquivos protegidos dos jogos.
 >
-> Unofficial fan project, not affiliated with or endorsed by Sony Interactive Entertainment or Santa Monica Studio. God of War is a trademark of its owner. You must provide your own legally obtained copy of the game. **This repository does not distribute disc images, game files, or copyrighted game content.**
+> Unofficial fan project, not affiliated with or endorsed by Sony Interactive Entertainment or Santa Monica Studio. God of War is a trademark of its owner. Players must provide their own legally obtained game copies. This repository and release APKs must not distribute ISOs, dumps, or other copyrighted game files.
 
 ---
 
 ## 🇧🇷 Português
 
-### Sobre o projeto
+### Jogos disponíveis
 
-O objetivo é disponibilizar uma versão Android do projeto de recompilação, com um inicializador próprio, controles por toque e opções de exibição. O projeto está em desenvolvimento; compatibilidade e desempenho podem variar de acordo com o aparelho.
+| Jogo | ID PSP | Estado da integração |
+|---|---|---|
+| God of War: Chains of Olympus | `UCUS98653` | Integrado ao APK Dual |
+| God of War: Ghost of Sparta | `UCUS98737` | Integrado ao APK Dual |
+
+**Os dois jogos já foram iniciados e testados pelo usuário no mesmo aplicativo.** Isso confirma a integração funcional no aparelho usado no teste; compatibilidade e desempenho em outros dispositivos ainda podem variar.
 
 ### Recursos
 
-- Inicializador Android personalizado com tema de God of War.
-- Tela para iniciar o jogo.
-- Controles por toque na tela.
-- Opções gráficas e de proporção de tela disponíveis na compilação.
-- Compilação nativa Android ARM64 com SDL3.
-- Projeto voltado para testes e melhorias contínuas.
+- Um único aplicativo Android com seleção entre os dois jogos.
+- Bibliotecas nativas independentes para cada título, sem colisão entre `libmain_coo.so` e `libmain_gos.so`.
+- Dados, arquivos de jogo, saves e logs organizados por ID do jogo.
+- Controles por toque e suporte a controles externos.
+- Opções de gráficos, proporção de tela e desempenho.
+- HUD configurável com FPS, tempo de quadro, RAM e posição.
+- Interface em português e inglês.
+- Verificador de atualizações que consulta as releases publicadas no GitHub.
 
 ### Instalação
 
-1. Abra a página de [Lançamentos / Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases).
-2. Baixe o APK anexado ao lançamento desejado.
-3. Abra o APK no Android e confirme a instalação quando o sistema solicitar.
-4. Forneça sua própria cópia legal do jogo quando o aplicativo solicitar.
+1. Abra [Releases / Lançamentos](https://github.com/flavinxs0/gow-psp-recomp-android/releases).
+2. Baixe o APK Dual anexado à versão desejada.
+3. Instale o APK no Android.
+4. No launcher, selecione o jogo e importe a sua própria ISO legal quando solicitado.
+5. Mantenha espaço livre suficiente para os arquivos dos jogos e dados gerados.
 
-Se o Android bloquear a instalação, confira as permissões para instalar aplicativos da fonte usada para abrir o APK. Instale apenas APKs de uma fonte em que você confia.
+O aplicativo mantém os arquivos de cada jogo separados usando os IDs `UCUS98653` e `UCUS98737`. Não é necessário colocar ISOs ou dumps no repositório.
 
 ### Atualizações
 
-As novas versões serão publicadas na página de [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases). Um verificador de atualizações dentro do aplicativo é uma melhoria planejada; até estar implementado, consulte a página de lançamentos manualmente.
+O aplicativo possui um verificador de atualizações em **Extras**. Ele consulta a última release publicada; builds de teste do GitHub Actions são artefatos temporários e não aparecem como versões publicadas no atualizador.
 
-### Relatar um problema
+Consulte também a página de [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases).
 
-- Abra [Issues](https://github.com/flavinxs0/gow-psp-recomp-android/issues) para relatar erros.
-- Inclua o modelo do aparelho, a versão do Android, a versão do aplicativo e os passos para reproduzir o problema.
-- **Nunca envie ISO, arquivos do jogo, dumps de memória ou conteúdo protegido por direitos autorais.** Envie apenas logs técnicos que não contenham esses arquivos.
+### Relatar problemas
 
-### Contribuir
-
-Leia [CONTRIBUTING.md](CONTRIBUTING.md) antes de enviar alterações. Mudanças de código devem ser testadas sempre que possível, e mudanças visíveis ao usuário devem ser registradas no changelog.
+Abra uma [Issue](https://github.com/flavinxs0/gow-psp-recomp-android/issues) com o modelo do aparelho, versão do Android, versão do app, jogo selecionado e passos para reproduzir o problema. Envie apenas logs técnicos. **Não envie ISOs, arquivos do jogo, dumps ou conteúdo protegido por direitos autorais.**
 
 ---
 
 ## 🇺🇸 English
 
-### About
+### Available games
 
-The goal is to provide an Android version of the recompilation project, with a custom launcher, on-screen touch controls, and display options. This project is under development; compatibility and performance may vary by device.
+| Game | PSP ID | Integration status |
+|---|---|---|
+| God of War: Chains of Olympus | `UCUS98653` | Integrated into the Dual APK |
+| God of War: Ghost of Sparta | `UCUS98737` | Integrated into the Dual APK |
+
+**The user has launched and tested both games in the same app.** This confirms the integration on the tested device; compatibility and performance may vary on other devices.
 
 ### Features
 
-- Custom God of War-themed Android launcher.
-- Integrated game launch screen.
-- On-screen touch controls.
-- Graphics and aspect-ratio options available in the build.
-- Native Android ARM64 build using SDL3.
-- Ongoing community testing and improvements.
+- One Android app with a selector for both games.
+- Independent native libraries for each title, avoiding `libmain_coo.so` / `libmain_gos.so` collisions.
+- Per-game storage for game files, saves, and logs.
+- On-screen touch controls and external controller support.
+- Graphics, aspect-ratio, and performance settings.
+- Configurable HUD for FPS, frame time, RAM, and position.
+- Portuguese and English interface.
+- In-app update checker for published GitHub releases.
 
 ### Installation
 
-1. Open the [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases) page.
-2. Download the APK attached to the release you want.
-3. Open the APK on Android and confirm installation when prompted.
-4. Provide your own legally obtained copy of the game when requested by the app.
+1. Open [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases).
+2. Download the Dual APK attached to the desired release.
+3. Install it on Android.
+4. Select a game in the launcher and import your own legally obtained ISO when requested.
+5. Keep enough free storage for game files and generated data.
 
-If Android blocks installation, check the permission to install apps for the source used to open the APK. Only install APKs from sources you trust.
+The app keeps each game's files separate using IDs `UCUS98653` and `UCUS98737`. Do not upload disc images or dumps to this repository.
 
-### Updates
+### Updates and bug reports
 
-New versions will be published on the [Releases](https://github.com/flavinxs0/gow-psp-recomp-android/releases) page. An in-app update checker is planned; until it is implemented, visit the releases page manually.
+The update checker is available under **Extras**. It checks published GitHub releases; temporary Actions artifacts are not published versions and are not offered by the in-app updater.
 
-### Report a problem
-
-- Open [Issues](https://github.com/flavinxs0/gow-psp-recomp-android/issues) to report bugs.
-- Include your device model, Android version, app version, and steps to reproduce the issue.
-- **Never upload ISO files, game files, memory dumps, or copyrighted content.** Share only technical logs that do not contain those files.
-
-### Contributing
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before submitting changes. Test code changes whenever possible, and record user-visible changes in the changelog.
+Report issues at [Issues](https://github.com/flavinxs0/gow-psp-recomp-android/issues). Include device, Android version, app version, selected game, and reproduction steps. Share technical logs only—never game images, dumps, or copyrighted files.
 
 ---
 

@@ -1,26 +1,57 @@
-# Plano de integração: Chains of Olympus + Ghost of Sparta
+# Android Dual APK — status e processo de release
 
-## Objetivo
-Um único APK e uma única instalação, com seleção de jogo no launcher existente.
+## Estado atual
 
-## Situação técnica verificada
-- Chains of Olympus usa o ID `UCUS98653`.
-- Ghost of Sparta usa o ID `UCUS98737`.
-- O workflow de Ghost of Sparta compila uma única `libmain.so` para `GAME=UCUS98737_full`.
-- `GameActivity.getLibraries()` atualmente retorna `SDL3` e `main`.
-- O launcher atual guarda um único par `game.iso` / `image.bin`; isso não separa dois títulos.
-- A validação isolada do launcher usa um runtime stub e não representa um APK jogável.
+- [x] Chains of Olympus integrado (ID `UCUS98653`).
+- [x] Ghost of Sparta integrado (ID `UCUS98737`).
+- [x] Bibliotecas nativas separadas no mesmo APK: `libmain_coo.so` e `libmain_gos.so`.
+- [x] Dados de cada jogo separados pelo ID em `gow-games/<ID>/`.
+- [x] Workflow Dual compila os dois runtimes, instala os recursos do launcher e empacota um APK.
+- [x] CI verificou assinatura e presença das duas bibliotecas no APK.
+- [x] Usuário confirmou teste real dos dois jogos funcionando no mesmo aplicativo.
 
-## Ordem de implementação
-1. **Separar dados por título**: diretórios individuais e preferências de jogo selecionado; não sobrescrever os arquivos do jogo atual.
-2. **Confirmar carregamento dinâmico SDL**: determinar em que momento SDLActivity chama getLibraries e como o nome da biblioteca é associado ao ponto de entrada nativo.
-3. **Build nativa dupla**: compilar cada ID separadamente e empacotar bibliotecas com nomes exclusivos, sem colisão de `libmain.so`.
-4. **Launcher**: tornar os dois títulos selecionáveis e direcionar o botão Jogar para o título escolhido.
-5. **Empacotamento**: produzir um único APK assinado com ambas as bibliotecas e recursos necessários.
-6. **Validação**: inspecionar conteúdo do APK, verificar assinatura, instalar e testar inicialização de cada título. Só declarar pronto após teste real dos dois.
+A integração Dual está funcional no dispositivo testado. Isso não equivale a uma certificação para todos os aparelhos Android.
 
-## Bloqueio conhecido
-O workflow antigo de Ghost of Sparta depende do secret `GOW_GOS_DISC_URL`; o download pelo Google Drive falhou anteriormente. A build principal não é prova de que Ghost of Sparta está integrado.
+## Workflow oficial de build
 
-## Regra de segurança da build
-Não reutilizar uma biblioteca compilada para um ID como substituta da outra. Não publicar o APK de validação com stub como jogável.
+O workflow principal é [Build Android — Dual God of War PSP](../.github/workflows/android-dual-game.yml).
+
+Ele:
+1. Obtém as imagens de disco configuradas nos secrets privados `GOW_DISC_URL` e `GOW_GOS_DISC_URL`.
+2. Confere que cada imagem corresponde ao ID esperado durante a extração.
+3. Decifra e recompila cada EBOOT separadamente.
+4. Compila SDL3 uma vez e compila um runtime ARM64 para cada jogo.
+5. Gera o projeto Android com o launcher e inclui os recursos correspondentes.
+6. Empacota e assina um APK com as duas bibliotecas.
+7. Verifica a assinatura e exige que as duas bibliotecas estejam presentes.
+8. Publica somente um artefato temporário do Actions.
+
+**Segurança:** ISOs e dados proprietários não devem ser adicionados ao Git, aos releases ou aos artefatos distribuídos. Os links usados no CI são secrets privados; o APK distribuído deve conter apenas o que é necessário e permitido pelo projeto. Nunca usar a biblioteca de um jogo como substituta da outra.
+
+## Workflows auxiliares
+
+- `android-gow.yml`: build legado de Chains of Olympus, apenas manual.
+- `build-ghost-of-sparta.yml`: build isolado de diagnóstico, apenas manual; não é o APK Dual.
+- `android-fiber-check.yml`: verificação de compilação de fibras ARM64, acionada por mudanças nos arquivos relevantes do runtime.
+- `android-sdl.yml`: build manual auxiliar do SDL3.
+
+Mudanças normais no launcher/runtime devem priorizar o workflow Dual. Os workflows individuais ficam disponíveis para diagnóstico explícito e não devem disparar em paralelo a cada alteração do launcher.
+
+## Checklist antes de publicar uma release Dual
+
+- [x] Os dois jogos testados pelo usuário no mesmo app.
+- [x] Build Dual de CI concluída com sucesso anteriormente.
+- [ ] Executar novamente o workflow Dual após as mudanças de documentação/workflow.
+- [ ] Confirmar que o APK final contém as duas bibliotecas e passa na verificação de assinatura.
+- [ ] Confirmar que o APK não contém ISOs, EBOOTs ou outros arquivos de disco distribuíveis.
+- [ ] Baixar o APK do artefato e fazer uma instalação/atualização final no aparelho.
+- [ ] Criar uma release versionada com o APK Dual validado, notas PT/EN e nome de arquivo claro.
+- [ ] Atualizar a constante `VERSION` do launcher para corresponder exatamente à tag publicada.
+
+## Nome recomendado do APK
+
+`GodOfWar-PSP-Recomp-Dual.apk`
+
+## Observação sobre o atualizador
+
+O atualizador do app consulta `/releases/latest`, não os artefatos do Actions. Portanto, um build bem-sucedido no Actions não deve ser anunciado como uma release publicada. A versão exibida no launcher só deve ser incrementada junto com uma release real.
