@@ -55,7 +55,7 @@ jobs:
             OK=0
             for ATTEMPT in 1 2 3; do
               rm -f "$RUNNER_TEMP/$ID.iso"
-              if timeout 120s gdown "$URL" -O "$RUNNER_TEMP/$ID.iso"; then
+              if timeout 2400s gdown "$URL" -O "$RUNNER_TEMP/$ID.iso"; then
                 SIZE=$(stat -c%s "$RUNNER_TEMP/$ID.iso" 2>/dev/null || echo 0)
                 if [ "$SIZE" -gt 50000000 ]; then OK=1; break; fi
               fi
