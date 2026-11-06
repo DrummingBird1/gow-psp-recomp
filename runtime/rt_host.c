@@ -731,9 +731,11 @@ static void rec_skip(uint64_t now, uint64_t next, uint64_t us) {
 
 int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
     if (!g_win) { replay_skips(now_virt, next_virt); return 0; }
-    /* every thread waits until next_virt, so nothing can still be queued before it: hand that
-     * audio to the device now, before sleeping until the wall clock gets there */
+    /* Every thread waits until next_virt, so nothing can still be queued before it.
+     * Mix and service the device queue before sleeping: refilling only after the wait can be
+     * too late on Android when the host is already close to the audio low-water mark. */
     rt_audio_advance(next_virt);
+    rt_audio_host_sync();
     uint64_t wall = now_us();
     if (!g_anchored) { g_wall0 = wall; g_virt0 = now_virt; g_anchored = 1; }
     int64_t ahead = (int64_t)(g_wall0 + (next_virt - g_virt0)) - (int64_t)wall;
@@ -763,7 +765,6 @@ int rt_host_idle(uint64_t now_virt, uint64_t next_virt) {
         g_wall0 = wall;
         g_virt0 = next_virt;
     }
-    rt_audio_host_sync();
     if (now_us() - g_last_pump > 16000) pump();
     return g_quit;
 }

@@ -71,7 +71,7 @@ public final class LauncherActivity extends Activity {
     private static final int PICK_IMAGE_BIN = 402;
     private static final String VERSION = "v1.0.1";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
-    private static final String[] MODES = { "16:9", "4:3", "FULLSCREEN" };
+    private static final String[] MODES = { "16:9", "4:3", "WIDESCREEN" };
 
     private interface Pick { void on(int index); }
     private interface Flip { void on(boolean checked); }
@@ -99,8 +99,15 @@ public final class LauncherActivity extends Activity {
             getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LOW_PROFILE);
             pad = dp(20);
             installBundledImages();
-            if ("FULLSCREEN".equals(prefs().getString("screen_mode", "16:9"))
-                    && !readArgTokens().contains("--stretch")) writeArgs();
+            String savedScreenMode = prefs().getString("screen_mode", "16:9");
+            if ("FULLSCREEN".equals(savedScreenMode)) {
+                // Migrate the old stretched mode to aspect-correct widescreen.
+                prefs().edit().putString("screen_mode", "WIDESCREEN").apply();
+                writeArgs();
+            } else if (readArgTokens().contains("--stretch")) {
+                // Remove the legacy stretch flag from previously saved args.txt files.
+                writeArgs();
+            }
             showMain();
         } catch (Throwable error) {
             android.util.Log.e("GOW_LAUNCHER_STARTUP", "LauncherActivity failed during startup", error);
@@ -319,7 +326,7 @@ public final class LauncherActivity extends Activity {
             case "Launcher oficial · ": return "Official launcher · ";
             case "By: flavinxs0": return "By: flavinxs0";
             case "Cada opção vira um argumento do runtime. Escalas altas podem pesar na GPU.": return "Each option becomes a runtime argument. High scales may burden the GPU.";
-            case "16:9 = padrão do PSP · 4:3 = clássico · Esticada = tela toda": return "16:9 = PSP default · 4:3 = classic · Stretched = full screen";
+            case "16:9 = padrão do PSP · 4:3 = clássico · Widescreen = adapta à tela": return "16:9 = PSP default · 4:3 = classic · Widescreen = adapts to the display";
             case "60 FPS é o padrão e não grava --fps.": return "60 FPS is the default and does not write --fps.";
             case "Painel compacto durante o jogo. FPS e tempo de quadro usam medições nativas; RAM mostra a memória PSS do processo Android.": return "Compact in-game panel. FPS and frame time use native measurements; RAM shows Android process PSS memory.";
             case "MAPEAMENTO PERSONALIZADO": return "CUSTOM MAPPING";
@@ -408,7 +415,7 @@ public final class LauncherActivity extends Activity {
             case "A lista completa de componentes está no repositório do projeto.": return "The complete component list is in the project repository.";
 
             case "Escala de resolução": return "Resolution scale";
-            case "Esticada": return "Stretched";
+            case "Widescreen": return "Widescreen";
             case "Limite de FPS": return "FPS limit";
             case "Estilo": return "Style";
             case "Opacidade": return "Opacity";
@@ -1199,7 +1206,7 @@ public final class LauncherActivity extends Activity {
         gVsync = currentVsync();
         gFps = currentFps();
         String mode = p.getString("screen_mode", "16:9");
-        gAspect = "4:3".equals(mode) ? 1 : ("FULLSCREEN".equals(mode) ? 2 : 0);
+        gAspect = "4:3".equals(mode) ? 1 : (("WIDESCREEN".equals(mode) || "FULLSCREEN".equals(mode)) ? 2 : 0);
         tRes = false;
         tFxaa = false;
         tVsync = false;
@@ -1208,7 +1215,7 @@ public final class LauncherActivity extends Activity {
         LinearLayout left = column();
         left.addView(tv("Cada op\u00e7\u00e3o vira um argumento do runtime. Escalas altas podem pesar na GPU.",
                 13, MUTED, false), withBottom(dp(10)));
-        left.addView(tv("16:9 = padr\u00e3o do PSP \u00b7 4:3 = cl\u00e1ssico \u00b7 Esticada = tela toda",
+        left.addView(tv("16:9 = padr\u00e3o do PSP \u00b7 4:3 = cl\u00e1ssico \u00b7 Widescreen = adapta à tela",
                 12, MUTED, false), withBottom(dp(10)));
         left.addView(tv("60 FPS \u00e9 o padr\u00e3o e n\u00e3o grava --fps.", 12, MUTED, false),
                 withBottom(dp(18)));
@@ -1218,7 +1225,7 @@ public final class LauncherActivity extends Activity {
         right.addView(row("Escala de resolu\u00e7\u00e3o", "--res-scale",
                 seg(new String[] { "1x", "2x", "3x" }, gRes - 1, i -> { gRes = i + 1; tRes = true; }), false));
         right.addView(row("Propor\u00e7\u00e3o de tela", "--aspect",
-                seg(new String[] { "16:9", "4:3", localized("Esticada") }, gAspect, i -> gAspect = i), false));
+                seg(new String[] { "16:9", "4:3", localized("Widescreen") }, gAspect, i -> gAspect = i), false));
         right.addView(row("FXAA", "--fxaa",
                 toggle(gFxaa, on -> { gFxaa = on; tFxaa = true; }), false));
         right.addView(row("VSync", "--vsync",
@@ -1958,7 +1965,7 @@ public final class LauncherActivity extends Activity {
 
     /** Proporção real da tela na horizontal, reduzida (ex.: 2400x1080 -> 20:9). */
     @SuppressWarnings("deprecation")
-    private String stretchRatio() {
+    private String screenRatio() {
         android.util.DisplayMetrics m = new android.util.DisplayMetrics();
         getWindowManager().getDefaultDisplay().getRealMetrics(m);
         int w = Math.max(m.widthPixels, m.heightPixels);
@@ -2013,10 +2020,10 @@ public final class LauncherActivity extends Activity {
         if ("4:3".equals(mode)) {
             out.add("--aspect");
             out.add("4:3");
-        } else if ("FULLSCREEN".equals(mode)) {
+        } else if ("WIDESCREEN".equals(mode) || "FULLSCREEN".equals(mode)) {
+            // Expand the 3D field of view to the device ratio without distorting the image.
             out.add("--aspect");
-            out.add(stretchRatio());
-            out.add("--stretch");
+            out.add(screenRatio());
         }
         return join(out);
     }
@@ -2038,7 +2045,7 @@ public final class LauncherActivity extends Activity {
     private void saveArgsRaw(String text) {
         List<String> tokens = tokenize(text);
         String aspect = tokenValue(tokens, "--aspect");
-        String mode = aspect == null ? "16:9" : ("4:3".equals(aspect) ? "4:3" : "FULLSCREEN");
+        String mode = aspect == null ? "16:9" : ("4:3".equals(aspect) ? "4:3" : "WIDESCREEN");
         prefs().edit().remove("res_scale").remove("fxaa").remove("fps_limit").remove("vsync")
                 .putString("screen_mode", mode).apply();
         writeLine(join(tokens));
