@@ -2021,9 +2021,10 @@ public final class LauncherActivity extends Activity {
             out.add("--aspect");
             out.add("4:3");
         } else if ("WIDESCREEN".equals(mode) || "FULLSCREEN".equals(mode)) {
-            // Expand the 3D field of view to the device ratio without distorting the image.
+            // Expand the 3D field of view and fill the complete device surface in every game screen.
             out.add("--aspect");
             out.add(screenRatio());
+            out.add("--stretch");
         }
         return join(out);
     }
