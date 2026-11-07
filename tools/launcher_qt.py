@@ -470,8 +470,18 @@ class Progress(QWidget):
 
 
 # Qt key -> SDL key name (what --controls reads); keys not listed can't be bound
+# the numeric keypad by its scan code (Windows set 1, 0x100 = the E0 prefix), whatever NumLock says: Qt gives a keypad
+# digit the top row's key (and with NumLock off, End, Insert...), but the game reads SDL's keypad scancodes (issue #57)
+KEYPAD_SCANCODES = {0x52: "Keypad 0", 0x4F: "Keypad 1", 0x50: "Keypad 2", 0x51: "Keypad 3", 0x4B: "Keypad 4",
+                    0x4C: "Keypad 5", 0x4D: "Keypad 6", 0x47: "Keypad 7", 0x48: "Keypad 8", 0x49: "Keypad 9",
+                    0x53: "Keypad .", 0x135: "Keypad /", 0x37: "Keypad *", 0x4A: "Keypad -", 0x4E: "Keypad +",
+                    0x11C: "Keypad Enter"}
+
+
 def sdl_key_name(e):
     k = e.key()
+    if e.modifiers() & Qt.KeyboardModifier.KeypadModifier and e.nativeScanCode() in KEYPAD_SCANCODES:
+        return KEYPAD_SCANCODES[e.nativeScanCode()]
     if Qt.Key.Key_A <= k <= Qt.Key.Key_Z or Qt.Key.Key_0 <= k <= Qt.Key.Key_9:
         return chr(k)
     if Qt.Key.Key_F1 <= k <= Qt.Key.Key_F10:

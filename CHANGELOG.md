@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Fix: keys of the numeric keypad could not be bound** (issue #57). The Controls page saved a keypad digit as the
+  digit above the letters, and with NumLock off as End, Insert and so on, so the keypad did nothing in the game. Keypad
+  keys are now saved as themselves (Keypad 0-9, ., /, *, -, +, Enter), whatever NumLock says.
+
 ## v1.4.0 (2026-10-30)
 
 - **Fix: Chains of Olympus could crash in the Depths of Tartarus** (issue #24, `[trap] break at 088096AC`). The game
