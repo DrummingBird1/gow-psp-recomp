@@ -443,8 +443,20 @@ static int pad_down(SDL_Gamepad *gp, int p) {
 /* The mouse pointer hides itself in fullscreen when it has not moved for 2 s. */
 static uint64_t g_mouse_t, g_focus_t;
 static int g_cursor_hidden;
+/* The cursor stays hidden over the focused window while a mouse button is bound to the game (moving the mouse to
+ * play brought it back, issue #44); otherwise it hides after 2 s without mouse movement, in fullscreen and in a
+ * window. The game itself never reads the mouse position. */
+static int mouse_bound(void) {
+    for (int i = 0; i < NBIND; i++)
+        for (int j = 0; j < g_bind[i].nk; j++) if (g_bind[i].k[j] >= MOUSE_KEY) return 1;
+    return 0;
+}
 static void update_cursor(void) {
-    int hide = g_fullscreen && now_us() - g_mouse_t > 2000000;
+    static int bound = -1;
+    if (bound < 0 && (bound = mouse_bound()))  /* the bindings are set before the first frame */
+        printf("[host] a mouse button is bound: the cursor stays hidden over the focused game window\n");
+    int focused = (SDL_GetWindowFlags(g_win) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    int hide = focused && (bound || now_us() - g_mouse_t > 2000000);
     if (hide == g_cursor_hidden) return;
     g_cursor_hidden = hide;
     if (hide) SDL_HideCursor(); else SDL_ShowCursor();
@@ -545,6 +557,7 @@ static void draw_confirm(SDL_Renderer *r, int w, int h) {
 static int confirm_quit(void) {
     printf("[host] quit question opened\n");
     rt_audio_pause(1);
+    if (g_cursor_hidden) { SDL_ShowCursor(); g_cursor_hidden = 0; }  /* the system message box takes clicks; hidden again after */
     int ww = 0, wh = 0, w = 300, h = 110, answer = -1;
     SDL_GetWindowSize(g_win, &ww, &wh);
     SDL_Window *pop = SDL_CreatePopupWindow(g_win, (ww - w) / 2, (wh - h) / 2, w, h, SDL_WINDOW_POPUP_MENU);

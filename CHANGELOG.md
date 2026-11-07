@@ -5,6 +5,9 @@
 - **Fix: keys of the numeric keypad could not be bound** (issue #57). The Controls page saved a keypad digit as the
   digit above the letters, and with NumLock off as End, Insert and so on, so the keypad did nothing in the game. Keypad
   keys are now saved as themselves (Keypad 0-9, ., /, *, -, +, Enter), whatever NumLock says.
+- **The mouse cursor stays out of the way** (issue #44). With a mouse button bound to the game, the cursor is hidden
+  whenever the game window has focus, so moving the mouse while playing no longer brings it back. Otherwise it hides
+  after 2 seconds without movement, now in a window too, not only in fullscreen.
 
 ## v1.4.0 (2026-10-30)
 
