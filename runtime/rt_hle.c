@@ -13,6 +13,7 @@
 #include "rt_kernel.h"
 
 int rt_hle_verbose;
+const char *volatile rt_hle_last = "";
 static RtHleMode g_mode;
 static uint64_t g_calls;
 static uint64_t g_max_calls;
@@ -57,6 +58,7 @@ void rt_hle(RtCtx *c, uint32_t nid, const char *lib, const char *name) {
     if (++g_calls > g_max_calls && g_max_calls) rt_abort(RT_ABORT_BUDGET, nid, (uint32_t)g_calls, "HLE call budget exhausted");
     Slot *s = slot_for(nid, lib, name);
     s->count++;
+    rt_hle_last = name;
     uint32_t a0 = c->r[4], a1 = c->r[5], a2 = c->r[6], a3 = c->r[7];
     if (s->fn) {
         s->fn(c);

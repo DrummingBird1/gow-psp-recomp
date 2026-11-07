@@ -21,7 +21,15 @@ set(GOW_DEPS_DIR "${CMAKE_SOURCE_DIR}/build/deps" CACHE PATH "Shared download fo
 include(FetchContent)
 macro(gow_fetch_archive name repo commit sha256)
   string(TOUPPER "${name}" _gow_upper)
+  string(TOLOWER "${name}" _gow_lower)
   set(_gow_src "${GOW_DEPS_DIR}/${name}-${commit}")
+  # Every archive fetched here has a CMakeLists.txt at its top. Without it, FetchContent silently adds nothing, and the
+  # build failed later with "'libchdr/chd.h' file not found" (issue #46): a download cut short, or files an antivirus
+  # program removed. Such a folder is fetched again from scratch.
+  if(EXISTS "${_gow_src}" AND NOT EXISTS "${_gow_src}/CMakeLists.txt")
+    message(STATUS "${name}: the downloaded files in ${_gow_src} are incomplete; downloading again")
+    file(REMOVE_RECURSE "${_gow_src}" "${FETCHCONTENT_BASE_DIR}/${_gow_lower}-subbuild")
+  endif()
   if(EXISTS "${_gow_src}/.gow_complete")
     set(FETCHCONTENT_SOURCE_DIR_${_gow_upper} "${_gow_src}")  # already downloaded: reuse
   else()
@@ -35,6 +43,10 @@ macro(gow_fetch_archive name repo commit sha256)
     INACTIVITY_TIMEOUT 60
     SOURCE_DIR "${_gow_src}")
   FetchContent_MakeAvailable(${name})
+  if(NOT EXISTS "${_gow_src}/CMakeLists.txt")
+    message(FATAL_ERROR "${name} could not be downloaded completely into ${_gow_src}. Check the internet connection "
+      "and whether an antivirus program removes files there, then press Build again.")
+  endif()
   file(TOUCH "${_gow_src}/.gow_complete")
 endmacro()
 
