@@ -50,6 +50,7 @@ class PspModule:
     image: bytearray = field(default_factory=bytearray)  # relocated, starts at `base`
     reloc_stats: dict = field(default_factory=dict)
     hilo_values: list = field(default_factory=list)  # (hi16 addr, lo16 addr, full relocated value)
+    addr32_values: dict = field(default_factory=dict)  # addr -> relocated 32-bit value
 
     # --- parsing -------------------------------------------------------------
     @classmethod
@@ -86,6 +87,7 @@ class PspModule:
             img[s.vaddr:s.vaddr + s.filesz] = self.data[s.offset:s.offset + s.filesz]
         self.base, self.image = base, img
         self.hilo_values = []
+        self.addr32_values = {}
         seg_vaddr = [base + s.vaddr for s in self.segments]
         stats = {"sections": 0, "relocs": 0, "by_type": {}, "hi_without_lo": 0, "skipped": 0}
 
@@ -115,6 +117,8 @@ class PspModule:
                 op = ops[r]
                 if typ == R_MIPS_32:
                     op = (op + to) & 0xFFFFFFFF
+                    if not (addr & 3):
+                        self.addr32_values[addr] = op
                 elif typ == R_MIPS_26:
                     op = (op & 0xFC000000) | (((op & 0x03FFFFFF) + (to >> 2)) & 0x03FFFFFF)
                 elif typ == R_MIPS_HI16:

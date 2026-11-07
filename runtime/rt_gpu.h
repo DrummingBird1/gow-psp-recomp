@@ -64,6 +64,7 @@ typedef struct {
     int show_input;            /* --show-input: the buttons and stick the game reads, bottom left (F2 switches it) */
     int low_power;             /* --gpu-power low: the integrated GPU of a PC with two (default: the fast one) */
     int hud_edges;             /* --hud-edges: wider than 16:9, the HUD at the window's edges (experimental) */
+    int button_icons;          /* --button-icons auto|ps|xbox|kb: 0 ps (default), 1 auto, 2 xbox, 3 kb */
 } GpuOptions;
 extern GpuOptions rt_gpu_opt;  /* read by rt_gpu_init */
 /* parses --res-scale N, --fx-scale N, --msaa N, --aniso N, --lod-bias F, --hdr [auto|scrgb|hdr10],
