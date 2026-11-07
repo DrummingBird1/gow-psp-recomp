@@ -118,12 +118,23 @@ static char g_load_name[64];                         /* --load-level NAME@FRAME 
 static uint32_t g_load_frame;
 static int g_load_done;
 
-static const Game *game_info(void) {
+/* game_info defined below */
+static const Game *unused_game_info(void) {
     if (!strcmp(RT_GAME_ID, COO.id)) return &COO;
     if (!strcmp(RT_GAME_ID, GOS.id)) return &GOS;
     return NULL;
 }
-static int is_coo(void) { return g == &COO; }
+static const Game COO_PAL = { "UCES00842", 0x08B3656Cu, 0x08B3CB54u, 0x088347B8u, 0x08B2F278u, 0x12Cu, 0x148u, 0xA0u, 0x120u, 0x9Cu, 0x84u, 0x08B3E258u, 0x64u, 0x70u };
+static const Game GOS_RUS = { "UCES01473", 0x08C195F4u, 0u, 0u, 0u, 0x1B4u, 0x1F4u, 0xB0u, 0x130u, 0xACu, 0x80u, 0x08C23290u, 0x64u, 0x70u };
+
+static const Game *game_info(void) {
+    if (!strcmp(RT_GAME_ID, COO.id)) return &COO;
+    if (!strcmp(RT_GAME_ID, COO_PAL.id)) return &COO_PAL;
+    if (!strcmp(RT_GAME_ID, GOS.id)) return &GOS;
+    if (!strcmp(RT_GAME_ID, GOS_RUS.id)) return &GOS_RUS;
+    return NULL;
+}
+static int is_coo(void) { return g == &COO || g == &COO_PAL; }
 
 int rt_debug_option(int argc, char **argv, int *i) {
     const char *a = argv[*i];
@@ -197,7 +208,7 @@ static const char *guest_str(uint32_t addr, char *buf, size_t n) {
     return buf;
 }
 
-static int ram_ptr(uint32_t p) { return p >= 0x08800000u && p < 0x0A000000u - 0x100u; }
+static int ram_ptr(uint32_t p) { return !(p & 3u) && p >= 0x08800000u && p < 0x0A000000u - 0x100u; }
 static float rt_rf(uint32_t a) { uint32_t v = rt_r32(a); float f; memcpy(&f, &v, 4); return f; }
 
 static void log_levels(void) {
