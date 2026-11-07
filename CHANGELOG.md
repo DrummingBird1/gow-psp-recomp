@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.5.0 (2026-11-07)
 
 - **Fix: keys of the numeric keypad could not be bound** (issue #57). The Controls page saved a keypad digit as the
   digit above the letters, and with NumLock off as End, Insert and so on, so the keypad did nothing in the game. Keypad
@@ -11,6 +11,11 @@
 - **The mouse cursor stays out of the way** (issue #44). With a mouse button bound to the game, the cursor is hidden
   whenever the game window has focus, so moving the mouse while playing no longer brings it back. Otherwise it hides
   after 2 seconds without movement, now in a window too, not only in fullscreen.
+- **A freeze leaves a trace in the log** (issues #52, #54). When the game stops moving for 4 seconds, the log gets a
+  `[stall]` line with what was running, written at once: Windows closes a frozen program without letting it write the
+  rest of its log, so bug reports of freezes showed nothing.
+- **Downloads can be checked against the source:** the release's ZIP and exe now carry a build provenance from GitHub
+  (`gh attestation verify`, see the FAQ), besides the SHA-256.
 
 ## v1.4.0 (2026-10-30)
 
