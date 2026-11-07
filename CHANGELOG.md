@@ -5,6 +5,9 @@
 - **Fix: keys of the numeric keypad could not be bound** (issue #57). The Controls page saved a keypad digit as the
   digit above the letters, and with NumLock off as End, Insert and so on, so the keypad did nothing in the game. Keypad
   keys are now saved as themselves (Keypad 0-9, ., /, *, -, +, Enter), whatever NumLock says.
+- **Fix: "the disc reader could not be built"** (issue #46, `'libchdr/chd.h' file not found`). A download of libchdr
+  that had lost its files (cut short, or removed by an antivirus program) was still taken as complete, so every Build
+  failed the same way. Build now notices it, downloads libchdr again, and otherwise says what is wrong.
 - **The mouse cursor stays out of the way** (issue #44). With a mouse button bound to the game, the cursor is hidden
   whenever the game window has focus, so moving the mouse while playing no longer brings it back. Otherwise it hides
   after 2 seconds without movement, now in a window too, not only in fullscreen.
