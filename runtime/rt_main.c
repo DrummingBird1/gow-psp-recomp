@@ -32,6 +32,13 @@
 static volatile uint32_t g_case_running, g_case_index, g_timeout_ms = CASE_TIMEOUT_MS;
 static volatile uint64_t g_case_started;
 static volatile int g_boot_mode, g_profile;
+/* In the window, a game thread that stops returning to the scheduler (a loop that never waits, in the game's code
+ * or in ours) freezes the window, and Windows ends a frozen program without letting it write its buffered log
+ * (exit code 0xCFFFFFFF, issues #52 and #54). The watchdog writes what was running when virtual time has not moved
+ * for STALL_MS and flushes the log, so the report shows it; nothing is stopped. A pause of the game's clock (the
+ * quit question) writes the line too, which does no harm. */
+#define STALL_MS 4000u
+static volatile int g_stall_watch;
 
 static uint64_t now_ms(void) {
 #ifdef _WIN32
@@ -50,12 +57,28 @@ static void *watchdog(void *arg)
 #endif
 {
     (void)arg;
+    uint64_t last_virt = 0, last_change = now_ms();
+    int stalled = 0;
     for (;;) {
 #ifdef _WIN32
         Sleep(100);
 #else
         usleep(100000);
 #endif
+        if (g_stall_watch) {
+            uint64_t v = k_now, t = now_ms();
+            if (v != last_virt) {
+                if (stalled) { printf("[stall] virtual time moves again (%.3f s)\n", (double)v / 1e6); fflush(NULL); }
+                last_virt = v; last_change = t; stalled = 0;
+            } else if (!stalled && t - last_change > STALL_MS) {
+                KThread *cur = k_cur;
+                const char *hle = rt_hle_last;
+                stalled = 1;
+                printf("[stall] virtual time stuck at %.3f s for %u ms: thread '%s', last HLE call %s, %llu calls through rt_call\n",
+                       (double)v / 1e6, STALL_MS, cur ? cur->name : "-", hle ? hle : "?", (unsigned long long)rt_call_count);
+                fflush(NULL);
+            }
+        }
         if (g_case_running && now_ms() - g_case_started > g_timeout_ms) {
             if (g_boot_mode) {
                 printf("[boot] stopped: time limit of %u ms reached (%llu recompiled calls through rt_call)\n",
@@ -313,12 +336,14 @@ static int run_boot(const BootOptions *o) {
     g_timeout_ms = o->wall_ms;
     g_case_started = now_ms();
     g_case_running = !o->host.window || o->wall_set;
+    g_stall_watch = o->host.window;
     start_watchdog();
     rt_frames_init(&frames);
     if (o->host.window || rt_host_wants_idle()) k_idle_hook = rt_host_idle;
     if (o->profile) { rt_prof_start(); g_profile = 1; }
     k_run_scheduler(cpu_ms);
     g_case_running = 0;
+    g_stall_watch = 0;
     rt_frames_close(k_now);
     rt_audio_shutdown(k_now);
     rt_gpu_report();  /* before the host shuts the device down */
