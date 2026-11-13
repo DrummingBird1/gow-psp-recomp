@@ -264,6 +264,7 @@ add_executable(gow_rt
   runtime/rt_debug.c
   runtime/rt_fiber.c
   runtime/rt_frames.c
+  runtime/rt_gamefix.c
   runtime/rt_ge.c
   runtime/rt_gesoft.c
   runtime/rt_gpu.c
