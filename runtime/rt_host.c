@@ -306,6 +306,7 @@ uint32_t rt_host_buttons(uint64_t frame, uint64_t now_us, uint8_t *lx, uint8_t *
         if (live_x != 128) ax = live_x;
         if (live_y != 128) ay = live_y;
     }
+    rt_debug_pad(frame, &b, &ax, &ay);
     rec_read(frame, now_us, first_in_frame, b, ax, ay);
     g_shown_b = b;
     g_shown_lx = (uint8_t)ax;
