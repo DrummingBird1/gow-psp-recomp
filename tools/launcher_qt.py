@@ -1,4 +1,4 @@
-"""The launcher window in PySide6 (AGENTS.md, "Launcher design"): a live background (the game's own main menu,
+"""The launcher window in PySide6: a live background (the game's own main menu,
 rendered headless on the player's PC after the first build, darkened and blurred, with a slow Ken Burns pan and
 mouse parallax; a generated stone texture before that), drifting embers, a flickering fire glow behind Play, a
 shimmering gold meander under the top bar, game cards in gold frames that lift (with a glint) on hover, animated page

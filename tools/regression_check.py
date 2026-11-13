@@ -1,4 +1,4 @@
-"""The software-renderer check of AGENTS.md in one command, for a regular (e.g. nightly) run on the developer's PC.
+"""The software-renderer check (CONTRIBUTING.md) in one command, for a regular (e.g. nightly) run on the developer's PC.
 
 Replays build/rec_v9/input.txt in Chains of Olympus with a fresh memory stick, compares the 34 frames with
 build/rec_v9 and the WAV's SHA-256 with the reference, and optionally boots Ghost of Sparta headless for a few

@@ -5,7 +5,7 @@ development PC. Not a separate Windows user profile (see "Not covered").
 
 ## Setup
 
-- The exe alone in a new empty folder outside the repo (`E:\GoW_PSP_test\`), plus a `build/launcher.json` that only
+- The exe alone in a new empty folder outside the repo, plus a `build/launcher.json` that only
   names the two `.chd` images (no EBOOT paths, no reuse of the repo's `build/`).
 - Environment: `PYTHON*` and `VIRTUAL_ENV` removed, every PATH entry with Python, `.venv`, the py launcher or
   `WindowsApps` removed (neither `python` nor `py` resolvable). CMake and Visual Studio found by the launcher.

@@ -67,7 +67,7 @@ public class ExportRecompMetrics extends GhidraScript {
     @Override
     public void run() throws Exception {
         String[] args = getScriptArgs();
-        Path outDir = Path.of(args.length > 0 ? args[0] : "E:/AI/GoW_PSP/repo/re/out");
+        Path outDir = Path.of(args.length > 0 ? args[0] : "re/out");
         Files.createDirectories(outDir);
         String prog = currentProgram.getName();
         Listing listing = currentProgram.getListing();
