@@ -58,6 +58,7 @@ typedef struct {
     float fps;          /* --fps: display refresh (vblank rate) in Hz; 0: the PSP's 59.94 (rt_host.c, rt_hle.c) */
     const char *texture_dump;  /* --texture-dump DIR: every new texture's picture as DIR/<key>.png */
     const char *texture_pack;  /* --texture-pack DIR: DIR/<key>.png replaces that texture (any size) */
+    int tex_upscale;           /* --tex-upscale N: textures drawn N times larger with xBRZ (2..4; 1 off) */
     float aspect;              /* --aspect W:H: a wider picture (e.g. 21:9) or a narrower one (4:3); 0: the PSP's 480:272 */
     int crt;                   /* --crt: scanlines and a shadow mask over the picture in the window */
     int show_fps;              /* --show-fps: frame rate in a corner of the window (F3 switches it) */

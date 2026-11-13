@@ -55,6 +55,7 @@ WINDOW = [("x1 480x272", 1), ("x2 960x544", 2), ("x3 1440x816", 3), ("x4 1920x10
 RENDERER = [("Hardware", "gpu"), ("Software (accurate, slow)", "soft")]
 FX = [("Match resolution", 0), ("Original glow", 1)]
 ANISO = [("Off", 1), ("2x", 2), ("4x", 4), ("8x", 8), ("16x", 16)]
+UPSCALE = [("Off", 1), ("2x", 2), ("3x", 3), ("4x", 4)]
 GPU_API = [("Auto (Direct3D 12)", ""), ("Direct3D 12", "direct3d12"), ("Vulkan", "vulkan")]
 GPU_POWER = [("Fast (dedicated)", "high"), ("Power saving (integrated)", "low")]
 LANGUAGE = [("English", "en"), ("French", "fr"), ("Spanish", "es")]
@@ -1352,6 +1353,8 @@ class Window(QWidget):
                                 "can be skipped with Enter, Space, a click or Start)."),
                                ("god", "Infinite health (cheat)", "Kratos's health stays full. Falling into a pit still "
                                 "sends you back to the last checkpoint."),
+                               ("auto_qte", "Auto QTE (Chains of Olympus)", "The button, mash and stick prompts answer "
+                                "themselves, as Callisto's Armlet does in Ghost of Sparta."),
                                ("rumble", "Gamepad rumble when Kratos is hit", "The PSP has no rumble: the port adds it, "
                                 "stronger for a bigger hit."),
                                ("confirm_circle", "Circle confirms, Cross cancels (Japanese layout)",
@@ -1377,7 +1380,8 @@ class Window(QWidget):
         a.setColumnStretch(1, 1)
         arows = [("Renderer", "renderer", RENDERER, c["renderer"]), ("Effects resolution", "fx", FX, 1 if int(c["fx_scale"]) == 1 else 0),
                  ("Anisotropic filtering", "aniso", ANISO, int(c["aniso"])), ("Graphics API", "api", GPU_API, c.get("gpu_api", "")),
-                 ("Graphics card", "power", GPU_POWER, c.get("gpu_power", "high"))]
+                 ("Graphics card", "power", GPU_POWER, c.get("gpu_power", "high")),
+                 ("Texture upscaling (xBRZ)", "upscale", UPSCALE, int(c.get("tex_upscale", 1)))]
         for i, (lab, key, table, val) in enumerate(arows):
             a.addWidget(QLabel(T(lab)), i, 0)
             cb = QComboBox()
@@ -1390,6 +1394,9 @@ class Window(QWidget):
                                         "on your graphics card, try the other one.")
         self.combo["power"][0].setToolTip("On a PC with two graphics cards (a laptop): the fast one, or the integrated one, "
                                           "which uses less power. Windows' graphics settings can override this.")
+        self.combo["upscale"][0].setToolTip("Hardware renderer: smooths the game's textures to 2, 3 or 4 times their size with "
+                                            "xBRZ (as in PPSSPP). Sharper edges on text, icons and painted textures; a short "
+                                            "pause when a level loads its textures. Off: the PSP's textures.")
         a.addWidget(QLabel(T("Sharpening")), 5, 0)
         sh = QHBoxLayout()
         self.sharpen = QSlider(Qt.Orientation.Horizontal)
@@ -1400,8 +1407,8 @@ class Window(QWidget):
         self.sharpen.valueChanged.connect(lambda x: (self.sharpen_lbl.setText(f"{x / 100:.2f}"), self.on_option()))
         sh.addWidget(self.sharpen, 1)
         sh.addWidget(self.sharpen_lbl)
-        a.addLayout(sh, 5, 1)
-        r = 6
+        a.addLayout(sh, 6, 1)
+        r = 7
         for key, text in (("vsync", "V-Sync"), ("mute", "Mute")):
             ch = QCheckBox(T(text))
             ch.setChecked(bool(c[key]))
@@ -1620,6 +1627,7 @@ class Window(QWidget):
         c["msaa"], c["fxaa"] = get("aa")
         c["fps"], c["aspect"], c["hdr"], c["window_scale"] = get("fps"), get("aspect"), get("hdr"), get("window")
         c["renderer"], c["fx_scale"], c["aniso"] = get("renderer"), get("fx"), get("aniso")
+        c["tex_upscale"] = get("upscale")
         c["gpu_api"], c["gpu_power"], c["language"] = get("api"), get("power"), get("language")
         for k, sl in getattr(self, "vol", {}).items():
             c[k] = sl.value()
@@ -1697,7 +1705,7 @@ class Window(QWidget):
         self.combo["res"][0].setCurrentText(label_of(RES, int(s["res_scale"])))
         self.combo["aa"][0].setCurrentText(label_of(AA, (1, True) if s["fxaa"] else (int(s["msaa"]), False)))
         for key, table, k in (("fps", FPS, "fps"), ("aspect", ASPECT, "aspect"), ("hdr", HDR, "hdr"),
-                              ("renderer", RENDERER, "renderer"), ("aniso", ANISO, "aniso")):
+                              ("renderer", RENDERER, "renderer"), ("aniso", ANISO, "aniso"), ("upscale", UPSCALE, "tex_upscale")):
             self.combo[key][0].setCurrentText(label_of(table, s[k]))
         self.combo["fx"][0].setCurrentText(label_of(FX, 1 if int(s["fx_scale"]) == 1 else 0))
         self.sharpen.setValue(int(round(float(s["sharpen"]) * 100)))

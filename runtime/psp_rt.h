@@ -126,6 +126,8 @@ uint32_t rt_call_guest(RtCtx *c, uint32_t addr, int nargs, const uint32_t *args)
 /* Game coroutine context switch on host fibers (rt_coro.c; wired in by recomp/runtime_funcs.json). */
 void rt_co_switch(RtCtx *c, uint32_t swap_slot, uint32_t cur_slot);
 void rt_co_report(void);
+/* Ghost of Sparta: FUN_00261854, animation controllers slower than 0.5 ms per frame (rt_gamefix.c) */
+void rt_gos_advance_controller(RtCtx *c);
 void rt_bad_jump(RtCtx *c, uint32_t pc, uint32_t target);
 void rt_trap(RtCtx *c, uint32_t pc, uint32_t word, const char *what);
 void rt_hle(RtCtx *c, uint32_t nid, const char *lib, const char *name);

@@ -215,7 +215,7 @@ are numbered `vMAJOR.MINOR.PATCH`, roughly following semantic versioning, and ar
 
 - [PPSSPP](https://www.ppsspp.org/): the reference for the PSP's hardware and HLE; parts of it are ported in the runtime
   (GPL-2.0-or-later), and its `at3_standalone` decoder and PrxDecrypter are used.
-- libkirk (PSP crypto), libchdr, SDL3, OpenH264.
+- libkirk (PSP crypto), libchdr, SDL3, OpenH264, xBRZ (Zenju, GPL-3.0; texture upscaling).
 - [Cinzel](https://fonts.google.com/specimen/Cinzel) font (SIL Open Font License).
 - [Qt for Python / PySide6](https://doc.qt.io/qtforpython/) (LGPL-3.0, linked dynamically) for the launcher.
 - The icon is original art (`tools/make_icon.py`).
@@ -223,5 +223,5 @@ are numbered `vMAJOR.MINOR.PATCH`, roughly following semantic versioning, and ar
 ## License
 
 GPL-3.0-or-later (see [`LICENSE`](LICENSE)). CMake downloads the third-party sources at configure time (SDL3, libchdr,
-OpenH264, PPSSPP's `at3_standalone` and `libkirk`) with pinned SHA-256s; they keep their own licenses and are not part
+OpenH264, xBRZ, PPSSPP's `at3_standalone` and `libkirk`) with pinned SHA-256s; they keep their own licenses and are not part
 of this repository. The launcher ships its third-party notices (`tools/launcher_assets/THIRD_PARTY_NOTICES.txt`).

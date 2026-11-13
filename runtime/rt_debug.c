@@ -34,12 +34,17 @@
  *                         at frame FRAME, asks the level manager to load NAME the way the game
  *                         streams a neighbouring level (LoadLevel(mgr, NAME, 1, 0)), e.g. after a
  *                         --warp into the level next to it.
+ *   --auto-qte            CoO: answers the quick-time events (button, mash, hold, spin and stick-motion prompts)
+ *                         by adding the input they ask for to what the game reads (issue #26; see the QTE section
+ *                         below). --auto-qte-from FRAME starts it at FRAME, for tests of one prompt.
+ *   --qte-log             CoO: logs each QTE object's node, type and flags when they change.
  *   --dump-ram N,..:PFX   writes user RAM (0x08800000, 24 MB) to PFX_<frame>.bin at frames N;
  *                         "stop" as a frame writes PFX_stop.bin when the run ends (a trap, too).
  *
  * The calls run on the reading thread (user_main) through rt_call_guest, which restores
  * every register afterwards, so the controller read itself is unaffected. Everything here
  * happens at fixed displayed frames, so runs stay deterministic. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,6 +112,8 @@ static const char *g_warp, *g_warp_via;
 static uint32_t g_warp_frame = 1000;
 static int g_warp_spawn = -1;
 static int g_warp_done, g_level_log, g_god, g_rumble;
+static int g_auto_qte, g_qte_log;  /* --auto-qte, --qte-log */
+static uint64_t g_auto_qte_from;   /* --auto-qte-from FRAME: tests compare one prompt with and without */
 static int g_gos_stage;           /* GoS warp: 1 waiting for the start, 4 for --warp-via's level change,
                                      2 placing Kratos at SPAWN, 3 done */
 static uint32_t g_gos_menu;
@@ -118,12 +125,18 @@ static char g_load_name[64];                         /* --load-level NAME@FRAME 
 static uint32_t g_load_frame;
 static int g_load_done;
 
+/* Regional releases (PR #48): the European Chains of Olympus (UCES00842) and Ghost of Sparta v1.01 (UCES01473) */
+static const Game COO_PAL = { "UCES00842", 0x08B3656Cu, 0x08B3CB54u, 0x088347B8u, 0x08B2F278u, 0x12Cu, 0x148u, 0xA0u, 0x120u, 0x9Cu, 0x84u, 0x08B3E258u, 0x64u, 0x70u };
+static const Game GOS_RUS = { "UCES01473", 0x08C195F4u, 0u, 0u, 0u, 0x1B4u, 0x1F4u, 0xB0u, 0x130u, 0xACu, 0x80u, 0x08C23290u, 0x64u, 0x70u };
+
 static const Game *game_info(void) {
     if (!strcmp(RT_GAME_ID, COO.id)) return &COO;
+    if (!strcmp(RT_GAME_ID, COO_PAL.id)) return &COO_PAL;
     if (!strcmp(RT_GAME_ID, GOS.id)) return &GOS;
+    if (!strcmp(RT_GAME_ID, GOS_RUS.id)) return &GOS_RUS;
     return NULL;
 }
-static int is_coo(void) { return g == &COO; }
+static int is_coo(void) { return g == &COO || g == &COO_PAL; }
 
 int rt_debug_option(int argc, char **argv, int *i) {
     const char *a = argv[*i];
@@ -143,6 +156,9 @@ int rt_debug_option(int argc, char **argv, int *i) {
     if (!strcmp(a, "--level-log")) { g_level_log = 1; return 1; }
     if (!strcmp(a, "--god")) { g_god = 1; return 1; }
     if (!strcmp(a, "--rumble")) { g_rumble = 1; return 1; }
+    if (!strcmp(a, "--auto-qte")) { g_auto_qte = 1; return 1; }
+    if (!strcmp(a, "--auto-qte-from") && *i + 1 < argc) { g_auto_qte = 1; g_auto_qte_from = strtoull(argv[++*i], NULL, 0); return 1; }
+    if (!strcmp(a, "--qte-log")) { g_qte_log = 1; return 1; }
     if (!strcmp(a, "--load-level") && *i + 1 < argc) {
         snprintf(g_load_name, sizeof(g_load_name), "%s", argv[++*i]);
         char *at = strchr(g_load_name, '@');
@@ -197,7 +213,7 @@ static const char *guest_str(uint32_t addr, char *buf, size_t n) {
     return buf;
 }
 
-static int ram_ptr(uint32_t p) { return p >= 0x08800000u && p < 0x0A000000u - 0x100u; }
+static int ram_ptr(uint32_t p) { return !(p & 3u) && p >= 0x08800000u && p < 0x0A000000u - 0x100u; }
 static float rt_rf(uint32_t a) { uint32_t v = rt_r32(a); float f; memcpy(&f, &v, 4); return f; }
 
 static void log_levels(void) {
@@ -397,6 +413,205 @@ static void rumble(void) {
     last_hp = cur;
 }
 
+/* --- --auto-qte, --qte-log (Chains of Olympus) ---------------------------------------------------------
+ * The game's quick-time events are objects of one class (vtable COO_QTE_VTABLE, its update FUN_00155aec),
+ * created with the level and run by a small graph of nodes. The object:
+ *   +0x64  the current node's working data       +0xA4  -> { node, float progress 0..1, ... }
+ *   +0xA8  flags: 1 running, 0x10000 the button / stick prompt is shown, 0x20000 succeeded, 0x40000 failed,
+ *          0x80000 / 0x200000 the stick motion started / turned far enough
+ *   +0xBC  its input map: channels 0-3 cross, circle, triangle, square; 4/5 the stick's Y (up +), 6/7 its X
+ *          (left +); 8/9 L, R; 10/11 X, Y. A press is a channel going up by more than 0.5 in one update.
+ * A node's type is the hash in its field 2; the parameters follow the hash:
+ *   button 47236BCF  press the shown button (data[0], a channel 0-3) once the prompt is up; any other
+ *                    button or a fast stick move fails it (FUN_00152df4)
+ *   mash   D4428D69  press P[0] (short; 0xC: L and R in turn) repeatedly (FUN_00154d58)
+ *   hold   F015DFD1  hold channel P[0] (short; 4 up, 5 down, 6 left, 7 right) (FUN_001531e0)
+ *   spin   E281920D  turn the stick round, any direction; only the angle moved per update counts
+ *                    (FUN_001534ac)
+ *   motion AEFFAD69  once the prompt is up, push the stick at angle data[1] (unless data[0] & 4), turn it
+ *                    data[2] radians in direction data[3] (+1 counter-clockwise), then let go (FUN_00155300)
+ * The game reads the stick turned by 15 degrees, with X and Y flipped (FUN_0000c888); stick_game() undoes it.
+ * Found by the vtable in RAM: a sweep of a slice of user RAM per frame keeps a list of the objects. */
+#define COO_QTE_VTABLE   0x08B493E4u
+#define COO_QTE_UPDATE   0x08959AECu  /* the vtable's entry at +0xAC */
+#define QTE_MAX          32
+#define QT_BUTTON 0x47236BCFu
+#define QT_MASH   0xD4428D69u
+#define QT_HOLD   0xF015DFD1u
+#define QT_SPIN   0xE281920Du
+#define QT_MOTION 0xAEFFAD69u
+#define QT_ANIM   0xDF6BCC07u
+
+static uint32_t g_qte_vt, g_qte_obj[QTE_MAX], g_qte_last[QTE_MAX][3];
+static int g_qte_n;
+static uint32_t g_qte_sweep = 0x08B70000u;  /* next slice of the sweep */
+static uint32_t g_qte_counts[4];            /* prompts answered: button, mash, hold, spin/motion */
+
+static const char *qte_type_name(uint32_t t) {
+    switch (t) {
+    case QT_BUTTON: return "button";
+    case QT_MASH: return "mash";
+    case QT_HOLD: return "hold";
+    case QT_SPIN: return "spin";
+    case QT_MOTION: return "motion";
+    case QT_ANIM: return "anim";
+    default: return "other";
+    }
+}
+
+/* field IDX of a node (FUN_002ce8fc without the + 4): the type hash, then the parameters; 0 if none */
+static uint32_t node_field(uint32_t node, uint32_t idx) {
+    if (!ram_ptr(node)) return 0;
+    int32_t o = (int32_t)rt_r32(node);
+    if (!o || !ram_ptr(node + (uint32_t)o)) return 0;
+    if (idx >= rt_r16(node + (uint32_t)o)) return 0;
+    uint32_t q = node + idx * 4 + rt_r16(node + (uint32_t)o + 2);
+    int32_t v = (int32_t)rt_r32(q);
+    return v && ram_ptr(q + (uint32_t)v) ? q + (uint32_t)v : 0;
+}
+
+static uint32_t qte_vtable(void) {
+    /* this build's vtable: the one whose +0xAC is the QTE update (0x08B493E4 in the US release) */
+    if (rt_r32(COO_QTE_VTABLE + 0xACu) == COO_QTE_UPDATE) return COO_QTE_VTABLE;
+    for (uint32_t a = 0x08B00000u; a < 0x08B70000u; a += 4)
+        if (rt_r32(a) == COO_QTE_UPDATE && !rt_r32(a - 4)) return a - 0xACu;
+    return 0;
+}
+
+/* a slice of the sweep for objects with the QTE vtable (at +0xC); the list drops objects that lost it */
+static void qte_sweep(void) {
+    int n = 0;
+    for (int k = 0; k < g_qte_n; k++)
+        if (rt_r32(g_qte_obj[k] + 0xCu) == g_qte_vt) g_qte_obj[n++] = g_qte_obj[k];
+    g_qte_n = n;
+    const uint32_t *p = (const uint32_t *)rt_ptr(g_qte_sweep);
+    uint32_t left = 0x0A000000u - g_qte_sweep;
+    uint32_t words = (left < 0x100000u ? left : 0x100000u) / 4;  /* 1 MB a frame: all of user RAM in 21 frames */
+    for (uint32_t k = 0; k < words; k++) {
+        if (p[k] != g_qte_vt) continue;
+        uint32_t obj = g_qte_sweep + 4 * k - 0xCu, seen = 0;
+        for (int j = 0; j < g_qte_n; j++) seen |= g_qte_obj[j] == obj;
+        if (!seen && g_qte_n < QTE_MAX) g_qte_obj[g_qte_n++] = obj;
+    }
+    g_qte_sweep += 0x100000u;
+    if (g_qte_sweep >= 0x0A000000u) g_qte_sweep = 0x08B70000u;
+}
+
+/* the raw stick for a value the game reads as X (left +) and Y (up +), both -1..1 (FUN_0000c888 in reverse:
+ * it flips both and turns the stick by -15 degrees) */
+static void stick_game(float gx, float gy, int *lx, int *ly) {
+    const float c = 0.96592583f, s = -0.25881905f;  /* cos, sin of -15 degrees */
+    float xr = -gx, yr = -gy;
+    float x = c * xr + s * yr, y = -s * xr + c * yr;
+    int ix = (int)(127.5f + 127.0f * x + 0.5f), iy = (int)(127.5f + 127.0f * y + 0.5f);
+    *lx = ix < 0 ? 0 : ix > 255 ? 255 : ix;
+    *ly = iy < 0 ? 0 : iy > 255 ? 255 : iy;
+}
+
+static uint32_t channel_button(int ch) {
+    static const uint32_t bits[4] = { PSP_CROSS, PSP_CIRCLE, PSP_TRIANGLE, PSP_SQUARE };
+    if (ch >= 0 && ch < 4) return bits[ch];
+    if (ch == 8) return PSP_LTRIGGER;
+    if (ch == 9) return PSP_RTRIGGER;
+    if (ch == 0xC) return PSP_LTRIGGER | PSP_RTRIGGER;
+    return 0;
+}
+
+#define FACE_BUTTONS (PSP_CROSS | PSP_CIRCLE | PSP_TRIANGLE | PSP_SQUARE | PSP_LTRIGGER | PSP_RTRIGGER)
+
+/* one QTE object at a controller read: answers its prompt (*b, *lx, *ly) and logs what changed */
+static void qte_object(uint64_t frame, int slot, uint32_t q, uint32_t *b, int *lx, int *ly) {
+    uint32_t flags = rt_r32(q + 0xA8u), cur = rt_r32(q + 0xA4u), data = rt_r32(q + 0x64u);
+    uint32_t node = ram_ptr(cur) ? rt_r32(cur) : 0, f2 = node_field(node, 2);
+    uint32_t type = f2 ? rt_r32(f2) : 0, prm = f2 ? f2 + 4 : 0;
+    int running = (flags & 1u) && ram_ptr(cur) && f2;
+    if (g_qte_log) {
+        /* a line when the node or the flags change, with the progress the node before reached */
+        uint32_t key[2] = { running ? node : 0, flags & 0x003F0001u };
+        float before;
+        memcpy(&before, &g_qte_last[slot][2], 4);
+        if (memcmp(key, g_qte_last[slot], sizeof(key))) {
+            char s[256];
+            int n = snprintf(s, sizeof(s), "[qte] frame %llu: %08X %s node %08X flags %08X (progress before %.2f)",
+                             (unsigned long long)frame, q, running ? qte_type_name(type) : "idle", node, flags, before);
+            if (running && type == QT_BUTTON && ram_ptr(data)) n += snprintf(s + n, sizeof(s) - n, " button %u", rt_r32(data));
+            if (running && (type == QT_MASH || type == QT_HOLD) && prm) n += snprintf(s + n, sizeof(s) - n, " channel %u", rt_r16(prm));
+            if (running && type == QT_MOTION && ram_ptr(data))
+                snprintf(s + n, sizeof(s) - n, " start %.2f turn %.2f dir %.0f flags %X angle %.2f", rt_rf(data + 4),
+                         rt_rf(data + 8), rt_rf(data + 12), rt_r32(data), rt_rf(data + 16));
+            rt_log("%s\n", s);
+            memcpy(g_qte_last[slot], key, sizeof(key));
+        }
+        g_qte_last[slot][2] = ram_ptr(cur) ? rt_r32(cur + 4) : 0;
+    }
+    if (!g_auto_qte || !running || frame < g_auto_qte_from) return;
+    static uint64_t last_frame;
+    static float spin_deg;
+    static uint32_t counted_node;
+    int odd = frame & 1u;
+    int counted = counted_node == node;
+    switch (type) {
+    case QT_BUTTON: {
+        if (!(flags & 0x10000u) || (flags & 0x60000u) || !ram_ptr(data)) return;
+        uint32_t want = channel_button((int)rt_r32(data));
+        *b &= ~(uint32_t)FACE_BUTTONS;  /* another button would fail it */
+        if (!odd) *b |= want;
+        if (!counted) g_qte_counts[0]++;
+        break;
+    }
+    case QT_MASH: {
+        uint32_t want = channel_button((int)(int16_t)rt_r16(prm));
+        *b &= ~want;
+        if (!odd) *b |= want;
+        if (!counted) g_qte_counts[1]++;
+        break;
+    }
+    case QT_HOLD: {
+        int ch = (int16_t)rt_r16(prm);
+        if (ch < 4) *b |= channel_button(ch);
+        else stick_game(ch == 6 ? 1.0f : ch == 7 ? -1.0f : 0.0f, ch == 4 ? 1.0f : ch == 5 ? -1.0f : 0.0f, lx, ly);
+        if (!counted) g_qte_counts[2]++;
+        break;
+    }
+    case QT_SPIN:
+        if (frame != last_frame) spin_deg += 90.0f;  /* a quarter turn per update: as fast as it counts */
+        stick_game(sinf(spin_deg * 0.017453293f), cosf(spin_deg * 0.017453293f), lx, ly);
+        if (!counted) g_qte_counts[3]++;
+        break;
+    case QT_MOTION: {
+        if (!(flags & 0x10000u) || (flags & 0x60000u) || !ram_ptr(data)) return;
+        if (flags & 0x200000u) break;  /* turned far enough: let go, which ends it */
+        float start = rt_rf(data + 4), dir = rt_rf(data + 12);
+        if (!(flags & 0x80000u)) spin_deg = start * 57.29578f;
+        else if (frame != last_frame) spin_deg += dir * 20.0f;  /* steady, one way: 120 degrees in 6 updates */
+        stick_game(sinf(spin_deg * 0.017453293f), cosf(spin_deg * 0.017453293f), lx, ly);
+        if (!counted) g_qte_counts[3]++;
+        break;
+    }
+    default:
+        return;
+    }
+    counted_node = node;
+    last_frame = frame;
+}
+
+void rt_debug_pad(uint64_t frame, uint32_t *b, int *lx, int *ly) {
+    if (!(g_auto_qte || g_qte_log)) return;
+    if (!g || !is_coo()) {
+        rt_log("[qte] --auto-qte and --qte-log are for Chains of Olympus only (Ghost of Sparta has Callisto's Armlet); ignored\n");
+        g_auto_qte = g_qte_log = 0;
+        return;
+    }
+    static uint64_t swept = ~0ull;
+    if (!g_qte_vt) {
+        g_qte_vt = qte_vtable();
+        rt_log("[qte] %s: QTE class %s%08X\n", g_auto_qte ? "auto QTE" : "QTE log", g_qte_vt ? "vtable " : "not found ", g_qte_vt);
+        if (!g_qte_vt) { g_auto_qte = g_qte_log = 0; return; }
+    }
+    if (frame != swept) { swept = frame; qte_sweep(); }
+    for (int k = 0; k < g_qte_n; k++) qte_object(frame, k, g_qte_obj[k], b, lx, ly);
+}
+
 void rt_debug_input(uint64_t frame) {
     if (!g) {
         if ((g_warp || g_god || g_rumble || g_level_log || g_load_name[0]) && !g_warp_done) {
@@ -409,11 +624,16 @@ void rt_debug_input(uint64_t frame) {
     if (g_rumble) rumble();  /* before god mode refills what the hit took */
     if (g_god) god();
     if (g_warp && !g_warp_done && frame >= g_warp_frame) {
-        if (is_coo()) warp_coo();
+        if (g != &COO && g != &GOS) {  /* the warp calls the US releases' own functions */
+            rt_log("[debug] --warp works only on the US releases; ignored for %s\n", RT_GAME_ID);
+            g_warp_done = 1;
+        } else if (is_coo()) warp_coo();
         else warp_gos(frame);
     }
-    if (g_load_name[0] && !g_load_done && frame >= g_load_frame) load_level();
-    if (g_level_log) log_levels();
+    if (g->mgr_ptr) {  /* not known for every regional release */
+        if (g_load_name[0] && !g_load_done && frame >= g_load_frame) load_level();
+        if (g_level_log) log_levels();
+    }
     if (g_dump_frames) dump_ram(frame);
 }
 
@@ -429,5 +649,8 @@ void rt_debug_report(void) {
                g_gos_stage == 4 ? "the level change never happened" : "Kratos never appeared");
     else if (g_warp && !g_warp_done) printf("[debug] the warp to %s never ran (frame %u not reached)\n", g_warp, g_warp_frame);
     if (g_rumble) printf("[debug] rumble: %u hits\n", g_rumbles);
+    if (g_auto_qte)
+        printf("[debug] auto QTE answered %u button, %u mash, %u hold and %u stick prompts\n", g_qte_counts[0],
+               g_qte_counts[1], g_qte_counts[2], g_qte_counts[3]);
     if (g_god) printf("[debug] god mode refilled Kratos's health %u times; health reached 0 %u times\n", g_god_refills, g_deaths);
 }

@@ -11,6 +11,7 @@ image.bin (relocated image) and module.json (metadata for tests and tooling).
 from __future__ import annotations
 
 import argparse
+import bisect
 import json
 import random
 import sys
@@ -46,6 +47,85 @@ def load_nids(path: Path) -> dict[int, str]:
     return out
 
 
+def auto_analyze(mod: PspModule) -> tuple[dict[int, FuncInfo], dict[int, list[int]]]:
+    base = mod.base
+    text = mod.section(".text")
+    t_lo, t_hi = base + text.addr, base + text.addr + text.size
+    rodata = mod.section(".rodata")
+    r_lo, r_hi = base + rodata.addr, base + rodata.addr + rodata.size
+    hilo_by_lo = {lo: val for _hi, lo, val in mod.hilo_values}
+    rodata_refs = sorted(set(val for _hi, _lo, val in mod.hilo_values if r_lo <= val < r_hi))
+    jumptables: dict[int, list[int]] = {}
+    jt_rodata_addrs: set[int] = set()
+    for pc in range(t_lo, t_hi, 4):
+        ins = decode(mod.u32(pc), pc)
+        if ins.flow == JR and ins.rs != 31:
+            tbl = next((hilo_by_lo[pc - off] for off in range(4, 32, 4)
+                        if pc - off in hilo_by_lo and r_lo <= hilo_by_lo[pc - off] < r_hi), None)
+            if not tbl:
+                continue
+            n_bound = None
+            for off in range(4, 64, 4):
+                bi = decode(mod.u32(pc - off), pc - off)
+                prev = decode(mod.u32(pc - off - 4), pc - off - 4)
+                if prev.flow == BRANCH and prev.likely:
+                    continue
+                if bi.op in ("sltiu", "slti") and 0 < bi.uimm < 2048:
+                    n_bound = bi.uimm
+                    break
+            idx = bisect.bisect_right(rodata_refs, tbl)
+            next_ref = rodata_refs[idx] if idx < len(rodata_refs) else r_hi
+            pts, addr = [], tbl
+            while addr < min(next_ref, r_hi):
+                val = mod.addr32_values.get(addr, 0)
+                if not (t_lo <= val < t_hi) or (val & 3):
+                    break
+                pts.append(val)
+                jt_rodata_addrs.add(addr)
+                addr += 4
+                if n_bound and len(pts) >= n_bound:
+                    break
+            if pts:
+                jumptables[pc] = sorted(set(pts))
+    entries = {mod.entry_addr}
+    for pc in range(t_lo, t_hi, 4):
+        ins = decode(mod.u32(pc), pc)
+        if ins.flow == CALL and t_lo <= ins.target < t_hi:
+            entries.add(ins.target)
+        elif ins.flow == BRANCH and ins.link and t_lo <= ins.target < t_hi:
+            entries.add(ins.target)
+    for _hi_a, _lo_a, val in mod.hilo_values:
+        if t_lo <= val < t_hi and not (val & 3):
+            entries.add(val)
+    for a, val in mod.addr32_values.items():
+        if a not in jt_rodata_addrs and t_lo <= val < t_hi and not (val & 3):
+            entries.add(val)
+    funcs: dict[int, FuncInfo] = {}
+    for entry in sorted(entries):
+        fi = FuncInfo(entry=entry, name=f"FUN_{entry - base:08x}", addrs=[entry])
+        i = decode(mod.u32(entry), entry)
+        fi.insns[entry] = i
+        fi.has_vfpu = i.is_vfpu
+        fi.has_jalr = i.flow == JALR
+        fi.has_indirect_jr = i.flow == JR and i.rs != 31
+        funcs[entry] = fi
+    return funcs, jumptables
+
+
+def detect_co_switch(mod: PspModule) -> tuple[int, int, int] | None:
+    base = mod.base
+    text = mod.section(".text")
+    t_lo, t_hi = base + text.addr, base + text.addr + text.size
+    for pc in range(t_lo, t_hi - 0x70, 4):
+        if mod.u32(pc) == 0x27BDFFA0 and mod.u32(pc + 4) == 0xAFA40000 and mod.u32(pc + 8) == 0xAFBF0004:
+            i_lui = decode(mod.u32(pc + 0x68), pc + 0x68)
+            i_lw = decode(mod.u32(pc + 0x6C), pc + 0x6C)
+            if i_lui.op == "lui" and i_lw.op == "lw":
+                swap_slot = ((i_lui.uimm << 16) + i_lw.imm) & 0xFFFFFFFF
+                return pc, swap_slot, (swap_slot + 8) & 0xFFFFFFFF
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--elf", required=True)
@@ -57,6 +137,8 @@ def main() -> int:
     ap.add_argument("--boot", type=int, default=200, help="max functions reachable from the entry point")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--all", action="store_true", help="emit every translatable function")
+    ap.add_argument("--auto-analyze", action="store_true",
+                    help="find functions and jump tables without the Ghidra export (as for a regional EBOOT it doesn't match)")
     args = ap.parse_args()
     base = int(args.base, 16)
     out = Path(args.out)
@@ -88,6 +170,11 @@ def main() -> int:
                 fi.has_indirect_jr = True
         funcs[entry] = fi
     jumptables = {int(j["at"], 16) + delta: [int(t, 16) + delta for t in j["targets"]] for j in g["jumptables"]}
+    # Another build of the game (a regional release, e.g. the European ones) doesn't match the Ghidra export of the US EBOOT:
+    # find the functions and jump tables from the binary itself
+    if args.auto_analyze or mod.section(".text").size != int(g["text"][1], 16) - int(g["text"][0], 16) + 1:
+        print(f"{Path(args.elf).name}: analysing the EBOOT without the Ghidra export")
+        funcs, jumptables = auto_analyze(mod)
 
     # Body completion: follow control flow from each entry ourselves and add reachable code
     # that Ghidra left out of the function (e.g. a fall-through it stopped at). Other
@@ -227,6 +314,13 @@ def main() -> int:
     game_id = Path(args.elf).name.split("_")[0]
     rt_cfg = json.loads((Path(__file__).parent / "runtime_funcs.json").read_text(encoding="utf-8"))
     runtime_funcs = {int(a, 16): call for a, call in rt_cfg.get(game_id, {}).items()}
+    # A build runtime_funcs.json doesn't list (a regional release): find its context switch by its code
+    co_info = None if runtime_funcs else detect_co_switch(mod)
+    if co_info is not None:
+        co_pc, swap_slot, cur_slot = co_info
+        runtime_funcs = {co_pc: f"rt_co_switch(c, 0x{swap_slot:08X}u, 0x{cur_slot:08X}u)"}
+        known_ids = {0x08B36148: "UCUS98653", 0x08B36158: "UCES00842", 0x08C15D88: "UCUS98737", 0x08C173D0: "UCES01473"}
+        game_id = known_ids.get(swap_slot, game_id)
     for a in runtime_funcs:
         if a not in generated:
             print(f"{game_id}: runtime function 0x{a:08X} is not a generated function")
@@ -236,37 +330,42 @@ def main() -> int:
             return (f"/* {funcs[e].name}: provided by the runtime (recomp/runtime_funcs.json) */\n"
                     f"void f_{e:08X}(RtCtx *c) {{ {runtime_funcs[e]}; }}\n")
         return f"/* {funcs[e].name} */\n" + emit_function(funcs[e], prog)
-    (out / "funcs.h").write_text(
+
+    def put(name, text):
+        """Writes a file only when its text changes, so that a build compiles again only what changed."""
+        path = out / name
+        if not path.exists() or path.read_text(encoding="utf-8") != text:
+            path.write_text(text, encoding="utf-8")
+    put("funcs.h",
         "#pragma once\n#include \"psp_rt.h\"\n"
         + "".join(f"void f_{e:08X}(RtCtx *c);\n" for e in gen)
-        + "".join(f"void f_{s:08X}(RtCtx *c); /* {v[1]}::{v[2]} */\n" for s, v in sorted(stubs.items())),
-        encoding="utf-8")
+        + "".join(f"void f_{s:08X}(RtCtx *c); /* {v[1]}::{v[2]} */\n" for s, v in sorted(stubs.items())))
+    chunks = {f"code_{n // CHUNK:03d}.c": gen[n:n + CHUNK] for n in range(0, len(gen), CHUNK)}
     for old in out.glob("code_*.c"):
-        old.unlink()
-    for n in range(0, len(gen), CHUNK):
-        body = [emit(e) for e in gen[n:n + CHUNK]]
-        (out / f"code_{n // CHUNK:03d}.c").write_text(
-            "/* Generated by recomp.py from the user's own game dump - personal use only. */\n"
+        if old.name not in chunks:
+            old.unlink()
+    for name, chunk in chunks.items():
+        put(name, "/* Generated by recomp.py from the user's own game dump - personal use only. */\n"
             "#include \"funcs.h\"\n#ifdef _MSC_VER\n#pragma warning(disable: 4102 4100)\n#endif\n\n"
-            + "\n".join(body), encoding="utf-8")
-    (out / "stubs.c").write_text(
+            + "\n".join(emit(e) for e in chunk))
+    put("stubs.c",
         "#include \"funcs.h\"\n\n" + "".join(
             f"void f_{s:08X}(RtCtx *c) {{ rt_hle(c, 0x{nid:08X}u, \"{lib}\", \"{name}\"); }}\n"
-            for s, (nid, lib, name) in sorted(stubs.items())), encoding="utf-8")
+            for s, (nid, lib, name) in sorted(stubs.items())))
     table = sorted([(e, f"f_{e:08X}") for e in gen] + [(s, f"f_{s:08X}") for s in stubs])
-    (out / "table.c").write_text(
+    put("table.c",
         "#include \"funcs.h\"\n\nconst RtFuncEntry rt_funcs[] = {\n"
         + "".join(f"  {{0x{a:08X}u, {n}}},\n" for a, n in table)
-        + f"}};\nconst size_t rt_funcs_count = {len(table)};\n", encoding="utf-8")
+        + f"}};\nconst size_t rt_funcs_count = {len(table)};\n")
     mi = mod.module_info()
-    (out / "module_info.c").write_text(
+    put("module_info.c",
         "#include \"psp_rt.h\"\n"
         f"const char *const RT_GAME_ID = \"{game_id}\";\n"
         f"const char *const RT_MODULE_NAME = \"{mi['name']}\";\n"
         f"const uint32_t RT_IMAGE_BASE = 0x{base:08X}u;\n"
         f"const uint32_t RT_IMAGE_SIZE = 0x{len(mod.image):X}u;\n"
         f"const uint32_t RT_ENTRY = 0x{entry:08X}u;\n"
-        f"const uint32_t RT_GP = 0x{mi['gp']:08X}u;\n", encoding="utf-8")
+        f"const uint32_t RT_GP = 0x{mi['gp']:08X}u;\n")
     (out / "image.bin").write_bytes(bytes(mod.image))
     report = {
         "game_id": game_id, "base": f"0x{base:08X}", "entry": f"0x{entry:08X}", "gp": f"0x{mi['gp']:08X}",

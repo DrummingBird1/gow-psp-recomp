@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -34,6 +35,7 @@ TOOLS = {
            "override": "--wait --passive --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"},
 }
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+DOWNLOAD_TRIES = 3  # per archive; a retry asks for the rest of the file (HTTP Range)
 
 # The portable toolchain: official release archives, pinned by SHA-256 (licenses: tools/launcher_assets/
 # THIRD_PARTY_NOTICES.txt). "skip" leaves out parts a 64-bit Windows build never uses (other targets, Python).
@@ -197,26 +199,40 @@ def download_archive(p, root, out=print):
     archive = root / (p["dir"] + ".zip.part")
     out(f"downloading {p['name']} ({p['size'] / 1e6:.0f} MB) from {p['url']}")
     h, done, shown = hashlib.sha256(), 0, -1
-    try:
-        root.mkdir(parents=True, exist_ok=True)
-        req = urllib.request.Request(p["url"], headers={"User-Agent": "GoWLauncher"})
-        with urllib.request.urlopen(req, timeout=60) as r, open(archive, "wb") as f:
-            while True:
-                block = r.read(1 << 20)
-                if not block:
-                    break
-                f.write(block)
-                h.update(block)
-                done += len(block)
-                pct = done * 100 // max(p["size"], 1)
-                if pct // 10 != shown:
-                    shown = pct // 10
-                    out(f"  {p['dir']}: {min(pct, 100)}% ({done / 1e6:.0f} MB)")
-    except OSError as e:
-        why = explain(e)
-        out(ERROR + f"downloading {p['name']} failed: {why}" + (". Check the internet connection and try again."
-                                                                 if why == str(e) else ""))
-        return False
+    for attempt in range(1, DOWNLOAD_TRIES + 1):
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            headers = {"User-Agent": "GoWLauncher"}
+            if done:
+                headers["Range"] = f"bytes={done}-"  # a dropped connection goes on where it stopped
+            req = urllib.request.Request(p["url"], headers=headers)
+            with urllib.request.urlopen(req, timeout=60) as r:
+                if done and r.status != 206:  # the server sends the whole file again: start over
+                    h, done = hashlib.sha256(), 0
+                with open(archive, "ab" if done else "wb") as f:
+                    while True:
+                        block = r.read(1 << 20)
+                        if not block:
+                            break
+                        f.write(block)
+                        h.update(block)
+                        done += len(block)
+                        pct = done * 100 // max(p["size"], 1)
+                        if pct // 10 != shown:
+                            shown = pct // 10
+                            out(f"  {p['dir']}: {min(pct, 100)}% ({done / 1e6:.0f} MB)")
+                if r.length:  # bytes the server announced but never sent: the connection was cut
+                    raise ConnectionError(f"the connection closed {r.length / 1e6:.0f} MB before the end")
+            break
+        except OSError as e:
+            why = explain(e)
+            if attempt < DOWNLOAD_TRIES:
+                out(f"  {p['dir']}: {why}; trying again ({attempt + 1}/{DOWNLOAD_TRIES})")
+                time.sleep(2 * attempt)
+                continue
+            out(ERROR + f"downloading {p['name']} failed: {why}" + (". Check the internet connection and try again."
+                                                                     if why == str(e) else ""))
+            return False
     if h.hexdigest() != p["sha256"]:
         try:
             archive.unlink(missing_ok=True)

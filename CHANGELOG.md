@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.6.0 (unreleased)
+
+- **Fix: The Vortex in Ghost of Sparta never ended** (issues #51, #56, #62, #65, #66): after the helmsman is struck
+  by lightning, the boat stayed put and the enemies kept coming. The game advances that part's timeline in whole
+  milliseconds per frame, and at a steady 60 FPS its step (0.43 ms) always rounded to 0; a PSP runs that scene
+  slower, where it rounds to 1. The port now carries the fraction over to the next frame, so the boat moves at any
+  frame rate. Ghost of Sparta is recompiled once by the next Build (a few minutes); saves stay.
+- **Fix: Build failed in a game folder with [ ] in its name** (issues #46, #61), such as "God of War [PSP]", with
+  "libchdr could not be downloaded completely". CMake reads [ ] as a pattern, so the downloaded sources seemed to
+  vanish. The launcher now builds through a link without those characters; the files stay where they are.
+- **Downloads hold up better:** a dropped connection during the 191 MB build tools download goes on where it stopped
+  (it used to fail as "wrong SHA-256"), and each source file of the build is tried three times.
+- **European releases (preview)** (issues #6, #64; PR #48 by MaksVolkov7863): the launcher finds the European
+  Chains of Olympus (UCES00842) and Ghost of Sparta (UCES01401, and v1.01 UCES01473) by their disc ID and builds them.
+  Their EBOOT differs from the US one, so the recompiler finds its functions from the EBOOT itself; checked on the US
+  Chains of Olympus, where that gives a game identical to the usual build. Not tested on a European disc yet: please
+  report how it goes. The debug warp works only on the US releases.
+- **Auto QTE for Chains of Olympus** (issue #26), in Options: the button, mash, hold and stick-spin prompts answer
+  themselves, as Callisto's Armlet does in Ghost of Sparta. Off by default.
+- **The launcher in Turkish** (issue #60), in Options > Advanced > Launcher language.
+- **A little faster with the Hardware renderer:** the check whether the CPU changed the shown picture takes a third of
+  the time. The main cost in Ghost of Sparta's heaviest scenes (issues #33, #63) is measured and understood (the
+  game's thousands of small draws per frame); the larger fix is planned for a later version.
+- **Texture upscaling (xBRZ)** in Options > Advanced, for the Hardware renderer: the game's textures smoothed to 2, 3
+  or 4 times their size, as in PPSSPP. Off by default.
+
 ## v1.5.0 (2026-11-07)
 
 - **Fix: keys of the numeric keypad could not be bound** (issue #57). The Controls page saved a keypad digit as the

@@ -26,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import toolchain  # noqa: E402
 
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 # Frozen (GoWLauncher.exe, tools/build_launcher.py): the exe carries the sources the build needs and unpacks them
 # on the first Build. Everything it writes (sources, build/, saves, settings) goes into one folder next to the exe,
 # GoW_PSP_data/, so a Downloads or Desktop folder only gains that one folder.
@@ -47,11 +47,24 @@ GAMES = {
     "coo": {"id": "UCUS98653", "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
     "gos": {"id": "UCUS98737", "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
 }
+# The European releases of the two games (issues #6, #64; PR #48; UCES01473 is GoS v1.01). Their EBOOT differs from the US one, so recomp.py finds
+# its functions from the binary itself instead of the Ghidra export. Not tested on these discs by us.
+REGIONAL = {"UCES00842": "coo", "UCES01401": "gos", "UCES01473": "gos"}
+DISC_IDS = {}  # game -> the ID of its chosen disc image, when it isn't the US one (filled from launcher.json)
+
+
+def game_id(game):
+    """The disc ID this game is built and run as: the US release's, or a regional one's."""
+    return DISC_IDS.get(game) or GAMES[game]["id"]
+
+
+def known_ids(game):
+    return [GAMES[game]["id"]] + [i for i, g in REGIONAL.items() if g == game]
 DEFAULTS = {
-    "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
+    "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1, "tex_upscale": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "show_input": False, "crt": False,
-    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "auto_qte": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -128,15 +141,15 @@ def write_controls(cfg):
 
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
-           "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
-           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "he", "ar"),
+           "aniso": (1, 2, 4, 8, 16), "tex_upscale": (1, 2, 3, 4), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
+           "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "tr", "he", "ar"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
-BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
+BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "auto_qte", "rumble", "confirm_circle", "discord", "hud_edges")
 
 
 # --- per-game graphics ------------------------------------------------------------------------------------------
 # With "Separate graphics settings for each game" on, these keys are kept per game (cfg["game_settings"][game]).
-GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
+GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "tex_upscale", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
              "crt", "show_fps", "hud_edges", "preset")
 
 
@@ -212,10 +225,13 @@ def load_config():
         saved["fullscreen"], saved["settings_version"] = True, 2
     cfg.update(saved)
     cfg["_fixed"] = validate_config(cfg)
+    DISC_IDS.clear()
+    DISC_IDS.update({g: i for g, i in (cfg.get("disc_ids") or {}).items() if g in GAMES and i in known_ids(g)})
     return cfg
 
 
 def save_config(cfg):
+    cfg["disc_ids"] = dict(DISC_IDS)
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps({k: v for k, v in cfg.items() if not k.startswith("_")}, indent=1), encoding="utf-8")
 
@@ -266,7 +282,7 @@ def build_is_current(game):
 
 
 def exe_path(game):
-    return newest([built_file(k, game, f"gow_rt_{GAMES[game]['id']}_full.exe") for k in FLAVOURS])
+    return newest([built_file(k, game, f"gow_rt_{game_id(game)}_full.exe") for k in FLAVOURS])
 
 
 def disc_tool():
@@ -279,12 +295,32 @@ def configure_args(tools):
     no_git = ["-DCMAKE_DISABLE_FIND_PACKAGE_Git=ON"]
     if tools.get("kind") != "portable":
         return no_git
-    return no_git + ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}",
-            f"-DCMAKE_C_COMPILER={tools['cc']}", f"-DCMAKE_CXX_COMPILER={tools['cxx']}"]
+    # the tools sit in the data folder: given through the same link as the sources when its path has [ ] (cmake_root)
+    args = no_git + ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={via_link(tools['ninja'])}",
+                     f"-DCMAKE_C_COMPILER={via_link(tools['cc'])}", f"-DCMAKE_CXX_COMPILER={via_link(tools['cxx'])}"]
+    return args
+
+
+def via_link(path):
+    """path, under the link cmake_root() gives when the data folder's path has [ ] or ; (else unchanged)."""
+    s, root = str(path), cmake_root(lambda *_: None)
+    if root != ROOT and s.lower().startswith(str(ROOT).lower()):
+        return str(root) + s[len(str(ROOT)):]
+    return s
+
+
+def cmake_env(tools):
+    """The toolchain's environment, with its PATH entries in the data folder given through the link too."""
+    env = tools.get("env")
+    if not env or "PATH" not in env:
+        return env
+    env = dict(env)
+    env["PATH"] = os.pathsep.join(via_link(e) for e in env["PATH"].split(os.pathsep))
+    return env
 
 
 def gen_dir(game):
-    return ROOT / "build" / "gen" / f"{GAMES[game]['id']}_full"
+    return ROOT / "build" / "gen" / f"{game_id(game)}_full"
 
 
 def unpack_sources(out=print):
@@ -325,7 +361,7 @@ def run_recomp(args):
 
 def eboot_path(game):
     """Where the EBOOT decrypted from the disc image goes (build/ is not in git)."""
-    return ROOT / "build" / "eboot" / f"{GAMES[game]['id']}_EBOOT.BIN"
+    return ROOT / "build" / "eboot" / f"{game_id(game)}_EBOOT.BIN"
 
 
 def check_disc(cfg, game):
@@ -369,6 +405,8 @@ def play_command(cfg, game):
             cmd += ["--msaa", str(cfg["msaa"])]
         if cfg["aniso"] > 1:
             cmd += ["--aniso", str(cfg["aniso"])]
+        if int(cfg.get("tex_upscale", 1)) > 1:
+            cmd += ["--tex-upscale", str(cfg["tex_upscale"])]
         if cfg["fxaa"]:
             cmd.append("--fxaa")
         if cfg["sharpen"] > 0:
@@ -400,6 +438,8 @@ def play_command(cfg, game):
         cmd.append("--skip-movies")
     if cfg.get("god"):
         cmd.append("--god")
+    if cfg.get("auto_qte") and game == "coo":  # Ghost of Sparta has Callisto's Armlet in the game
+        cmd.append("--auto-qte")
     if cfg.get("rumble", True):
         cmd.append("--rumble")
     if cfg.get("confirm_circle"):
@@ -431,12 +471,12 @@ def ppsspp_saves(folder):
     [(game, path, encrypted)]. PPSSPP encrypts saves unless EncryptSave is off in its ppsspp.ini; the port reads plain ones."""
     d = Path(folder)
     for sub in ("PSP/SAVEDATA", "SAVEDATA", ""):
-        if (d / sub).is_dir() and any((d / sub).glob("UCUS987*")):
+        if (d / sub).is_dir() and any(any((d / sub).glob(i + "*")) for k in GAMES for i in known_ids(k)):
             d = d / sub
             break
     out = []
-    for game, g in GAMES.items():
-        for p in sorted(d.glob(g["id"] + "*")):
+    for game in GAMES:
+        for p in sorted(q for i in known_ids(game) for q in d.glob(i + "*")):
             sfo = p / "PARAM.SFO"
             if not sfo.is_file():
                 continue
@@ -519,6 +559,37 @@ def is_configure(cmd):
     return len(cmd) > 2 and cmd[1] == "-S" and "-B" in cmd
 
 
+# Characters CMake can't take in a source folder: "[" and "]" are glob patterns to file(GLOB), so the archive
+# FetchContent unpacks into "...\God of War [PSP]\..." came out empty and the generated sources weren't found
+# (issues #46, #61); ";" splits lists.
+CMAKE_UNSAFE = set("[];")
+
+
+def cmake_root(out=print):
+    """The folder CMake is given for ROOT: ROOT itself, or, when its path has a character CMake can't take, a junction
+    to it without one (in %LOCALAPPDATA%\\GoW_PSP\\links). The files stay where they are; only the path differs."""
+    s = str(ROOT)
+    if os.name != "nt" or not CMAKE_UNSAFE.intersection(s):
+        return ROOT
+    link = (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "GoW_PSP" / "links"
+            / ("data-" + hashlib.sha256(s.lower().encode()).hexdigest()[:12]))
+    if CMAKE_UNSAFE.intersection(str(link)):
+        return ROOT
+    try:
+        if os.path.lexists(link):
+            if os.path.normcase(os.path.realpath(link)) == os.path.normcase(os.path.realpath(ROOT)):
+                return link
+            os.rmdir(link)  # a junction to somewhere else: removes the link, never what it points to
+        link.parent.mkdir(parents=True, exist_ok=True)
+        import _winapi
+        _winapi.CreateJunction(s, str(link))
+    except OSError as e:
+        out(f"could not make a link without [ ] for the build ({e}); building from {ROOT}")
+        return ROOT
+    out(f"the folder's path has [ ] or ;, which CMake can't take: building through {link}")
+    return link
+
+
 def clean_cmake_dir(build_dir, out=print):
     """Removes CMake's cache and probe results from a build folder (the sources and fetched dependencies stay).
     A configure that was interrupted, or ran twice at once in the same folder, can leave a cache that fails
@@ -556,10 +627,10 @@ def ensure_disc_tool(out=print, ask=toolchain.ask_console):
     tools_build = ROOT / FLAVOURS[tools["kind"]]["tools"]
     for cmd in disc_tool_steps(tools):
         had_cache = is_configure(cmd) and (tools_build / "CMakeCache.txt").exists()
-        code, lines = run_command(cmd, out, tools.get("env"))
+        code, lines = run_command(cmd, out, cmake_env(tools))
         if code and had_cache:
             clean_cmake_dir(tools_build, out)
-            code, lines = run_command(cmd, out, tools.get("env"))
+            code, lines = run_command(cmd, out, cmake_env(tools))
         if code:
             out("failed to build gow_disc")
             why = first_error(lines)
@@ -582,14 +653,15 @@ def first_error(lines):
 
 
 def disc_tool_steps(tools):
-    cmake, tools_build = tools["cmake"], ROOT / FLAVOURS[tools["kind"]]["tools"]
-    return [[cmake, "-S", str(ROOT), "-B", str(tools_build), "-DGOW_TOOLS_ONLY=ON"] + configure_args(tools),
+    root = cmake_root()
+    cmake, tools_build = via_link(tools["cmake"]), root / FLAVOURS[tools["kind"]]["tools"]
+    return [[cmake, "-S", str(root), "-B", str(tools_build), "-DGOW_TOOLS_ONLY=ON"] + configure_args(tools),
             [cmake, "--build", str(tools_build), "--config", "Release", "--target", "gow_disc", "--parallel"]]
 
 
 def scan_folder(folder, out=print):
     """{game: disc image path} for the .chd/.iso files in folder (and its direct subfolders), by disc ID."""
-    ids = {g["id"]: k for k, g in GAMES.items()}
+    ids = {i: k for k in GAMES for i in known_ids(k)}
     found = {}
     base = Path(folder)
     cands = [p for pat in ("*.chd", "*.iso", "*/*.chd", "*/*.iso") for p in sorted(base.glob(pat), key=lambda q: str(q).lower())]
@@ -602,7 +674,13 @@ def scan_folder(folder, out=print):
         disc_id = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
         out(f"{f.name}: {disc_id or 'not a PSP disc'}")
         if disc_id in ids and ids[disc_id] not in found:
-            found[ids[disc_id]] = str(f)
+            game = ids[disc_id]
+            found[game] = str(f)
+            if disc_id == GAMES[game]["id"]:
+                DISC_IDS.pop(game, None)
+            else:
+                DISC_IDS[game] = disc_id
+                out(f"{f.name}: {GAMES[game]['title']}, regional release {disc_id} (not tested by the project yet)")
     return found
 
 
@@ -657,12 +735,21 @@ def render_menu(cfg, game, out=print):
     return ok
 
 
+def recomp_stamp(game):
+    """What the recompiled C is made from: the EBOOT, and the functions the runtime provides instead of their
+    translation (recomp/runtime_funcs.json; v1.6.0 added one to Ghost of Sparta, so C recompiled before is made
+    again). recomp.py rewrites only the files that change, so only those are compiled again."""
+    digest = hashlib.sha256(eboot_path(game).read_bytes()).hexdigest()
+    funcs = json.loads((ROOT / "recomp" / "runtime_funcs.json").read_text(encoding="utf-8")).get(game_id(game), {})
+    return digest + "\n" + hashlib.sha256(json.dumps(funcs, sort_keys=True).encode()).hexdigest()
+
+
 def build_steps(cfg, game, tools=None):
     """Build gow_disc (once), decrypt the EBOOT from the disc image, recompile it into C (skipped when this
     EBOOT was already recompiled), configure, build. A step is (command, condition or None)."""
     g, disc = GAMES[game], check_disc(cfg, game)
     tools = tools or {}
-    cmake, python = tools.get("cmake") or "cmake", tools.get("python") or sys.executable
+    cmake, python = via_link(tools.get("cmake") or "cmake"), tools.get("python") or sys.executable
     eboot = eboot_path(game)
     stamp = gen_dir(game) / "eboot.sha256"
     steps = []
@@ -672,15 +759,16 @@ def build_steps(cfg, game, tools=None):
     steps.append(([str(dt), "--disc", disc, "--id", "--decrypt-eboot", str(eboot)], None))
 
     def needs_recomp():
-        digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
-        return not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest
+        return (not (gen_dir(game) / "image.bin").exists() or not stamp.exists()
+                or stamp.read_text().strip() != recomp_stamp(game))
 
     steps.append((recomp_command(python) + ["--elf", str(eboot),
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
                    "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
                    "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
-    build = ROOT / FLAVOURS[tools.get("kind", "msvc")][game]
-    steps.append(([cmake, "-S", str(ROOT), "-B", str(build), f"-DGAME={g['id']}_full"] + configure_args(tools), None))
+    root = cmake_root()
+    build = root / FLAVOURS[tools.get("kind", "msvc")][game]
+    steps.append(([cmake, "-S", str(root), "-B", str(build), f"-DGAME={game_id(game)}_full"] + configure_args(tools), None))
     steps.append(([cmake, "--build", str(build), "--config", "Release", "--parallel"], None))
     return steps, stamp
 
@@ -718,22 +806,22 @@ def build_with(cfg, game, tools, out=print):
             continue
         build_dir = Path(cmd[cmd.index("-B") + 1]) if is_configure(cmd) else None
         had_cache = build_dir is not None and (build_dir / "CMakeCache.txt").exists()
-        code, lines = run_command(cmd, out, tools.get("env"))
+        code, lines = run_command(cmd, out, cmake_env(tools))
         if code and had_cache:
             clean_cmake_dir(build_dir, out)
-            code, lines = run_command(cmd, out, tools.get("env"))
+            code, lines = run_command(cmd, out, cmake_env(tools))
         if code:
             out(f"failed (exit {code})")
             why = first_error(lines)
             if why:
                 out(toolchain.ERROR + why)
             return False
-        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != GAMES[game]["id"]):
-            out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} "
-                f"({GAMES[game]['title']})")
+        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != game_id(game)):
+            out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {game_id(game)} "
+                f"({GAMES[game]['title']}). Choose the game folder again.")
             return False
         if cond is not None:  # the recompile step
-            stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())
+            stamp.write_text(recomp_stamp(game))
     stamp_file(game).write_text(runtime_stamp(), encoding="utf-8")
     out(f"built {exe_path(game)}")
     return True
