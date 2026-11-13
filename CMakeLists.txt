@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.20)
 project(gow_recomp C CXX)
 
+# "[" and "]" are glob patterns to file(GLOB): in a folder like "God of War [PSP]" the unpacked downloads and the
+# generated sources are not found (issues #46, #61). The launcher builds through a link without them.
+string(FIND "${CMAKE_SOURCE_DIR}" "[" _gow_lb)
+string(FIND "${CMAKE_SOURCE_DIR}" "]" _gow_rb)
+if(NOT _gow_lb EQUAL -1 OR NOT _gow_rb EQUAL -1)
+  message(FATAL_ERROR "The source folder's path has [ or ], which CMake can't build from: ${CMAKE_SOURCE_DIR}. "
+    "Move or rename the folder, or give CMake a junction to it (mklink /J).")
+endif()
+
 # GOW_TOOLS_ONLY builds just gow_disc (disc ID, EBOOT decryption), which the launcher needs before
 # the game is recompiled; it needs no generated sources.
 option(GOW_TOOLS_ONLY "Build only gow_disc, without generated sources" OFF)

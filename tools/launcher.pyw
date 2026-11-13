@@ -519,6 +519,37 @@ def is_configure(cmd):
     return len(cmd) > 2 and cmd[1] == "-S" and "-B" in cmd
 
 
+# Characters CMake can't take in a source folder: "[" and "]" are glob patterns to file(GLOB), so the archive
+# FetchContent unpacks into "...\God of War [PSP]\..." came out empty and the generated sources weren't found
+# (issues #46, #61); ";" splits lists.
+CMAKE_UNSAFE = set("[];")
+
+
+def cmake_root(out=print):
+    """The folder CMake is given for ROOT: ROOT itself, or, when its path has a character CMake can't take, a junction
+    to it without one (in %LOCALAPPDATA%\\GoW_PSP\\links). The files stay where they are; only the path differs."""
+    s = str(ROOT)
+    if os.name != "nt" or not CMAKE_UNSAFE.intersection(s):
+        return ROOT
+    link = (Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "GoW_PSP" / "links"
+            / ("data-" + hashlib.sha256(s.lower().encode()).hexdigest()[:12]))
+    if CMAKE_UNSAFE.intersection(str(link)):
+        return ROOT
+    try:
+        if os.path.lexists(link):
+            if os.path.normcase(os.path.realpath(link)) == os.path.normcase(os.path.realpath(ROOT)):
+                return link
+            os.rmdir(link)  # a junction to somewhere else: removes the link, never what it points to
+        link.parent.mkdir(parents=True, exist_ok=True)
+        import _winapi
+        _winapi.CreateJunction(s, str(link))
+    except OSError as e:
+        out(f"could not make a link without [ ] for the build ({e}); building from {ROOT}")
+        return ROOT
+    out(f"the folder's path has [ ] or ;, which CMake can't take: building through {link}")
+    return link
+
+
 def clean_cmake_dir(build_dir, out=print):
     """Removes CMake's cache and probe results from a build folder (the sources and fetched dependencies stay).
     A configure that was interrupted, or ran twice at once in the same folder, can leave a cache that fails
@@ -582,8 +613,9 @@ def first_error(lines):
 
 
 def disc_tool_steps(tools):
-    cmake, tools_build = tools["cmake"], ROOT / FLAVOURS[tools["kind"]]["tools"]
-    return [[cmake, "-S", str(ROOT), "-B", str(tools_build), "-DGOW_TOOLS_ONLY=ON"] + configure_args(tools),
+    root = cmake_root()
+    cmake, tools_build = tools["cmake"], root / FLAVOURS[tools["kind"]]["tools"]
+    return [[cmake, "-S", str(root), "-B", str(tools_build), "-DGOW_TOOLS_ONLY=ON"] + configure_args(tools),
             [cmake, "--build", str(tools_build), "--config", "Release", "--target", "gow_disc", "--parallel"]]
 
 
@@ -679,8 +711,9 @@ def build_steps(cfg, game, tools=None):
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
                    "--nids", str(ROOT / "re/out/psp_nids_ppsspp.tsv"), "--out", str(gen_dir(game)),
                    "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
-    build = ROOT / FLAVOURS[tools.get("kind", "msvc")][game]
-    steps.append(([cmake, "-S", str(ROOT), "-B", str(build), f"-DGAME={g['id']}_full"] + configure_args(tools), None))
+    root = cmake_root()
+    build = root / FLAVOURS[tools.get("kind", "msvc")][game]
+    steps.append(([cmake, "-S", str(root), "-B", str(build), f"-DGAME={g['id']}_full"] + configure_args(tools), None))
     steps.append(([cmake, "--build", str(build), "--config", "Release", "--parallel"], None))
     return steps, stamp
 
