@@ -118,7 +118,7 @@ static char g_load_name[64];                         /* --load-level NAME@FRAME 
 static uint32_t g_load_frame;
 static int g_load_done;
 
-/* Regional releases (PR #48): the European Chains of Olympus and the Russian Ghost of Sparta */
+/* Regional releases (PR #48): the European Chains of Olympus (UCES00842) and Ghost of Sparta v1.01 (UCES01473) */
 static const Game COO_PAL = { "UCES00842", 0x08B3656Cu, 0x08B3CB54u, 0x088347B8u, 0x08B2F278u, 0x12Cu, 0x148u, 0xA0u, 0x120u, 0x9Cu, 0x84u, 0x08B3E258u, 0x64u, 0x70u };
 static const Game GOS_RUS = { "UCES01473", 0x08C195F4u, 0u, 0u, 0u, 0x1B4u, 0x1F4u, 0xB0u, 0x130u, 0xACu, 0x80u, 0x08C23290u, 0x64u, 0x70u };
 

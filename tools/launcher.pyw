@@ -47,7 +47,7 @@ GAMES = {
     "coo": {"id": "UCUS98653", "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
     "gos": {"id": "UCUS98737", "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
 }
-# Other releases of the two games (issues #6, #64; PR #48). Their EBOOT differs from the US one, so recomp.py finds
+# The European releases of the two games (issues #6, #64; PR #48; UCES01473 is GoS v1.01). Their EBOOT differs from the US one, so recomp.py finds
 # its functions from the binary itself instead of the Ghidra export. Not tested on these discs by us.
 REGIONAL = {"UCES00842": "coo", "UCES01401": "gos", "UCES01473": "gos"}
 DISC_IDS = {}  # game -> the ID of its chosen disc image, when it isn't the US one (filled from launcher.json)

@@ -170,7 +170,7 @@ def main() -> int:
                 fi.has_indirect_jr = True
         funcs[entry] = fi
     jumptables = {int(j["at"], 16) + delta: [int(t, 16) + delta for t in j["targets"]] for j in g["jumptables"]}
-    # Another build of the game (a regional release: PAL, Russian...) doesn't match the Ghidra export of the US EBOOT:
+    # Another build of the game (a regional release, e.g. the European ones) doesn't match the Ghidra export of the US EBOOT:
     # find the functions and jump tables from the binary itself
     if args.auto_analyze or mod.section(".text").size != int(g["text"][1], 16) - int(g["text"][0], 16) + 1:
         print(f"{Path(args.elf).name}: analysing the EBOOT without the Ghidra export")
