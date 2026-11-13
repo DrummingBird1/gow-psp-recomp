@@ -21,25 +21,25 @@ def font(size, weight):
     return f
 
 
-def stone():
+def stone(w=W, h=H, glow_box=(60, 90, 520, 550)):
     rnd = random.Random(7)  # fixed seed: the same image every run
-    small = Image.new("L", (W // 8, H // 8))
+    small = Image.new("L", (w // 8, h // 8))
     small.putdata([rnd.randint(18, 40) for _ in range(small.width * small.height)])
-    base = small.resize((W, H), Image.BICUBIC).filter(ImageFilter.GaussianBlur(6))
-    fine = Image.effect_noise((W, H), 10).filter(ImageFilter.GaussianBlur(0.8))
+    base = small.resize((w, h), Image.BICUBIC).filter(ImageFilter.GaussianBlur(6))
+    fine = Image.effect_noise((w, h), 10).filter(ImageFilter.GaussianBlur(0.8))
     lum = Image.blend(base, fine.point(lambda v: 14 + v // 10), 0.35)
     im = Image.merge("RGB", (lum, lum.point(lambda v: v * 0.97), lum.point(lambda v: v * 0.93)))
-    glow = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(glow).ellipse((60, 90, 520, 550), fill=120)
+    glow = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(glow).ellipse(glow_box, fill=120)
     glow = glow.filter(ImageFilter.GaussianBlur(90))
-    return Image.composite(Image.new("RGB", (W, H), RED), im, glow.point(lambda v: v // 2))
+    return Image.composite(Image.new("RGB", (w, h), RED), im, glow.point(lambda v: v // 2))
 
 
-def meander(d, y, step=16):
+def meander(d, y, step=16, w=W):
     """A gold Greek-key band across the image at height y (like the launcher's frame)."""
-    d.line((0, y - step, W, y - step), fill=GOLD_DK, width=2)
-    d.line((0, y + step, W, y + step), fill=GOLD_DK, width=2)
-    for x in range(-step, W + step, step * 2):
+    d.line((0, y - step, w, y - step), fill=GOLD_DK, width=2)
+    d.line((0, y + step, w, y + step), fill=GOLD_DK, width=2)
+    for x in range(-step, w + step, step * 2):
         pts = [(x, y + step // 2), (x, y - step // 2), (x + step, y - step // 2), (x + step, y + step // 4),
                (x + step // 2, y + step // 4), (x + step // 2, y), ]
         d.line(pts, fill=GOLD, width=3)
