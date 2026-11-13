@@ -5,7 +5,7 @@ the log stay in English. The language is chosen in Options > Advanced and applie
 missing from a table is shown in English.
 """
 LANGS = [("English", "en"), ("Deutsch", "de"), ("Español", "es"), ("Français", "fr"), ("Italiano", "it"),
-         ("Português (Brasil)", "pt"), ("Русский", "ru"), ("עברית", "he"), ("العربية", "ar")]
+         ("Português (Brasil)", "pt"), ("Русский", "ru"), ("Türkçe", "tr"), ("עברית", "he"), ("العربية", "ar")]
 RTL = {"he", "ar"}
 _lang = "en"
 
@@ -374,6 +374,52 @@ STRINGS = {
         "Gamepad right stick evades (L + R + stick, as in the PS2 games)":
             "Правый стик для уворота (L + R + стик, как в играх для PS2)",
         "Skip this version": "Пропустить эту версию", "Later": "Позже", "Launcher log": "Журнал лаунчера",
+    },
+    "tr": {
+        "Step 1 of 3": "Adım 1 / 3", "Step 2 of 3": "Adım 2 / 3",
+        "Choose the folder with your games": "Oyunlarınızın bulunduğu klasörü seçin",
+        "Choose game folder…": "Oyun klasörünü seç…", "Show log": "Günlüğü göster",
+        "Game folder": "Oyun klasörü", "Change…": "Değiştir…", "Add to Steam": "Steam'e ekle",
+        "Create desktop shortcut": "Masaüstü kısayolu", "Build": "Derle", "Rebuild": "Yeniden derle",
+        "Play": "Oyna", "Check for updates": "Güncellemeleri denetle", "Report a bug": "Hata bildir",
+        "Open logs folder": "Günlük klasörünü aç", "License (GPL-3.0)": "Lisans (GPL-3.0)",
+        "Third-party notices": "Üçüncü taraf lisansları", "Options": "Ayarlar", "Options (F1)": "Ayarlar (F1)",
+        "Preset": "Hazır ayar", "Custom": "Özel", "Display": "Ekran", "Resolution": "Çözünürlük",
+        "Anti-aliasing": "Kenar yumuşatma", "Frame rate": "Kare hızı", "Aspect ratio": "En-boy oranı",
+        "Window size": "Pencere boyutu", "Fullscreen": "Tam ekran",
+        "Show the frame rate (F3)": "Kare hızını göster (F3)", "Show the buttons pressed (F2)": "Basılan tuşları göster (F2)",
+        "CRT filter (scanlines)": "CRT filtresi (tarama çizgileri)",
+        "HUD at the screen edges at 21:9 / 32:9 (experimental)": "21:9 / 32:9'da HUD ekran kenarlarında (deneysel)",
+        "Separate graphics settings for each game": "Her oyun için ayrı grafik ayarları",
+        "Game": "Oyun", "Language": "Dil", "Music volume": "Müzik sesi",
+        "Effects and voices": "Efektler ve sesler", "Skip the movies (cutscene videos)": "Ara sahne videolarını atla",
+        "Infinite health (cheat)": "Sonsuz can (hile)",
+        "Gamepad rumble when Kratos is hit": "Kratos vurulduğunda gamepad titreşimi",
+        "Circle confirms, Cross cancels (Japanese layout)": "Daire onaylar, çarpı iptal eder (Japon düzeni)",
+        "Show what I play on Discord": "Ne oynadığımı Discord'da göster",
+        "Advanced  ▸": "Gelişmiş  ▸", "Advanced  ▾": "Gelişmiş  ▾", "Renderer": "İşleyici",
+        "Effects resolution": "Efekt çözünürlüğü", "Anisotropic filtering": "Anizotropik filtreleme",
+        "Graphics API": "Grafik API'si", "Graphics card": "Ekran kartı", "Sharpening": "Keskinleştirme",
+        "V-Sync": "V-Sync", "Mute": "Sesi kapat", "Texture pack folder": "Doku paketi klasörü",
+        "Dump textures (to make a pack)": "Dokuları dışa aktar (paket yapmak için)", "Controls…": "Kontroller…",
+        "Upscale dumped textures (AI)…": "Dışa aktarılan dokuları büyüt (YZ)…",
+        "Import PPSSPP saves…": "PPSSPP kayıtlarını içe aktar…",
+        "Check for launcher updates at start": "Açılışta başlatıcı güncellemelerini denetle",
+        "Reduce motion (launcher animations)": "Hareketi azalt (başlatıcı animasyonları)",
+        "Launcher language": "Başlatıcı dili",
+        "Ready to play": "Oynamaya hazır", "Needs building": "Derlenmesi gerekiyor",
+        "No disc image found": "Disk kalıbı bulunamadı",
+        "Original": "PSP", "Light": "Hafif", "Balanced": "Dengeli", "High": "Yüksek", "Ultra": "Ultra",
+        "60 (original)": "60 (orijinal)", "Unlimited (VRR)": "Sınırsız (VRR)", "4:3 (crops the sides)": "4:3 (kenarları kırpar)",
+        "Auto": "Otomatik", "Off": "Kapalı", "Hardware": "Donanım", "Software (accurate, slow)": "Yazılım (doğru, yavaş)",
+        "Match resolution": "Çözünürlükle aynı", "Original glow": "Orijinal parlama",
+        "Auto (Direct3D 12)": "Otomatik (Direct3D 12)", "Fast (dedicated)": "Hızlı (harici)",
+        "Power saving (integrated)": "Güç tasarrufu (dahili)", "English": "İngilizce", "French": "Fransızca", "Spanish": "İspanyolca",
+        "Controls": "Kontroller", "PSP button": "PSP tuşu", "Key": "Tuş", "Key 2": "Tuş 2", "Gamepad": "Gamepad",
+        "Gamepad 2": "Gamepad 2", "Defaults": "Varsayılanlar", "Save": "Kaydet", "Cancel": "İptal",
+        "Gamepad right stick evades (L + R + stick, as in the PS2 games)":
+            "Sağ analog ile kaçınma (L + R + analog, PS2 oyunlarındaki gibi)",
+        "Skip this version": "Bu sürümü atla", "Later": "Daha sonra", "Launcher log": "Başlatıcı günlüğü",
     },
 }
 
