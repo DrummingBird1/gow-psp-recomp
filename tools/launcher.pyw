@@ -295,8 +295,28 @@ def configure_args(tools):
     no_git = ["-DCMAKE_DISABLE_FIND_PACKAGE_Git=ON"]
     if tools.get("kind") != "portable":
         return no_git
-    return no_git + ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={tools['ninja']}",
-            f"-DCMAKE_C_COMPILER={tools['cc']}", f"-DCMAKE_CXX_COMPILER={tools['cxx']}"]
+    # the tools sit in the data folder: given through the same link as the sources when its path has [ ] (cmake_root)
+    args = no_git + ["-G", "Ninja", "-DCMAKE_BUILD_TYPE=Release", f"-DCMAKE_MAKE_PROGRAM={via_link(tools['ninja'])}",
+                     f"-DCMAKE_C_COMPILER={via_link(tools['cc'])}", f"-DCMAKE_CXX_COMPILER={via_link(tools['cxx'])}"]
+    return args
+
+
+def via_link(path):
+    """path, under the link cmake_root() gives when the data folder's path has [ ] or ; (else unchanged)."""
+    s, root = str(path), cmake_root(lambda *_: None)
+    if root != ROOT and s.lower().startswith(str(ROOT).lower()):
+        return str(root) + s[len(str(ROOT)):]
+    return s
+
+
+def cmake_env(tools):
+    """The toolchain's environment, with its PATH entries in the data folder given through the link too."""
+    env = tools.get("env")
+    if not env or "PATH" not in env:
+        return env
+    env = dict(env)
+    env["PATH"] = os.pathsep.join(via_link(e) for e in env["PATH"].split(os.pathsep))
+    return env
 
 
 def gen_dir(game):
@@ -607,10 +627,10 @@ def ensure_disc_tool(out=print, ask=toolchain.ask_console):
     tools_build = ROOT / FLAVOURS[tools["kind"]]["tools"]
     for cmd in disc_tool_steps(tools):
         had_cache = is_configure(cmd) and (tools_build / "CMakeCache.txt").exists()
-        code, lines = run_command(cmd, out, tools.get("env"))
+        code, lines = run_command(cmd, out, cmake_env(tools))
         if code and had_cache:
             clean_cmake_dir(tools_build, out)
-            code, lines = run_command(cmd, out, tools.get("env"))
+            code, lines = run_command(cmd, out, cmake_env(tools))
         if code:
             out("failed to build gow_disc")
             why = first_error(lines)
@@ -634,7 +654,7 @@ def first_error(lines):
 
 def disc_tool_steps(tools):
     root = cmake_root()
-    cmake, tools_build = tools["cmake"], root / FLAVOURS[tools["kind"]]["tools"]
+    cmake, tools_build = via_link(tools["cmake"]), root / FLAVOURS[tools["kind"]]["tools"]
     return [[cmake, "-S", str(root), "-B", str(tools_build), "-DGOW_TOOLS_ONLY=ON"] + configure_args(tools),
             [cmake, "--build", str(tools_build), "--config", "Release", "--target", "gow_disc", "--parallel"]]
 
@@ -729,7 +749,7 @@ def build_steps(cfg, game, tools=None):
     EBOOT was already recompiled), configure, build. A step is (command, condition or None)."""
     g, disc = GAMES[game], check_disc(cfg, game)
     tools = tools or {}
-    cmake, python = tools.get("cmake") or "cmake", tools.get("python") or sys.executable
+    cmake, python = via_link(tools.get("cmake") or "cmake"), tools.get("python") or sys.executable
     eboot = eboot_path(game)
     stamp = gen_dir(game) / "eboot.sha256"
     steps = []
@@ -786,10 +806,10 @@ def build_with(cfg, game, tools, out=print):
             continue
         build_dir = Path(cmd[cmd.index("-B") + 1]) if is_configure(cmd) else None
         had_cache = build_dir is not None and (build_dir / "CMakeCache.txt").exists()
-        code, lines = run_command(cmd, out, tools.get("env"))
+        code, lines = run_command(cmd, out, cmake_env(tools))
         if code and had_cache:
             clean_cmake_dir(build_dir, out)
-            code, lines = run_command(cmd, out, tools.get("env"))
+            code, lines = run_command(cmd, out, cmake_env(tools))
         if code:
             out(f"failed (exit {code})")
             why = first_error(lines)
