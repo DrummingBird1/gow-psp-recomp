@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.6.0 (unreleased)
+## v1.6.0 (2026-11-13)
 
 - **Fix: The Vortex in Ghost of Sparta never ended** (issues #51, #56, #62, #65, #66): after the helmsman is struck
   by lightning, the boat stayed put and the enemies kept coming. The game advances that part's timeline in whole
