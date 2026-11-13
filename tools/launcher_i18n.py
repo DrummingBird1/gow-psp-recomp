@@ -79,7 +79,7 @@ STRINGS = {
         "Circle confirms, Cross cancels (Japanese layout)": "Rond valide, Croix annule (disposition japonaise)",
         "Show what I play on Discord": "Montrer mon jeu sur Discord",
         "Advanced  ▸": "Avancé  ▸", "Advanced  ▾": "Avancé  ▾", "Renderer": "Rendu",
-        "Effects resolution": "Résolution des effets", "Texture upscaling (xBRZ)": "Agrandissement des textures (xBRZ)", "Anisotropic filtering": "Filtrage anisotrope",
+        "Effects resolution": "Résolution des effets", "Texture upscaling (xBRZ)": "Textures agrandies (xBRZ)", "Anisotropic filtering": "Filtrage anisotrope",
         "Graphics API": "API graphique", "Graphics card": "Carte graphique", "Sharpening": "Netteté",
         "V-Sync": "V-Sync", "Mute": "Muet", "Texture pack folder": "Dossier du pack de textures",
         "Dump textures (to make a pack)": "Extraire les textures (pour un pack)", "Controls…": "Commandes…",
