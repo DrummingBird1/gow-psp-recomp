@@ -689,6 +689,15 @@ def render_menu(cfg, game, out=print):
     return ok
 
 
+def recomp_stamp(game):
+    """What the recompiled C is made from: the EBOOT, and the functions the runtime provides instead of their
+    translation (recomp/runtime_funcs.json; v1.6.0 added one to Ghost of Sparta, so C recompiled before is made
+    again). recomp.py rewrites only the files that change, so only those are compiled again."""
+    digest = hashlib.sha256(eboot_path(game).read_bytes()).hexdigest()
+    funcs = json.loads((ROOT / "recomp" / "runtime_funcs.json").read_text(encoding="utf-8")).get(GAMES[game]["id"], {})
+    return digest + "\n" + hashlib.sha256(json.dumps(funcs, sort_keys=True).encode()).hexdigest()
+
+
 def build_steps(cfg, game, tools=None):
     """Build gow_disc (once), decrypt the EBOOT from the disc image, recompile it into C (skipped when this
     EBOOT was already recompiled), configure, build. A step is (command, condition or None)."""
@@ -704,8 +713,8 @@ def build_steps(cfg, game, tools=None):
     steps.append(([str(dt), "--disc", disc, "--id", "--decrypt-eboot", str(eboot)], None))
 
     def needs_recomp():
-        digest = hashlib.sha256(eboot.read_bytes()).hexdigest()
-        return not (gen_dir(game) / "image.bin").exists() or not stamp.exists() or stamp.read_text().strip() != digest
+        return (not (gen_dir(game) / "image.bin").exists() or not stamp.exists()
+                or stamp.read_text().strip() != recomp_stamp(game))
 
     steps.append((recomp_command(python) + ["--elf", str(eboot),
                    "--ghidra", str(ROOT / "re/out/recomp" / f"{g['id']}_EBOOT.BIN.recomp.json"),
@@ -766,7 +775,7 @@ def build_with(cfg, game, tools, out=print):
                 f"({GAMES[game]['title']})")
             return False
         if cond is not None:  # the recompile step
-            stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())
+            stamp.write_text(recomp_stamp(game))
     stamp_file(game).write_text(runtime_stamp(), encoding="utf-8")
     out(f"built {exe_path(game)}")
     return True
