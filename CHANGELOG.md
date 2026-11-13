@@ -6,7 +6,7 @@
   by lightning, the boat stayed put and the enemies kept coming. The game advances that part's timeline in whole
   milliseconds per frame, and at a steady 60 FPS its step (0.43 ms) always rounded to 0; a PSP runs that scene
   slower, where it rounds to 1. The port now carries the fraction over to the next frame, so the boat moves at any
-  frame rate. Ghost of Sparta is recompiled once by the next Build (about a minute); saves stay.
+  frame rate. Ghost of Sparta is recompiled once by the next Build (a few minutes); saves stay.
 - **Fix: Build failed in a game folder with [ ] in its name** (issues #46, #61), such as "God of War [PSP]", with
   "libchdr could not be downloaded completely". CMake reads [ ] as a pattern, so the downloaded sources seemed to
   vanish. The launcher now builds through a link without those characters; the files stay where they are.
