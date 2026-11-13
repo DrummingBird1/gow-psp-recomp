@@ -20,6 +20,9 @@
 - **Auto QTE for Chains of Olympus** (issue #26), in Options: the button, mash, hold and stick-spin prompts answer
   themselves, as Callisto's Armlet does in Ghost of Sparta. Off by default.
 - **The launcher in Turkish** (issue #60), in Options > Advanced > Launcher language.
+- **A little faster with the Hardware renderer:** the check whether the CPU changed the shown picture takes a third of
+  the time. The main cost in Ghost of Sparta's heaviest scenes (issues #33, #63) is measured and understood (the
+  game's thousands of small draws per frame); the larger fix is planned for a later version.
 - **Texture upscaling (xBRZ)** in Options > Advanced, for the Hardware renderer: the game's textures smoothed to 2, 3
   or 4 times their size, as in PPSSPP. Off by default.
 
