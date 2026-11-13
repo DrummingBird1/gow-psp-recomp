@@ -1,6 +1,6 @@
 # שלב 1 – אב-טיפוס של ה-recompiler
 
-**תאריך:** 2026-10-16 · **קוד:** `recomp/` (Python), `runtime/` (C), `CMakeLists.txt` · **הוראות הרצה:** [`recomp/README.md`](../recomp/README.md)
+**תאריך:** 2026-10-16 · **קוד:** `recomp/` (Python), `runtime/` (C), `CMakeLists.txt` · **הוראות הרצה:** [`recomp/README.md`](../../recomp/README.md)
 
 > הקבצים שנוצרים (`build/gen/**`, `image.bin`) וה-dumps מכילים את הקוד של Sony. הם לשימוש אישי בלבד.
 

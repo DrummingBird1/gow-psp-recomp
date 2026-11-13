@@ -5,7 +5,7 @@ folder (build/toolchain): llvm-mingw (Clang, lld, mingw-w64 headers and librarie
 official GitHub release and checked against a pinned SHA-256. No administrator rights, nothing installed in Windows.
 
 Also supported (developers, and the fallback when the portable path fails): Visual Studio's C++ tools with CMake,
-found on the PC or, with consent, installed with winget (docs/phase14-plan.md, task 3).
+found on the PC or, with consent, installed with winget (docs/dev-history/phase14-plan.md, task 3).
 
     GOW_TOOLCHAIN=portable|msvc|auto     which one to use; default portable for GoWLauncher.exe, auto (Visual Studio
                                          when it is installed, else portable) when run from source

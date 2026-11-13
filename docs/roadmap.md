@@ -1,55 +1,29 @@
 # Roadmap
 
 Where the project is going, from the requests on GitHub (issues, discussions, pull requests) and the project's own
-list. Updated for v1.3.0 (October 2026). Ideas and requests are welcome in
+list. Updated for v1.6.0 (November 2026). Ideas and requests are welcome in
 [Discussions](https://github.com/DrummingBird1/gow-psp-recomp/discussions).
 
-## v1.3.0: what the requests asked for
+## Shipped
 
-| Change | Asked in |
-|---|---|
-| Custom controls work: a key goes to one button only (WASD no longer also blocks and attacks) | #3 |
-| Mouse buttons can be bound | #3 |
-| Right stick evades (L + R + stick), as in the PS2 games | project |
-| Choice of graphics card on PCs with two | #3 |
-| Frame rate counter (F3) | #3 ("benchmark toggle") |
-| Skip the movies | #3 ("intro skip") |
-| Language: English, French, Spanish (Ghost of Sparta's US disc) | Discussion #19 |
-| 4:3 aspect ratio and a CRT filter | Discussion #20 |
-| Music and effects volume, separately | project |
-| Infinite health (cheat) | project |
-| Import PPSSPP saves | project |
-| Light preset (x2), the start on PCs without a dedicated GPU | #3 (x3/x4 stutter) |
-| Gamepad rumble when Kratos is hit | project |
-| Circle confirms, Cross cancels (Japanese layout) | project |
-| Separate graphics settings for each game | project |
-| AI upscaling of dumped textures into a pack (Real-ESRGAN, on the player's PC) | #4 (texture packs) |
-| Discord Rich Presence (off by default) | project |
-| The launcher in Spanish, French and Hebrew | Discussion #19 |
-| HUD at the screen edges at 21:9 / 32:9 (experimental) | #12 |
-| 32:9 (already there since v1.2.0: Options > Aspect ratio) | #12 |
+The details are in the [changelog](../CHANGELOG.md).
 
-The changes are in the [changelog](../CHANGELOG.md).
+| Version | Highlights | Asked in |
+|---|---|---|
+| v1.6.0 | The Vortex no longer loops forever; builds in folders with [ ] in their name; European releases (preview); Auto QTE for Chains of Olympus; the launcher in Turkish; xBRZ texture upscaling | #51, #56, #61, #62, #65, #66, #6, #64, #26, #60 |
+| v1.5.0 | Keypad keys can be bound; a damaged libchdr download is fetched again; the mouse cursor hides; a freeze leaves a trace in the log; build provenance for the downloads | #57, #46, #44, #52, #54 |
+| v1.4.0 | Crash in the Depths of Tartarus and slow motion in Ghost of Sparta fixed; V-Sync above the display's refresh; spin keys and turbo for the prompts; the buttons pressed on screen; HDR Auto and a software fallback without a GPU device; a new look and five more launcher languages | #24, #33, #35, #34, #26, #31, #28, #27, #29 |
+| v1.3.0 | Custom controls and mouse buttons; right stick evades; frame rate counter; movie skip; Ghost of Sparta's languages; 4:3 and a CRT filter; separate volumes; PPSSPP save import; the Light preset; rumble; AI texture upscaling; the launcher in Spanish, French and Hebrew | #3, #4, #12, Discussions #19, #20 |
 
-## Next (v1.4)
+## Next
 
-- **Playtest the new options** on more PCs: the 4:3 HUD, the HUD at the edges, the right-stick evade and the rumble
-  in combat, the languages. The HUD at the edges leaves the experimental label once text no longer comes apart.
-- **High internal resolutions on integrated GPUs** (#3: x3/x4 stutter). The GPU time per frame grows with the
-  resolution; measured on Chains of Olympus gameplay (frames 4700-5400 of the reference input, headless,
-  `RT_GPU_SYNC=1`, `gpu_ms` of `--perf-csv`, one run each on a PC that had other work running):
-
-  | GPU | x1 | x2 | x4 | x6 |
-  |---|---|---|---|---|
-  | Intel UHD 770 (integrated) | 8.2 ms | 13.8 ms | 21.3 ms | 37.6 ms |
-  | RTX 4070 SUPER | 1.1 ms | 1.0 ms | 1.4 ms | 1.9 ms |
-
-  Average GPU milliseconds per frame; 60 FPS needs under 16.7. So x4 (the Balanced preset, which v1.2 chose on PCs
-  without a dedicated GPU) can't hold 60 FPS on an integrated GPU. v1.3.0 starts such PCs on the new **Light**
-  preset (x2). The effects at 1x (*Effects resolution: Original glow*) save only about 8% at x4 on the Intel GPU
-  (25.2 to 23.3 ms in a second run) but halve the memory of the render targets (155 to 70 MB), so the glow and
-  shadow passes are not the main cost. Next: per-pass GPU timestamps, starting with the render-to-texture snapshots
-  (copies of a target that a later draw samples) and the per-draw state changes.
+- **Ghost of Sparta's busiest scenes at 60 FPS on more PCs** (#33, #63). Measured in The Vortex: the game's graphics
+  commands are turned into PC draws on the game's own thread, 11 to 17 ms per frame, over about 7000 draws; about 99%
+  of the vertices are in draws of fewer than 64. Next: doing that work in parallel with the game, and fewer, larger
+  draws.
+- **The European releases confirmed on a real disc** (#6, #64), then out of preview.
+- **The Vortex fix checked in a full playthrough** and with players' saves.
+- **SMAA**, a sharper alternative to FXAA.
 - **Above 60 FPS without small hitches** (#3): the game's own frame pacing at 120+.
 - **Xbox button prompts** in the game: replacement textures for the button icons, drawn from scratch (no art from
   the games), loaded like a texture pack.
@@ -59,8 +33,6 @@ The changes are in the [changelog](../CHANGELOG.md).
 - **A full playthrough of both games**, start to end credits. This is what turns the preview into a release.
 - **Linux and Steam Deck.** SDL3's GPU API already has a Vulkan backend; the runtime, the build and the launcher
   need porting.
-- **The European (PAL) discs** (#6). Each release has its own executable, so each must be recompiled and checked
-  like the US ones; they bring more languages.
 - **Android**, together with the contributors of #7-#13: the runtime parts first, and the game code built on the
   device from the player's disc (no game code in an APK or in CI).
 - Rumble on QTEs too, higher-resolution shadows, more launcher languages (help texts and dialogs as well).
@@ -75,3 +47,15 @@ The changes are in the [changelog](../CHANGELOG.md).
 - **Save states** (save anywhere): the recompiled game runs on host threads and fibers whose state can't be written
   out and restored reliably. The game's own save points work.
 - **Game files in any download**: the game code is generated from your disc and stays on your PC.
+
+## Measurements behind the presets
+
+GPU time per frame at each internal resolution, on Chains of Olympus gameplay (frames 4700-5400 of the reference
+input, headless, `RT_GPU_SYNC=1`, `gpu_ms` of `--perf-csv`):
+
+| GPU | x1 | x2 | x4 | x6 |
+|---|---|---|---|---|
+| Intel UHD 770 (integrated) | 8.2 ms | 13.8 ms | 21.3 ms | 37.6 ms |
+| RTX 4070 SUPER | 1.1 ms | 1.0 ms | 1.4 ms | 1.9 ms |
+
+60 FPS needs under 16.7 ms, so integrated GPUs start on the Light preset (x2).

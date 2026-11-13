@@ -1,4 +1,4 @@
-/* Debug features for automated testing (docs/phase11-level-tour.md, docs/phase12-gos-level-tour.md).
+/* Debug features for automated testing (docs/dev-history/phase11-level-tour.md, docs/dev-history/phase12-gos-level-tour.md).
  * Chains of Olympus (UCUS98653) and Ghost of Sparta (UCUS98737); each game has its own addresses
  * (Game below), and in any other build the options only log that they are not known.
  *

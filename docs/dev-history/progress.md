@@ -42,7 +42,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - נטענים מהדיסק ספריות הסאונד (Scream / snd_stream) ומוזיקת התפריט `MAINMENU.AT3`.
 - המשחק מגיע ללולאה הראשית שלו, 60 פריימים לשנייה בזמן וירטואלי.
 
-![boot log](../media/screenshots/2026-10-16_01_coo_boot_log.png)
+*(צילום מקומי, לא בריפו: boot log)*
 
 ### בדיקות אימות
 
@@ -53,7 +53,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
   - Chains of Olympus: 15,935/15,935 פונקציות.
   - Ghost of Sparta: 20,328/20,328 פונקציות.
 
-![validation](../media/screenshots/2026-10-16_02_validation.png)
+*(צילום מקומי, לא בריפו: validation)*
 
 ### סטטיסטיקות GE
 
@@ -73,7 +73,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - טקסטורות CLUT מסוג swizzled
 - מצבי blending
 
-![GE statistics](../media/screenshots/2026-10-16_03_coo_ge_stats.png)
+*(צילום מקומי, לא בריפו: GE statistics)*
 
 ## 2026-10-16: התפריט הראשי של Chains of Olympus על המסך
 
@@ -83,7 +83,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 
 ה-renderer התוכנה צייר את מסך הזכויות של Sony ו-Ready At Dawn. זו התמונה הראשונה מהמשחק שצוירה על ידי ה-port.
 
-![הפריים הראשון](../media/screenshots/2026-10-16_04_coo_first_rendered_frame.png)
+*(צילום מקומי, לא בריפו: הפריים הראשון)*
 
 ### התפריט הראשי
 
@@ -92,7 +92,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - העיר הבוערת עם עשן ואש.
 - הלוגו והתפריט: New Game, ‏Load Game, ‏Options, ‏Treasures.
 
-![התפריט הראשי](../media/screenshots/2026-10-16_05_coo_main_menu.png)
+*(צילום מקומי, לא בריפו: התפריט הראשי)*
 
 ### ביצועים: v1 מול v2
 
@@ -101,9 +101,9 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **הפלט זהה פיקסל-אחר-פיקסל.**
 - **ה-boot כולו**, עד פריים 1343, ירד מ-140 שניות ל-22 שניות. זה כמעט זמן אמת: 1.02x.
 
-![זמני פריים](../media/screenshots/2026-10-16_06_perf_frame_times_v1_v2.png)
+*(צילום מקומי, לא בריפו: זמני פריים)*
 
-![סיכום הריצה](../media/screenshots/2026-10-16_07_coo_v2_run_summary.png)
+*(צילום מקומי, לא בריפו: סיכום הריצה)*
 
 ### הקלטות
 
@@ -128,13 +128,13 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **סרטון הפתיחה:** הוא הפיל את המשחק. sceMpeg מומש בלי decoder, כמו PPSSPP בלי FFmpeg.
 - **coroutines של הסקריפטים:** המשחק מחליף בהן מחסנית, וזה לא ניתן לביטוי בקוד סטטי. הן מומשו על fibers.
 
-![בחירת רמת קושי בחלון](../media/screenshots/2026-10-16_08_window_difficulty.png)
+*(צילום מקומי, לא בריפו: בחירת רמת קושי בחלון)*
 
-![השלב הראשון: The Shores of Attica](../media/screenshots/2026-10-16_09_coo_shores_of_attica_title.png)
+*(צילום מקומי, לא בריפו: השלב הראשון: The Shores of Attica)*
 
-![ה-tutorial בחלון](../media/screenshots/2026-10-16_10_window_tutorial.png)
+*(צילום מקומי, לא בריפו: ה-tutorial בחלון)*
 
-![קרב בחלון: Blades of Chaos, קומבו של 4](../media/screenshots/2026-10-16_09_window_combat.png)
+*(צילום מקומי, לא בריפו: קרב בחלון: Blades of Chaos, קומבו של 4)*
 
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`). הלחיצות בהם הגיעו מתסריט קלט (`--input`).
 
@@ -151,7 +151,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 | `2026-10-16_coo_gameplay_shores_of_attica_gameclock.mp4` | 57 שניות של משחק במהירות האמיתית. השלב נפתח, יש קרבות, נאספים red orbs ומופיעים מסכי tutorial. |
 | `2026-10-16_coo_gameplay_shores_of_attica_hostclock_v3_overlay.mp4` | אותו קטע לפי שעון המחשב, עם מונה FPS חי: כמה חלק זה נראה על המחשב הזה (181 שניות). |
 
-![זמני פריים במשחק](../media/screenshots/2026-10-16_11_perf_gameplay_v3.png)
+*(צילום מקומי, לא בריפו: זמני פריים במשחק)*
 
 בשלב הראשון ה-renderer התוכנה נותן כ-19 FPS (‏52 ms לפריים), ולכן בחלון המשחק רץ לאט. יש כ-850 flushes לכל פריים של משחק: כמעט כל draw call משתמש ב-render target או בטקסטורה ב-VRAM. זה היעד הבא לשיפור ביצועים, לפני מעבר ל-renderer חומרה.
 
@@ -166,7 +166,7 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - המשחק עלה מ-19 ל-26 FPS בזמן הקלטה, ול-29–35 FPS בלי הקלטה.
 - הפלט זהה פיקסל-אחר-פיקסל.
 
-![v3 מול v4](../media/screenshots/2026-10-16_12_perf_gameplay_v3_v4.png)
+*(צילום מקומי, לא בריפו: v3 מול v4)*
 
 **השוואה בווידאו:** `media/videos/2026-10-16_coo_gameplay_v3_vs_v4_hostclock.mp4` מציג את v3 ואת v4 זה לצד זה, לפי שעון המחשב, עם מונה FPS חי.
 
@@ -181,11 +181,11 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **מהירות:** במשחק, headless, ה-GPU נותן 77.5 FPS לעומת 29.5 FPS בתוכנה. בזמן הקלטה: 62.4 לעומת 25.1.
 - **בחלון:** ‏57–60 FPS בזמן אמת.
 
-![השוואה במשחק: תוכנה | GPU | הבדל ×4](../media/screenshots/2026-10-16_14_gpu_compare_gameplay.png)
+*(צילום מקומי, לא בריפו: השוואה במשחק: תוכנה | GPU | הבדל ×4)*
 
-![זמני פריים: תוכנה מול GPU](../media/screenshots/2026-10-16_16_perf_gameplay_v4_v5_gpu.png)
+*(צילום מקומי, לא בריפו: זמני פריים: תוכנה מול GPU)*
 
-![החלון עם ה-renderer החומרה](../media/screenshots/2026-10-16_15_window_gpu_renderer.png)
+*(צילום מקומי, לא בריפו: החלון עם ה-renderer החומרה)*
 
 **מה עוד חסר:** במצב GPU בלבד, המקומות שבהם המשחק דוגם את ה-framebuffer כטקסטורה מציגים רעש: החלק התחתון של מסך המשחק, ורקע התפריט. זה render-to-texture, היעד של P2.
 
@@ -214,13 +214,13 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
   - בזמן הקלטה: 79.0 FPS (ב-P1 62.4).
 - **תיקון ביצועים בדרך:** block transfers פוסלים עכשיו רק את הטקסטורות שבדפים שהם כתבו. ה-hash של הטקסטורות ירד מ-15% מזמן ה-CPU לכמעט כלום.
 
-![P1 מול P2 במצב GPU בלבד](../media/screenshots/2026-10-16_17_gpu_p1_vs_p2_render_to_texture.png)
+*(צילום מקומי, לא בריפו: P1 מול P2 במצב GPU בלבד)*
 
-![השוואה במשחק, P2: תוכנה | GPU | הבדל ×4](../media/screenshots/2026-10-16_18_gpu_p2_compare_gameplay.png)
+*(צילום מקומי, לא בריפו: השוואה במשחק, P2: תוכנה | GPU | הבדל ×4)*
 
-![זמני פריים: v4, ‏v5, ‏v6](../media/screenshots/2026-10-16_20_perf_gameplay_v4_v5_v6.png)
+*(צילום מקומי, לא בריפו: זמני פריים: v4, ‏v5, ‏v6)*
 
-![החלון עם P2, ‏60 FPS](../media/screenshots/2026-10-16_19_window_gpu_p2.png)
+*(צילום מקומי, לא בריפו: החלון עם P2, ‏60 FPS)*
 
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).
 
@@ -242,11 +242,11 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **דטרמיניזם:** ה-WAV זהה בית-לבית בין שתי ריצות headless, ובין headless לחלון. גם הפריימים של שתי ריצות ה-headless זהים.
 - **פריימי ייחוס חדשים:** ה-threads של הסאונד ממתינים עכשיו כמו בחומרה, ולכן התזמון של המשחק השתנה. במשחק, המצב בפריים נתון שונה מ-v3. הייחוס להשוואות הוא עכשיו `build/rec_v7`.
 
-![קרב בחלון, עם סאונד](../media/screenshots/2026-10-16_21_window_combat_with_sound.png)
+*(צילום מקומי, לא בריפו: קרב בחלון, עם סאונד)*
 
-![המיקס של ריצת התסריט](../media/screenshots/2026-10-16_22_audio_spectrogram_gameplay.png)
+*(צילום מקומי, לא בריפו: המיקס של ריצת התסריט)*
 
-![סיכום ריצת החלון](../media/screenshots/2026-10-16_23_window_audio_summary.png)
+*(צילום מקומי, לא בריפו: סיכום ריצת החלון)*
 
 הספקטרוגרמה נוצרה מה-WAV של הריצה עם `tools/audio_report.py`. צילום החלון נלקח מהחלון של ה-port בלבד (`tools/capture_window.ps1`).
 
@@ -271,15 +271,15 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **דטרמיניזם:** שתי ריצות headless נתנו פריימים ו-WAV זהים. עד הסרטון הכול זהה ל-`rec_v7`.
 - **ייחוס פריימים חדש:** הסרטון מוסיף 1,794 פריימים, ולכן הייחוס להשוואות הוא עכשיו `build/rec_v8`. התסריט שלו הוא של `rec_v7`, כשהלחיצות שאחרי הסרטון זזות ב-1,794 פריימים. המשחק שאחרי הסרטון קרוב ל-`rec_v7` אבל לא זהה לו: העולם המשיך לרוץ במשך הסרטון, ולכן הקרב מתפתח אחרת.
 
-![סרטון הפתיחה בחלון](../media/screenshots/2026-10-16_24_window_intro_movie.png)
+*(צילום מקומי, לא בריפו: סרטון הפתיחה בחלון)*
 
-![ארבעה רגעים מהסרטון בחלון](../media/screenshots/2026-10-16_25_window_intro_movie_sequence.png)
+*(צילום מקומי, לא בריפו: ארבעה רגעים מהסרטון בחלון)*
 
-![המיקס: התפריט, הסרטון, השלב](../media/screenshots/2026-10-16_26_audio_intro_movie.png)
+*(צילום מקומי, לא בריפו: המיקס: התפריט, הסרטון, השלב)*
 
-![כל 27 הסרטונים מול FFmpeg](../media/screenshots/2026-10-16_27_movie_test_all_vs_ffmpeg.png)
+*(צילום מקומי, לא בריפו: כל 27 הסרטונים מול FFmpeg)*
 
-![סיכום ריצת החלון](../media/screenshots/2026-10-16_28_window_movie_summary.png)
+*(צילום מקומי, לא בריפו: סיכום ריצת החלון)*
 
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`). הספקטרוגרמה נוצרה מה-WAV של ריצת החלון עם `tools/audio_report.py`, והטבלאות הן פלט אמיתי דרך `tools/render_terminal.py`.
 
@@ -313,9 +313,9 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
   - ב-GPU: ‏6,695 פריימים בזמן אמת. ‏55/55 פריימים זהים ו-WAV זהה. גם replay ב-renderer תוכנה נותן אותו WAV.
 - **ייחוס פריימים חדש: `build/rec_v9`**, עם `ms0` ריק. ההשהיה של 200 ms בפתיחת דיאלוג השמירה ב-boot, כמו ב-PPSSPP, מזיזה את מה שאחריה.
 
-![שמירה, יציאה, טעינה](../media/screenshots/2026-10-16_29_save_load_roundtrip.png)
+*(צילום מקומי, לא בריפו: שמירה, יציאה, טעינה)*
 
-![משחק בחלון מול ה-replay שלו](../media/screenshots/2026-10-16_30_replay_window_vs_headless.png)
+*(צילום מקומי, לא בריפו: משחק בחלון מול ה-replay שלו)*
 
 המסגרות נשמרו מה-framebuffer של ה-PSP על ידי הריצות עצמן (`--frames-dir`). בשורה העליונה של התמונה השנייה, ריצת החלון עם `--renderer gpu`, כך שהמסגרות שלה נקראו מה-GPU.
 
@@ -342,19 +342,19 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **דיוק:** כל 34 הסרטונים שבדיסק זהים בית-לבית ל-FFmpeg (60,637 תמונות). המוזיקה מתאימה לפענוח של FFmpeg ב-75–80 dB.
 - **CoO לא השתנה:** ‏34/34 פריימים זהים ל-`rec_v9` ב-renderer התוכנה, ו-WAV זהה.
 
-![רצף ה-boot של GoS](../media/screenshots/2026-10-16_31_gos_boot_sequence.png)
+*(צילום מקומי, לא בריפו: רצף ה-boot של GoS)*
 
-![התפריט הראשי בחלון](../media/screenshots/2026-10-16_32_gos_window_main_menu.png)
+*(צילום מקומי, לא בריפו: התפריט הראשי בחלון)*
 
-![קרב ב-Atlantis בחלון](../media/screenshots/2026-10-16_33_gos_window_atlantis_combat.png)
+*(צילום מקומי, לא בריפו: קרב ב-Atlantis בחלון)*
 
-![לוג ה-boot](../media/screenshots/2026-10-16_34_gos_boot_log.png)
+*(צילום מקומי, לא בריפו: לוג ה-boot)*
 
-![רגעים מריצת החלון](../media/screenshots/2026-10-16_35_gos_window_sequence.png)
+*(צילום מקומי, לא בריפו: רגעים מריצת החלון)*
 
-![המיקס של ריצת החלון](../media/screenshots/2026-10-16_36_gos_audio_spectrogram.png)
+*(צילום מקומי, לא בריפו: המיקס של ריצת החלון)*
 
-![ריצת המקלדת בחלון](../media/screenshots/2026-10-16_37_gos_window_keyboard_session.png)
+*(צילום מקומי, לא בריפו: ריצת המקלדת בחלון)*
 
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`). רצף ה-boot נשמר מה-framebuffer של ה-PSP על ידי הריצה עצמה (`--frames-dir`, ‏`--renderer gpu`). הספקטרוגרמה נוצרה מה-WAV של ריצת החלון עם `tools/audio_report.py`, והלוג הוא פלט אמיתי דרך `tools/render_terminal.py`.
 
@@ -379,11 +379,11 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **פתוח:** ‏`scb_010_climb` מנקודת spawn 1 נעצר בקריאה לכתובת 0 אחרי חזרה לנקודת ביקורת.
 - **CoO לא השתנה:** ‏34/34 פריימים זהים ל-`rec_v9` ב-renderer התוכנה, ‏WAV זהה, ו-`level_tour.py --game coo` עובר כמו קודם.
 
-![כל 180 האזורים של GoS לפי הסדר](../media/screenshots/2026-10-17_41_gos_level_tour_overview.png)
+*(צילום מקומי, לא בריפו: כל 180 האזורים של GoS לפי הסדר)*
 
-![ארבע נקודות השמירה: המזבח, מסך השמירה, ואחרי Load Game](../media/screenshots/2026-10-17_42_gos_save_and_load.png)
+*(צילום מקומי, לא בריפו: ארבע נקודות השמירה: המזבח, מסך השמירה, ואחרי Load Game)*
 
-![‏`--warp spa_060_lion` בחלון](../media/screenshots/2026-10-17_43_gos_window_warp_sparta.png)
+*(צילום מקומי, לא בריפו: ‏`--warp spa_060_lion` בחלון)*
 
 התמונות של האזורים ושל השמירות נשמרו מה-framebuffer של ה-PSP על ידי הריצות עצמן (`--frames-dir`, ‏`--renderer gpu`). צילום החלון נלקח מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).
 
@@ -404,14 +404,14 @@ Chains of Olympus עולה כקוד native, כלומר ה-EBOOT המתורגם �
 - **HDR10 על מסך הבדיקה** (‏240/970 nits), ו-GoS בחלון ב-‎×4, ‏21:9, ‏MSAA ו-HDR ב-60 FPS.
 - **‏120 Hz בחלון,** כשהמחשב עמוס: ‏91 FPS, מהירות 0.96×. ‏replay של הסשן חזר זהה.
 
-![‏‎×1, ‏‎×4 ו-‎×8 ב-CoO](../media/screenshots/2026-10-17_44_coo_res_scale_x1_x4_x8.png)
+*(צילום מקומי, לא בריפו: ‏‎×1, ‏‎×4 ו-‎×8 ב-CoO)*
 
-![‏‎×1, ‏‎×4 ו-‎×8 ב-GoS](../media/screenshots/2026-10-17_51_gos_res_scale_x1_x4_x8.png)
+*(צילום מקומי, לא בריפו: ‏‎×1, ‏‎×4 ו-‎×8 ב-GoS)*
 
-![‏`--aspect 21:9`](../media/screenshots/2026-10-17_52_aspect_21_9.png)
+*(צילום מקומי, לא בריפו: ‏`--aspect 21:9`)*
 
-![‏GoS בחלון: ‏‎×4, ‏21:9, ‏HDR10](../media/screenshots/2026-10-17_53_gos_window_x4_21_9_hdr.png)
+*(צילום מקומי, לא בריפו: ‏GoS בחלון: ‏‎×4, ‏21:9, ‏HDR10)*
 
-![FPS וזמן GPU לפי תצורה](../media/screenshots/2026-10-17_54_perf_res_msaa.png)
+*(צילום מקומי, לא בריפו: FPS וזמן GPU לפי תצורה)*
 
 התמונות נשמרו מה-GPU על ידי הריצות עצמן (`--frames-dir`, ברזולוציה הפנימית). צילום החלון נלקח מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).

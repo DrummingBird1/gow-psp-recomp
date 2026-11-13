@@ -1,7 +1,7 @@
 """Launcher for the native PC ports of God of War: Chains of Olympus and Ghost of Sparta.
 
 Picks the game, builds it from your own disc image (the EBOOT is decrypted from it), sets the
-graphics options of the hardware renderer (docs/phase13-graphics.md) and starts it. Settings are kept
+graphics options of the hardware renderer (docs/dev-history/phase13-graphics.md) and starts it. Settings are kept
 in build/launcher.json (your paths stay on your machine; build/ is not in git).
 
     python tools/launcher.pyw                     the window

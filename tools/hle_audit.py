@@ -1,4 +1,4 @@
-"""Static audit of the HLE layer against the games' imports (docs/phase11-level-tour.md).
+"""Static audit of the HLE layer against the games' imports (docs/dev-history/phase11-level-tour.md).
 
 For every import of a game (build/gen/<GAME>_full/module.json) it finds the runtime's handler
 (the HleEntry tables in runtime/*.c, matched by name like rt_hle.c does) and classifies it:

@@ -19,7 +19,7 @@
  * target are uploaded, and a target read directly (transfer source, CLUT) is read back into
  * PSP memory.
  *
- * Graphics options (docs/phase13-graphics.md): a target's textures can be a multiple of its
+ * Graphics options (docs/dev-history/phase13-graphics.md): a target's textures can be a multiple of its
  * size in PSP pixels (--res-scale). Everything recorded stays in PSP pixels (vertices, scissors,
  * rectangles) and is scaled when it runs: the viewport, scissors, snapshots and copies; memory
  * uploaded into a scaled target goes through a 1x staging texture that is scaled into it, and
