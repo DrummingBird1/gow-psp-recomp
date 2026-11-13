@@ -1,6 +1,6 @@
 # Troubleshooting and FAQ
 
-For players of the launcher (`GoWLauncher.exe`). Developers: see the main [README](../README.md#build-from-source).
+For players of the launcher (`GoWLauncher.exe`). Developers: see [Development](development.md).
 
 ## Windows says "Windows protected your PC", or the antivirus flags the exe
 

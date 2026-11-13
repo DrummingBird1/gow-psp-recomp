@@ -41,7 +41,7 @@ typedef struct {
     int pixel_mapped;                  /* through-mode sprites drawing texels 1:1 on pixels, at texel centres */
 } GpuDraw;
 
-/* Graphics options (phase 13, docs/phase13-graphics.md); zero fields keep the PSP's look. */
+/* Graphics options (phase 13, docs/dev-history/phase13-graphics.md); zero fields keep the PSP's look. */
 typedef struct {
     int res_scale;      /* internal resolution: the PSP's 480x272 times 1..8 */
     int fx_scale;       /* 0: res_scale; else the scale of render targets never shown (glow, shadows) */

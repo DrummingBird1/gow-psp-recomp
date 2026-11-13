@@ -43,7 +43,7 @@ runtime/ (psp_rt.h, rt_core.c, rt_hle.c, rt_main.c) ─────────�
 * Instruction semantics (div by zero, float→int conversion, FCR31, lwl/lwr, Allegrex extensions) follow PPSSPP's interpreter.
 * VFPU instructions become calls to the runtime's VFPU interpreter (`rt_vfpu(c, word, pc)`, semantics from
   PPSSPP incl. prefixes); `bvf/bvt` are emitted as C branches. `vfpu_check.py` checks the operand decoding
-  against Ghidra; `gow_rt --vfpu-selftest` checks the semantics (see `docs/phase3-vfpu.md`).
+  against Ghidra; `gow_rt --vfpu-selftest` checks the semantics (see `docs/dev-history/phase3-vfpu.md`).
 
 ## Rebuild
 
@@ -82,7 +82,7 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 ```
 
 The boot runs under the thread scheduler (`runtime/rt_thread.c`) and reads the disc
-through libchdr (`runtime/rt_io.c`); see `docs/phase2-threads-fs.md`.
+through libchdr (`runtime/rt_io.c`); see `docs/dev-history/phase2-threads-fs.md`.
 
 Display lists are executed by `runtime/rt_ge.c` and drawn by the software renderer
 (`runtime/rt_gesoft.c`). Frame output (`runtime/rt_frames.c`) for documentation and performance tracking:
@@ -110,13 +110,13 @@ build/cmake_full/Release/gow_rt_UCUS98653_full.exe --image build/gen/UCUS98653_f
 | Gamepad | PSP layout (south button = ✕), left stick = analog stick, both shoulders and triggers = L/R |
 | F11 or Alt+Enter, F12, Esc | Fullscreen, screenshot to `--shots DIR`, quit |
 | `--input "1000:cross:6,t27.5:start:0.3"` | Scripted presses by displayed frame (or `t` + virtual seconds), headless or windowed; buttons `cross circle square triangle up down left right l r start select aup adown aleft aright` and `lx=N`/`ly=N` (stick, 0-255), joined with `+`. Also takes a file of entries (`#` comments), e.g. a recording |
-| `--record-input file` | Writes every change of what the game reads from the controller, by displayed frame, in the `--input` format; `--input file` replays it read for read, headless too (see `docs/phase9-saves-replay.md`) |
+| `--record-input file` | Writes every change of what the game reads from the controller, by displayed frame, in the `--input` format; `--input file` replays it read for read, headless too (see `docs/dev-history/phase9-saves-replay.md`) |
 | `--save-slot NAME` | The save slot that the game's save/load lists use (`DATA00`..`DATA14` in Chains of Olympus); otherwise saves go to the first empty slot (then the oldest) and loads take the newest |
 
 Without `--window` the run stays headless and deterministic (virtual time as fast as the host allows).
 
 Graphics options of the hardware renderer (`--renderer gpu`, `runtime/rt_gpu.c`, `runtime/shaders/*.hlsl`; see
-`docs/phase6-gpu-renderer.md` and `docs/phase13-graphics.md`). Without them the picture is the PSP's, as before:
+`docs/dev-history/phase6-gpu-renderer.md` and `docs/dev-history/phase13-graphics.md`). Without them the picture is the PSP's, as before:
 
 | Option | Effect |
 |---|---|
@@ -133,7 +133,7 @@ Graphics options of the hardware renderer (`--renderer gpu`, `runtime/rt_gpu.c`,
 `build\ms0\PSP\SAVEDATA`, and every session is recorded in `build\sessions\<date_time>\`; `tools\replay.cmd` replays one
 headless, from the saves it started with to the frame where it stopped or crashed.
 
-Sound (`runtime/rt_audio.c`, `rt_sas.c`, `rt_atrac.c`; see `docs/phase7-audio.md`): sceAudio channels are mixed on
+Sound (`runtime/rt_audio.c`, `rt_sas.c`, `rt_atrac.c`; see `docs/dev-history/phase7-audio.md`): sceAudio channels are mixed on
 the virtual clock; sceSasCore (sound effects) and sceAtrac3plus (music) are implemented in the runtime.
 
 | Option | Effect |
@@ -146,7 +146,7 @@ the virtual clock; sceSasCore (sound effects) and sceAtrac3plus (music) are impl
 The ATRAC3/ATRAC3+ decoder (PPSSPP's `ext/at3_standalone`, FFmpeg's decoder, LGPL-2.1+) is downloaded by CMake at
 configure time from PPSSPP tag v1.20.4 and checked against SHA-256 hashes; it is not part of this repository.
 
-Movies (`runtime/rt_mpeg.c`, `rt_h264dec.cpp`; see `docs/phase8-movies.md`): sceMpeg demuxes the PSMF stream the game
+Movies (`runtime/rt_mpeg.c`, `rt_h264dec.cpp`; see `docs/dev-history/phase8-movies.md`): sceMpeg demuxes the PSMF stream the game
 feeds through its ring buffer; H.264 pictures are decoded by OpenH264 and ATRAC3+ sound by the decoder above.
 
 | Option | Effect |
@@ -156,7 +156,7 @@ feeds through its ring buffer; H.264 pictures are decoded by OpenH264 and ATRAC3
 OpenH264's decoder (Cisco, BSD-2-Clause) is downloaded by CMake at configure time, file by file from tag v2.6.0, and
 checked against the SHA-256 hashes in `cmake/openh264-v2.6.0.sha256`; it is not part of this repository.
 
-Ghost of Sparta (see `docs/phase10-ghost-of-sparta.md`) builds the same way into its own directory, and
+Ghost of Sparta (see `docs/dev-history/phase10-ghost-of-sparta.md`) builds the same way into its own directory, and
 `tools\play_gos.cmd` plays it (hardware renderer, saves in `build\ms0_gos`):
 
 ```bash
@@ -187,7 +187,7 @@ Documentation tools (`tools/`): `render_terminal.py` turns a command's real outp
 `run_logged.sh` records several commands with their output for it; `check_frames.py` compares the frames of
 two runs (renderer changes must keep them identical) and summarizes frame times; `perf_report.py` draws a
 frame-time chart and a side-by-side host-clock video with a live fps overlay; `audio_report.py` prints sound levels
-of a `--wav`, matches it against a reference decode (dB) and draws a labelled spectrogram. Results go to `docs/progress.md`.
+of a `--wav`, matches it against a reference decode (dB) and draws a labelled spectrogram. Results go to `docs/dev-history/progress.md`.
 `capture_window.ps1` captures one window by process id (for when the port has a window of its own).
 
 When Ghidra functions change, re-export with `ExportRecompInput.java` and re-run

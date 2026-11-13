@@ -25,11 +25,11 @@
   - המוזיקה מתאימה לפענוח של FFmpeg ב-75–80 dB, בלי סחיפה.
 - **CoO לא השתנה:** ‏34/34 פריימים זהים ל-`build/rec_v9` ב-renderer התוכנה, ה-WAV זהה בית-לבית, ואותם זמן וירטואלי ומספר החלפות thread. גם ה-C שהמהדר מייצר ל-CoO זהה בית-לבית.
 
-![רצף ה-boot של GoS, מה-framebuffer של ה-PSP](../media/screenshots/2026-10-16_31_gos_boot_sequence.png)
+*(צילום מקומי, לא בריפו: רצף ה-boot של GoS, מה-framebuffer של ה-PSP)*
 
-![התפריט הראשי של GoS בחלון](../media/screenshots/2026-10-16_32_gos_window_main_menu.png)
+*(צילום מקומי, לא בריפו: התפריט הראשי של GoS בחלון)*
 
-![קרב ב-Atlantis בחלון](../media/screenshots/2026-10-16_33_gos_window_atlantis_combat.png)
+*(צילום מקומי, לא בריפו: קרב ב-Atlantis בחלון)*
 
 | | Chains of Olympus | Ghost of Sparta |
 |---|---|---|
@@ -170,7 +170,7 @@ L_08A8B4BC:;
 | ~173–180 | ~7,180–7,600 | ה-QTE: ‏L ו-R לסירוגין |
 | 180– | 7,600– | קרב, ‏cutscene במנוע, ה-tutorials של Block ו-Launch |
 
-![לוג ה-boot](../media/screenshots/2026-10-16_34_gos_boot_log.png)
+*(צילום מקומי, לא בריפו: לוג ה-boot)*
 
 ## אימות
 
@@ -200,7 +200,7 @@ L_08A8B4BC:;
 - **דטרמיניזם:** ה-WAV של ריצת החלון זהה בית-לבית ל-WAV של ריצת ה-headless עם אותו תסריט. גם הזמן הווירטואלי (203.319 s) ומספר החלפות ה-thread ‏(74,072) זהים.
 - **הסאונד:** תור של 54 ms, ‏playback ratio ‏1.0008, ו-9 underruns ב-203 שניות. בזמן הריצה, סשן אחר הריץ על אותו מחשב חמש ריצות headless של CoO (עומס של 56–73% על המעבד).
 
-![רגעים מריצת החלון](../media/screenshots/2026-10-16_35_gos_window_sequence.png)
+*(צילום מקומי, לא בריפו: רגעים מריצת החלון)*
 
 **ריצת המקלדת** (`--window --renderer gpu --record-input`, בלי תסריט). הקלט הגיע ממקלדת אמיתית, כמו בשלב 9: הודעות `WM_KEYDOWN`/`WM_KEYUP` שנשלחו לחלון של ה-port בלבד, לפי מספר הפריים בכותרת. ‏Z הוא ✕, ‏Q/W הם L/R, ‏A/S הם □/△, ‏I/J/K/L הם הסטיק.
 - **הרצף:** ‏✕ על New Game ‏(1,536) ועל Hero ‏(1,718), סרטון הפתיחה, ‏✕ ב-tutorial של ה-grab ‏(7,172), ‏L/R לסירוגין, ודקה של קרב.
@@ -208,7 +208,7 @@ L_08A8B4BC:;
 - **הסאונד:** underrun אחד, בשנייה 135.6, בטעינת השלב אחרי הסרטון. תור של 50 ms, ‏playback ratio ‏1.0002.
 - **ההקלטה:** ‏157 מקטעי קלט. ה-replay שלה ב-headless נתן WAV זהה בית-לבית לריצת החלון, ואותם זמן וירטואלי (203.297 s) ומספר החלפות thread ‏(73,956).
 
-![ריצת המקלדת בחלון: ה-tutorial של ה-grab וקרב](../media/screenshots/2026-10-16_37_gos_window_keyboard_session.png)
+*(צילום מקומי, לא בריפו: ריצת המקלדת בחלון: ה-tutorial של ה-grab וקרב)*
 
 צילומי החלון נלקחו מהחלון של ה-port בלבד, עם PrintWindow (`tools/capture_window.ps1`).
 
@@ -231,7 +231,7 @@ L_08A8B4BC:;
 
 ההפרש הגדול ביותר הוא 2 LSB, וההיסט קבוע.
 
-![המיקס של ריצת החלון](../media/screenshots/2026-10-16_36_gos_audio_spectrogram.png)
+*(צילום מקומי, לא בריפו: המיקס של ריצת החלון)*
 
 ### ה-renderer החומרה מול ה-renderer התוכנה
 
@@ -267,7 +267,7 @@ tools\replay.cmd build\sessions\<תאריך_שעה>          replay headless; �
 
 ‏`play_gos.cmd` עובד כמו `play.cmd`: כל משחק מוקלט ב-`build\sessions\<תאריך_שעה>\`. השמירות של GoS נשמרות ב-`build\ms0_gos`, כדי שלא יגעו ב-`build\ms0` של CoO.
 
-הבנייה (פירוט ב-[`recomp/README.md`](../recomp/README.md)):
+הבנייה (פירוט ב-[`recomp/README.md`](../../recomp/README.md)):
 
 ```bash
 python -I recomp/recomp.py --elf re/dumps/UCUS98737_EBOOT.BIN --ghidra re/out/recomp/UCUS98737_EBOOT.BIN.recomp.json --nids re/out/psp_nids_ppsspp.tsv --out build/gen/UCUS98737_full --difftest 0 --boot 0 --all

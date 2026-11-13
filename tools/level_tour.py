@@ -1,5 +1,5 @@
-"""Automated level tour of Chains of Olympus and Ghost of Sparta (docs/phase11-level-tour.md,
-docs/phase12-gos-level-tour.md).
+"""Automated level tour of Chains of Olympus and Ghost of Sparta (docs/dev-history/phase11-level-tour.md,
+docs/dev-history/phase12-gos-level-tour.md).
 
 For every level (a zone file in disc0:/PSP_GAME/USRDIR/data), boots the port headless, warps
 into the level from the main menu (gow_rt --warp, runtime/rt_debug.c), plays a generic input
@@ -76,7 +76,7 @@ GAMES = {
             or n in ("challenge_of_gods_a", "atb_nis_statueactivate")),
         addon=re.compile(r"(_enemies|_enemy|_encounter)$"),
         menu_levels=("start_screen", "splash_screens"),
-        # the game looks for its two DLC packs on the memory stick (docs/phase10-ghost-of-sparta.md)
+        # the game looks for its two DLC packs on the memory stick (docs/dev-history/phase10-ghost-of-sparta.md)
         expected_missing=("ms0:/PSP/GAME/UCUS98737/dlcarena.EDAT", "ms0:/PSP/GAME/UCUS98737/dlccostume.EDAT"),
         # a level file bigger than this does not fit next to the main menu's start_screen (4.3 MB): the game
         # starts in a small level first and changes to it the way Load Game does (gow_rt --warp-via)
@@ -372,7 +372,7 @@ def main():
     ap.add_argument("--image")
     ap.add_argument("--disc")
     ap.add_argument("--gpu-args", default="", help='graphics options passed to every run, e.g. "--res-scale 4 --msaa 4" '
-                                                   "(docs/phase13-graphics.md)")
+                                                   "(docs/dev-history/phase13-graphics.md)")
     a = ap.parse_args()
     global G
     G = GAMES[a.game]

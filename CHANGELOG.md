@@ -210,7 +210,7 @@ published, and grew to include the launcher, quit and movie-skip changes below. 
 - **No Visual Studio needed:** the launcher downloads a portable toolchain once (llvm-mingw, CMake, Ninja; 246 MB,
   pinned SHA-256, after asking) and builds both games with it; no administrator rights, nothing installed in Windows.
   Visual Studio stays supported and is the fallback. Same software-renderer output (34/34, same WAV); results in
-  `docs/phase15-portable-toolchain.md`.
+  `docs/dev-history/phase15-portable-toolchain.md`.
 - CI downloads the portable toolchain and builds `gow_disc` with it.
 
 ## v1.0.1 (2026-10-17)
@@ -252,7 +252,7 @@ Bug pass before release:
   Ghost of Sparta geometry clipping (same on PSP / PPSSPP); no music right after a level warp (music starts from level
   scripts, a warp artifact).
 - Known issue: warping into Ghost of Sparta's `scb_010_climb` at spawn 1 crashes on a sound trigger the warp never creates
-  (likely a warp artifact; see `docs/phase12-gos-level-tour.md`); a normal playthrough is still to be checked.
+  (likely a warp artifact; see `docs/dev-history/phase12-gos-level-tour.md`); a normal playthrough is still to be checked.
 
 ## v0.1.0 (2026-10-17)
 

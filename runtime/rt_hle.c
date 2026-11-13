@@ -88,7 +88,7 @@ void rt_hle_report(void) {
 }
 
 /* --- display ---------------------------------------------------------------- */
-/* 59.94 Hz, or --fps N (docs/phase13-graphics.md): the vblank period, the vblank count and the
+/* 59.94 Hz, or --fps N (docs/dev-history/phase13-graphics.md): the vblank period, the vblank count and the
  * flip pacing follow it. Both games step their logic by elapsed time, so they keep their speed. */
 static uint32_t g_vblank_us = 16683u;
 void rt_display_set_hz(double hz) {
