@@ -47,6 +47,19 @@ GAMES = {
     "coo": {"id": "UCUS98653", "title": "God of War: Chains of Olympus", "build": "build/cmake_full", "ms0": "build/ms0"},
     "gos": {"id": "UCUS98737", "title": "God of War: Ghost of Sparta", "build": "build/cmake_gos_full", "ms0": "build/ms0_gos"},
 }
+# Other releases of the two games (issues #6, #64; PR #48). Their EBOOT differs from the US one, so recomp.py finds
+# its functions from the binary itself instead of the Ghidra export. Not tested on these discs by us.
+REGIONAL = {"UCES00842": "coo", "UCES01401": "gos", "UCES01473": "gos"}
+DISC_IDS = {}  # game -> the ID of its chosen disc image, when it isn't the US one (filled from launcher.json)
+
+
+def game_id(game):
+    """The disc ID this game is built and run as: the US release's, or a regional one's."""
+    return DISC_IDS.get(game) or GAMES[game]["id"]
+
+
+def known_ids(game):
+    return [GAMES[game]["id"]] + [i for i, g in REGIONAL.items() if g == game]
 DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
@@ -212,10 +225,13 @@ def load_config():
         saved["fullscreen"], saved["settings_version"] = True, 2
     cfg.update(saved)
     cfg["_fixed"] = validate_config(cfg)
+    DISC_IDS.clear()
+    DISC_IDS.update({g: i for g, i in (cfg.get("disc_ids") or {}).items() if g in GAMES and i in known_ids(g)})
     return cfg
 
 
 def save_config(cfg):
+    cfg["disc_ids"] = dict(DISC_IDS)
     CONFIG.parent.mkdir(parents=True, exist_ok=True)
     CONFIG.write_text(json.dumps({k: v for k, v in cfg.items() if not k.startswith("_")}, indent=1), encoding="utf-8")
 
@@ -266,7 +282,7 @@ def build_is_current(game):
 
 
 def exe_path(game):
-    return newest([built_file(k, game, f"gow_rt_{GAMES[game]['id']}_full.exe") for k in FLAVOURS])
+    return newest([built_file(k, game, f"gow_rt_{game_id(game)}_full.exe") for k in FLAVOURS])
 
 
 def disc_tool():
@@ -284,7 +300,7 @@ def configure_args(tools):
 
 
 def gen_dir(game):
-    return ROOT / "build" / "gen" / f"{GAMES[game]['id']}_full"
+    return ROOT / "build" / "gen" / f"{game_id(game)}_full"
 
 
 def unpack_sources(out=print):
@@ -325,7 +341,7 @@ def run_recomp(args):
 
 def eboot_path(game):
     """Where the EBOOT decrypted from the disc image goes (build/ is not in git)."""
-    return ROOT / "build" / "eboot" / f"{GAMES[game]['id']}_EBOOT.BIN"
+    return ROOT / "build" / "eboot" / f"{game_id(game)}_EBOOT.BIN"
 
 
 def check_disc(cfg, game):
@@ -431,12 +447,12 @@ def ppsspp_saves(folder):
     [(game, path, encrypted)]. PPSSPP encrypts saves unless EncryptSave is off in its ppsspp.ini; the port reads plain ones."""
     d = Path(folder)
     for sub in ("PSP/SAVEDATA", "SAVEDATA", ""):
-        if (d / sub).is_dir() and any((d / sub).glob("UCUS987*")):
+        if (d / sub).is_dir() and any(any((d / sub).glob(i + "*")) for k in GAMES for i in known_ids(k)):
             d = d / sub
             break
     out = []
-    for game, g in GAMES.items():
-        for p in sorted(d.glob(g["id"] + "*")):
+    for game in GAMES:
+        for p in sorted(q for i in known_ids(game) for q in d.glob(i + "*")):
             sfo = p / "PARAM.SFO"
             if not sfo.is_file():
                 continue
@@ -621,7 +637,7 @@ def disc_tool_steps(tools):
 
 def scan_folder(folder, out=print):
     """{game: disc image path} for the .chd/.iso files in folder (and its direct subfolders), by disc ID."""
-    ids = {g["id"]: k for k, g in GAMES.items()}
+    ids = {i: k for k in GAMES for i in known_ids(k)}
     found = {}
     base = Path(folder)
     cands = [p for pat in ("*.chd", "*.iso", "*/*.chd", "*/*.iso") for p in sorted(base.glob(pat), key=lambda q: str(q).lower())]
@@ -634,7 +650,13 @@ def scan_folder(folder, out=print):
         disc_id = r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
         out(f"{f.name}: {disc_id or 'not a PSP disc'}")
         if disc_id in ids and ids[disc_id] not in found:
-            found[ids[disc_id]] = str(f)
+            game = ids[disc_id]
+            found[game] = str(f)
+            if disc_id == GAMES[game]["id"]:
+                DISC_IDS.pop(game, None)
+            else:
+                DISC_IDS[game] = disc_id
+                out(f"{f.name}: {GAMES[game]['title']}, regional release {disc_id} (not tested by the project yet)")
     return found
 
 
@@ -713,7 +735,7 @@ def build_steps(cfg, game, tools=None):
                    "--difftest", "0", "--boot", "0", "--all"], needs_recomp))
     root = cmake_root()
     build = root / FLAVOURS[tools.get("kind", "msvc")][game]
-    steps.append(([cmake, "-S", str(root), "-B", str(build), f"-DGAME={g['id']}_full"] + configure_args(tools), None))
+    steps.append(([cmake, "-S", str(root), "-B", str(build), f"-DGAME={game_id(game)}_full"] + configure_args(tools), None))
     steps.append(([cmake, "--build", str(build), "--config", "Release", "--parallel"], None))
     return steps, stamp
 
@@ -761,9 +783,9 @@ def build_with(cfg, game, tools, out=print):
             if why:
                 out(toolchain.ERROR + why)
             return False
-        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != GAMES[game]["id"]):
-            out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {GAMES[game]['id']} "
-                f"({GAMES[game]['title']})")
+        if cmd[0].endswith("gow_disc.exe") and (not lines or lines[0].strip() != game_id(game)):
+            out(toolchain.ERROR + f"this disc image is {lines[0].strip() if lines else 'unknown'}, not {game_id(game)} "
+                f"({GAMES[game]['title']}). Choose the game folder again.")
             return False
         if cond is not None:  # the recompile step
             stamp.write_text(hashlib.sha256(eboot.read_bytes()).hexdigest())

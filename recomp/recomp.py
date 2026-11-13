@@ -137,6 +137,8 @@ def main() -> int:
     ap.add_argument("--boot", type=int, default=200, help="max functions reachable from the entry point")
     ap.add_argument("--seed", type=int, default=1)
     ap.add_argument("--all", action="store_true", help="emit every translatable function")
+    ap.add_argument("--auto-analyze", action="store_true",
+                    help="find functions and jump tables without the Ghidra export (as for a regional EBOOT it doesn't match)")
     args = ap.parse_args()
     base = int(args.base, 16)
     out = Path(args.out)
@@ -168,7 +170,10 @@ def main() -> int:
                 fi.has_indirect_jr = True
         funcs[entry] = fi
     jumptables = {int(j["at"], 16) + delta: [int(t, 16) + delta for t in j["targets"]] for j in g["jumptables"]}
-    if mod.section(".text").size != int(g["text"][1], 16) - int(g["text"][0], 16) + 1:
+    # Another build of the game (a regional release: PAL, Russian...) doesn't match the Ghidra export of the US EBOOT:
+    # find the functions and jump tables from the binary itself
+    if args.auto_analyze or mod.section(".text").size != int(g["text"][1], 16) - int(g["text"][0], 16) + 1:
+        print(f"{Path(args.elf).name}: analysing the EBOOT without the Ghidra export")
         funcs, jumptables = auto_analyze(mod)
 
     # Body completion: follow control flow from each entry ourselves and add reachable code
@@ -309,7 +314,8 @@ def main() -> int:
     game_id = Path(args.elf).name.split("_")[0]
     rt_cfg = json.loads((Path(__file__).parent / "runtime_funcs.json").read_text(encoding="utf-8"))
     runtime_funcs = {int(a, 16): call for a, call in rt_cfg.get(game_id, {}).items()}
-    co_info = detect_co_switch(mod)
+    # A build runtime_funcs.json doesn't list (a regional release): find its context switch by its code
+    co_info = None if runtime_funcs else detect_co_switch(mod)
     if co_info is not None:
         co_pc, swap_slot, cur_slot = co_info
         runtime_funcs = {co_pc: f"rt_co_switch(c, 0x{swap_slot:08X}u, 0x{cur_slot:08X}u)"}

@@ -118,12 +118,7 @@ static char g_load_name[64];                         /* --load-level NAME@FRAME 
 static uint32_t g_load_frame;
 static int g_load_done;
 
-/* game_info defined below */
-static const Game *unused_game_info(void) {
-    if (!strcmp(RT_GAME_ID, COO.id)) return &COO;
-    if (!strcmp(RT_GAME_ID, GOS.id)) return &GOS;
-    return NULL;
-}
+/* Regional releases (PR #48): the European Chains of Olympus and the Russian Ghost of Sparta */
 static const Game COO_PAL = { "UCES00842", 0x08B3656Cu, 0x08B3CB54u, 0x088347B8u, 0x08B2F278u, 0x12Cu, 0x148u, 0xA0u, 0x120u, 0x9Cu, 0x84u, 0x08B3E258u, 0x64u, 0x70u };
 static const Game GOS_RUS = { "UCES01473", 0x08C195F4u, 0u, 0u, 0u, 0x1B4u, 0x1F4u, 0xB0u, 0x130u, 0xACu, 0x80u, 0x08C23290u, 0x64u, 0x70u };
 
@@ -420,11 +415,16 @@ void rt_debug_input(uint64_t frame) {
     if (g_rumble) rumble();  /* before god mode refills what the hit took */
     if (g_god) god();
     if (g_warp && !g_warp_done && frame >= g_warp_frame) {
-        if (is_coo()) warp_coo();
+        if (g != &COO && g != &GOS) {  /* the warp calls the US releases' own functions */
+            rt_log("[debug] --warp works only on the US releases; ignored for %s\n", RT_GAME_ID);
+            g_warp_done = 1;
+        } else if (is_coo()) warp_coo();
         else warp_gos(frame);
     }
-    if (g_load_name[0] && !g_load_done && frame >= g_load_frame) load_level();
-    if (g_level_log) log_levels();
+    if (g->mgr_ptr) {  /* not known for every regional release */
+        if (g_load_name[0] && !g_load_done && frame >= g_load_frame) load_level();
+        if (g_level_log) log_levels();
+    }
     if (g_dump_frames) dump_ram(frame);
 }
 
