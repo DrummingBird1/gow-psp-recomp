@@ -39,6 +39,7 @@
 #include "rt_frames.h"
 #include "rt_gpu.h"
 #include "rt_host.h"
+#include "rt_xbrz.h"
 
 GpuOptions rt_gpu_opt;
 
@@ -72,6 +73,7 @@ int rt_gpu_option(int argc, char **argv, int *i) {
     else if (!strcmp(a, "--fps")) o->fps = (float)atof(v);
     else if (!strcmp(a, "--texture-dump")) o->texture_dump = v;
     else if (!strcmp(a, "--texture-pack")) o->texture_pack = v;
+    else if (!strcmp(a, "--tex-upscale")) o->tex_upscale = atoi(v) < 1 ? 1 : atoi(v) > 4 ? 4 : atoi(v);
     else if (!strcmp(a, "--gpu-power")) o->low_power = !strcmp(v, "low");
     else if (!strcmp(a, "--aspect")) {  /* W:H or a number */
         const char *colon = strchr(v, ':');
@@ -115,7 +117,7 @@ typedef struct {
     int stencil_dirty;         /* stencil written since its values were last copied into the alpha channel */
     int want_s;                /* scale to change to after the frame (0: none) */
 } Target;
-typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, lod_shift; } TexEntry;
+typedef struct { uint64_t key; SDL_GPUTexture *tex; int w, h; uint64_t used; int levels, replaced, scaled, lod_shift; } TexEntry;
 typedef struct { uint64_t key; SDL_GPUGraphicsPipeline *p; } Pipe;
 typedef struct { uint32_t key; SDL_GPUSampler *s; } Samp;
 /* pooled textures: render-to-texture snapshots, staging for scaled uploads */
@@ -195,7 +197,7 @@ static int g_xfer_gpu;  /* the block transfer in progress was made on the GPU */
 static struct {
     uint64_t frames, draws, merged, verts, passes, uploads, upload_bytes, pipelines, targets, snapshots, target_uploads, gpu_copies,
         readbacks, submits, resolves, fills, gpu_wait_ns, gpu_wait_max, acquire_ns, acquire_max, acquire_slow, msaa_resolves,
-        unresolves, blits, snap_bytes, dumped, replaced, pack_loads;
+        unresolves, blits, snap_bytes, dumped, replaced, pack_loads, upscaled, upscale_ns;
 } g_st;
 
 static void grow(void **p, size_t *cap, size_t need, size_t elem) {
@@ -1118,6 +1120,47 @@ static PackEntry *pack_texture(uint64_t key) {
 /* --- textures -------------------------------------------------------------------- */
 static TexEntry *tex_slot(uint64_t key) {
     size_t i = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 50) & (TEX_SLOTS - 1);
+/* --tex-upscale: level 0 scaled up with xBRZ, its mip chain made on the GPU (like a pack's picture). Textures
+ * bigger than 256x256 (rare on the PSP, already detailed) and tiny ones stay as they are. 1 when done. */
+static int upscale_texture(TexEntry *e, uint64_t key, int w, int h, const uint32_t *rgba) {
+    int f = rt_gpu_opt.tex_upscale;
+    if (f < 2 || w < 4 || h < 4 || (size_t)w * h > 256 * 256) return 0;
+    int sw = w * f, sh = h * f, levels = 1;
+    while ((sw >> levels) || (sh >> levels)) levels++;
+    SDL_GPUTexture *tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
+                                       sw, sh, levels, SDL_GPU_SAMPLECOUNT_1);
+    if (!tex) return 0;
+    size_t bytes = (size_t)sw * sh * 4, off = (g_upsize + 511) & ~(size_t)511;
+    grow((void **)&g_upbytes, &g_upbcap, off + bytes, 1);
+    uint64_t t0 = SDL_GetTicksNS();
+    rt_xbrz_scale(f, rgba, w, h, (uint32_t *)(g_upbytes + off));
+    g_st.upscale_ns += SDL_GetTicksNS() - t0;
+    g_upsize = off + bytes;
+    grow((void **)&g_ups, &g_upcap, g_nups + 1, sizeof(Upload));
+    memset(&g_ups[g_nups], 0, sizeof(Upload));
+    g_ups[g_nups].tex = tex; g_ups[g_nups].offset = (uint32_t)off; g_ups[g_nups].w = sw; g_ups[g_nups].h = sh;
+    g_nups++;
+    if (levels > 1) {
+        grow((void **)&g_mipgen, &g_mipcap, g_nmipgen + 1, sizeof(SDL_GPUTexture *));
+        g_mipgen[g_nmipgen++] = tex;
+    }
+    e->tex = tex;
+    e->key = key;
+    e->w = w;
+    e->h = h;
+    e->levels = levels;
+    e->lod_shift = 0;
+    while ((w << (e->lod_shift + 1)) <= sw) e->lod_shift++;
+    e->replaced = 0;
+    e->scaled = 1;
+    e->used = g_frame;
+    g_tex_count++;
+    g_st.uploads++;
+    g_st.upscaled++;
+    g_st.upload_bytes += bytes;
+    return 1;
+}
+
     while (g_tex[i].key && g_tex[i].key != key) i = (i + 1) & (TEX_SLOTS - 1);
     return &g_tex[i];
 }
@@ -1157,9 +1200,11 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
     e->tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, nl, SDL_GPU_SAMPLECOUNT_1);
     if (!e->tex) return;
     e->key = key;
+    if (upscale_texture(e, key, w, h, rgba)) return;
     e->w = w;
     e->h = h;
     e->levels = nl;
+    e->scaled = 0;
     e->replaced = 0;
     e->used = g_frame;
     g_tex_count++;
@@ -1246,7 +1291,7 @@ void rt_gpu_draw(const GpuDraw *d, const GpuVertex *v, uint32_t n) {
             if (e->key) {
                 tex = e->tex;
                 e->used = g_frame;
-                if (e->replaced) {  /* a pack's picture: its own mip chain, filtered as it is */
+                if (e->replaced || e->scaled) {  /* a pack's or an upscaled picture: its own mip chain */
                     static GpuDraw dr;
                     dr = *d;
                     dr.levels = e->levels;
@@ -2189,6 +2234,9 @@ void rt_gpu_report(void) {
     if (g_dumped || g_pack)
         printf("[gpu] texture pack: %llu pictures dumped, %llu replacements loaded, %llu textures replaced\n", (unsigned long long)g_st.dumped,
                (unsigned long long)g_st.pack_loads, (unsigned long long)g_st.replaced);
+    if (g_st.upscaled)
+        printf("[gpu] texture upscaling %dx (xBRZ): %llu textures, %.1f ms each on average\n", rt_gpu_opt.tex_upscale,
+               (unsigned long long)g_st.upscaled, g_st.upscale_ns / 1e6 / (double)g_st.upscaled);
     if (g_st.gpu_wait_ns)
         printf("[gpu] waiting for the GPU after each frame: %.2f ms on average, %.2f ms at most\n",
                g_st.gpu_wait_ns / 1e6 / (double)(g_st.frames ? g_st.frames : 1), g_st.gpu_wait_max / 1e6);

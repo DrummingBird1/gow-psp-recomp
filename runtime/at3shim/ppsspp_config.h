@@ -27,3 +27,6 @@
 #else
 #define PPSSPP_ARCH_ARM64 0
 #endif
+
+/* xBRZ (ext/xbrz) asks only whether it builds for iOS */
+#define PPSSPP_PLATFORM(x) 0

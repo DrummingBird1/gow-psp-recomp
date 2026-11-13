@@ -12,7 +12,7 @@ The launcher itself is GPL-3.0-or-later (see LICENSE). It contains:
 - Cinzel font, Copyright 2020 The Cinzel Project Authors, SIL Open Font License 1.1 (OFL.txt next to this file).
 - PyInstaller bootloader (GPL-2.0 with the bootloader exception).
 
-At build time, CMake downloads further third-party sources (SDL3, libchdr, OpenH264, PPSSPP's at3_standalone,
+At build time, CMake downloads further third-party sources (SDL3, libchdr, OpenH264, xBRZ, PPSSPP's at3_standalone,
 libkirk and PrxDecrypter); they keep their own licenses and are not part of the launcher.
 Portable build tools. On the first Build, after asking, the launcher downloads these from the projects' official
 GitHub releases (checked against pinned SHA-256 hashes) into GoW_PSP_data\build\toolchain. They are not part of the

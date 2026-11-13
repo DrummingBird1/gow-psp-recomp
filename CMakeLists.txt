@@ -238,6 +238,24 @@ if(GOW_TOOLS_ONLY)
   return()
 endif()
 
+# Texture upscaling for the hardware renderer (--tex-upscale): xBRZ by Zenju (GPL-3.0, from HqMAME), as in PPSSPP's
+# ext/xbrz, downloaded from tag v1.20.4 and checked by SHA-256; runtime/at3shim stands in for ppsspp_config.h.
+set(XBRZ_DIR "${GOW_DEPS_DIR}/xbrz")
+set(XBRZ_FILES
+  config.h=bbb7d3ab1c25851673a71c126188cc1f02dc483819f04af8a8241dac71e9fe1a
+  xbrz.cpp=35283301d48ff518c8394c674195d086325697a51bf4d72213e636f1df213c7e
+  xbrz.h=f0c59293edf8268abe7e749f017fe84c9ae38303aef2afc3244b2fdba9aeb69c)
+fetch_pinned_files(xbrz "${XBRZ_DIR}" "https://raw.githubusercontent.com/hrydgard/ppsspp/v1.20.4/ext/xbrz" "${XBRZ_FILES}"
+  XBRZ_SOURCES)
+add_library(xbrz STATIC ${XBRZ_SOURCES} runtime/rt_xbrz.cpp)
+target_include_directories(xbrz PRIVATE "${XBRZ_DIR}" runtime/at3shim runtime)
+set_target_properties(xbrz PROPERTIES CXX_STANDARD 17)
+if(MSVC)
+  target_compile_options(xbrz PRIVATE /W0 /MP)
+else()
+  target_compile_options(xbrz PRIVATE -O2 -w)
+endif()
+
 add_executable(gow_rt
   runtime/rt_atrac.c
   runtime/rt_audio.c
@@ -264,7 +282,7 @@ add_executable(gow_rt
   ${GEN_SOURCES})
 set_target_properties(gow_rt PROPERTIES OUTPUT_NAME "gow_rt_${GAME}" C_STANDARD 11)
 target_include_directories(gow_rt PRIVATE runtime "${GEN_DIR}")
-target_link_libraries(gow_rt PRIVATE chdr-static at3_standalone openh264_dec libkirk)
+target_link_libraries(gow_rt PRIVATE chdr-static at3_standalone openh264_dec libkirk xbrz)
 if(GOW_WINDOW)
   target_link_libraries(gow_rt PRIVATE SDL3::SDL3-static)
   target_compile_definitions(gow_rt PRIVATE GOW_HAVE_SDL)

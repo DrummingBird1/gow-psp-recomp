@@ -61,7 +61,7 @@ def game_id(game):
 def known_ids(game):
     return [GAMES[game]["id"]] + [i for i, g in REGIONAL.items() if g == game]
 DEFAULTS = {
-    "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
+    "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1, "tex_upscale": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "show_input": False, "crt": False,
     "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
@@ -141,7 +141,7 @@ def write_controls(cfg):
 
 # --- settings ---------------------------------------------------------------------------------------------------
 ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_scale": (0, 1), "msaa": (1, 2, 4, 8),
-           "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
+           "aniso": (1, 2, 4, 8, 16), "tex_upscale": (1, 2, 3, 4), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
            "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "tr", "he", "ar"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
 BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
@@ -149,7 +149,7 @@ BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump
 
 # --- per-game graphics ------------------------------------------------------------------------------------------
 # With "Separate graphics settings for each game" on, these keys are kept per game (cfg["game_settings"][game]).
-GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
+GAME_KEYS = ("res_scale", "msaa", "fxaa", "aniso", "tex_upscale", "fps", "aspect", "hdr", "renderer", "fx_scale", "sharpen", "vsync",
              "crt", "show_fps", "hud_edges", "preset")
 
 
@@ -385,6 +385,8 @@ def play_command(cfg, game):
             cmd += ["--msaa", str(cfg["msaa"])]
         if cfg["aniso"] > 1:
             cmd += ["--aniso", str(cfg["aniso"])]
+        if int(cfg.get("tex_upscale", 1)) > 1:
+            cmd += ["--tex-upscale", str(cfg["tex_upscale"])]
         if cfg["fxaa"]:
             cmd.append("--fxaa")
         if cfg["sharpen"] > 0:
