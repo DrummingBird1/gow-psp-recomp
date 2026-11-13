@@ -168,7 +168,7 @@ public final class GameActivity extends SDLActivity {
     private void createGameDrawer() {
         FrameLayout.LayoutParams handleLp = new FrameLayout.LayoutParams(dp(28), dp(92), Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         gameDrawerHandle = new TextView(this);
-        ((TextView) gameDrawerHandle).setText("‹");
+        ((TextView) gameDrawerHandle).setText("☰");
         ((TextView) gameDrawerHandle).setTextColor(Color.WHITE);
         ((TextView) gameDrawerHandle).setTextSize(25);
         ((TextView) gameDrawerHandle).setGravity(Gravity.CENTER);
@@ -179,19 +179,19 @@ public final class GameActivity extends SDLActivity {
 
         gameDrawer = new LinearLayout(this);
         gameDrawer.setOrientation(LinearLayout.VERTICAL);
-        gameDrawer.setPadding(dp(14), dp(18), dp(14), dp(14));
+        gameDrawer.setPadding(dp(16), dp(18), dp(16), dp(14));
         gameDrawer.setBackground(drawerBackground());
         gameDrawer.setElevation(dp(41));
         TextView title = new TextView(this);
         title.setText(localized("MENU DO JOGO"));
-        title.setTextColor(Color.rgb(235, 70, 85));
-        title.setTextSize(15);
+        title.setTextColor(Color.rgb(245, 91, 101));
+        title.setTextSize(13);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         gameDrawer.addView(title, new LinearLayout.LayoutParams(-1, dp(42)));
-        addDrawerButton(localized("Sair do game"), () -> { if (controls != null) controls.releaseAll(); finish(); });
-        addDrawerButton(localized("Editar controles na tela"), this::showInGameControlEditor);
-        addDrawerButton(localized("Editar HUD de FPS"), this::showInGameHudEditor);
-        FrameLayout.LayoutParams drawerLp = new FrameLayout.LayoutParams(dp(270), -1, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        addDrawerButton("⏻  " + localized("Sair do game"), () -> { if (controls != null) controls.releaseAll(); finish(); });
+        addDrawerButton("⌘  " + localized("Editar controles na tela"), this::showInGameControlEditor);
+        addDrawerButton("◉  " + localized("Editar HUD de FPS"), this::showInGameHudEditor);
+        FrameLayout.LayoutParams drawerLp = new FrameLayout.LayoutParams(dp(250), -2, Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         drawerLp.setMargins(0, dp(12), dp(28), dp(12));
         gameDrawer.setVisibility(View.GONE);
         addContentView(gameDrawer, drawerLp);
@@ -235,9 +235,9 @@ public final class GameActivity extends SDLActivity {
 
     private GradientDrawable drawerBackground() {
         GradientDrawable bg = new GradientDrawable();
-        bg.setColor(Color.argb(245, 18, 18, 23));
-        bg.setCornerRadius(dp(12));
-        bg.setStroke(dp(1), Color.rgb(150, 35, 48));
+        bg.setColor(Color.argb(238, 15, 13, 18));
+        bg.setCornerRadius(dp(18));
+        bg.setStroke(dp(1), Color.rgb(111, 48, 57));
         return bg;
     }
 
@@ -249,9 +249,9 @@ public final class GameActivity extends SDLActivity {
         b.setGravity(Gravity.CENTER_VERTICAL | Gravity.LEFT);
         b.setPadding(dp(14), 0, dp(10), 0);
         GradientDrawable buttonBg = new GradientDrawable();
-        buttonBg.setColor(Color.rgb(29, 22, 26));
-        buttonBg.setCornerRadius(dp(8));
-        buttonBg.setStroke(dp(1), Color.rgb(112, 35, 47));
+        buttonBg.setColor(Color.rgb(31, 22, 27));
+        buttonBg.setCornerRadius(dp(12));
+        buttonBg.setStroke(dp(1), Color.rgb(88, 45, 53));
         b.setBackground(buttonBg);
         b.setOnClickListener(v -> { toggleGameDrawer(); action.run(); });
         LinearLayout.LayoutParams buttonLp = new LinearLayout.LayoutParams(-1, dp(52));
@@ -263,7 +263,7 @@ public final class GameActivity extends SDLActivity {
         if (gameDrawer == null) return;
         boolean open = gameDrawer.getVisibility() != View.VISIBLE;
         gameDrawer.setVisibility(open ? View.VISIBLE : View.GONE);
-        ((TextView) gameDrawerHandle).setText(open ? "›" : "‹");
+        ((TextView) gameDrawerHandle).setText(open ? "×" : "☰");
         if (controls != null && open) controls.releaseAll();
     }
 

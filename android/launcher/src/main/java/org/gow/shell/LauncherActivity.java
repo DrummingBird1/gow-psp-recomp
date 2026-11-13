@@ -60,22 +60,24 @@ import org.json.JSONObject;
  * As opções gráficas suportadas pelo runtime gravam argumentos no args.txt.
  */
 public final class LauncherActivity extends Activity {
-    private static final int BG = Color.rgb(17, 17, 19);
-    private static final int CARD = Color.rgb(28, 28, 32);
-    private static final int BRD = Color.rgb(52, 52, 58);
-    private static final int LINE = Color.rgb(38, 38, 43);
-    private static final int RED = Color.rgb(200, 32, 48);
-    private static final int ROSE = Color.rgb(232, 72, 90);
-    private static final int TEXT = Color.rgb(238, 238, 238);
-    private static final int MUTED = Color.rgb(154, 154, 162);
-    private static final int OFF = Color.rgb(58, 58, 64);
-    private static final int GREEN = Color.rgb(155, 203, 145);
+    private static final int BG = Color.rgb(10, 10, 13);
+    private static final int CARD = Color.rgb(25, 22, 27);
+    private static final int CARD_ALT = Color.rgb(35, 25, 30);
+    private static final int BRD = Color.rgb(83, 47, 55);
+    private static final int LINE = Color.rgb(55, 36, 42);
+    private static final int RED = Color.rgb(188, 29, 45);
+    private static final int ROSE = Color.rgb(245, 91, 101);
+    private static final int GOLD = Color.rgb(194, 151, 83);
+    private static final int TEXT = Color.rgb(247, 241, 237);
+    private static final int MUTED = Color.rgb(174, 157, 158);
+    private static final int OFF = Color.rgb(63, 51, 56);
+    private static final int GREEN = Color.rgb(151, 205, 151);
 
     private static final String PREFS = "gow_settings";
     private static final int PICK_GAME_ISO = 401;
     private static final int PICK_IMAGE_BIN = 402;
     private static final int REQUEST_WRITE_LOG = 403;
-    private static final String VERSION = "v1.0.2";
+    private static final String VERSION = "v1.1.0";
     private static final String REPO_URL = "https://github.com/flavinxs0/gow-psp-recomp-android";
     private static final String[] MODES = { "16:9", "4:3", "WIDESCREEN" };
 
@@ -172,7 +174,7 @@ public final class LauncherActivity extends Activity {
         super.setContentView(f);
     }
 
-    /** Fundo original: brasa vermelha embaixo, fagulhas, corrente na borda direita e faixa grega no rodape. */
+    /** Fundo original: vinheta, brasa discreta, fagulhas e um meandro quase imperceptível. */
     private final class ThemeBackground extends View {
         private final android.graphics.Paint pt = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         private final android.graphics.Path path = new android.graphics.Path();
@@ -186,11 +188,11 @@ public final class LauncherActivity extends Activity {
 
         @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
             float d = getResources().getDisplayMetrics().density;
-            glow = new android.graphics.RadialGradient(w * 0.5f, h * 1.05f, Math.max(w, h) * 0.75f,
-                    new int[] { Color.argb(150, 120, 20, 32), Color.argb(60, 90, 14, 24), Color.TRANSPARENT },
+            glow = new android.graphics.RadialGradient(w * 0.42f, h * 0.96f, Math.max(w, h) * 0.72f,
+                    new int[] { Color.argb(120, 120, 20, 32), Color.argb(42, 90, 14, 24), Color.TRANSPARENT },
                     new float[] { 0f, 0.5f, 1f }, android.graphics.Shader.TileMode.CLAMP);
             java.util.Random rnd = new java.util.Random(7);
-            int n = 40;
+            int n = 28;
             spark = new float[n * 4];
             for (int i = 0; i < n; i++) {
                 spark[i * 4] = rnd.nextFloat() * w;
@@ -212,32 +214,14 @@ public final class LauncherActivity extends Activity {
             }
             pt.setStyle(android.graphics.Paint.Style.FILL);
             for (int i = 0; i + 3 < spark.length; i += 4) {
-                pt.setColor(Color.argb((int) spark[i + 3], 200, 40, 55));
+                pt.setColor(Color.argb((int) (spark[i + 3] * 0.65f), 220, 62, 65));
                 c.drawCircle(spark[i], spark[i + 1], spark[i + 2], pt);
             }
-            // corrente na borda direita
+            // Meandro discreto no rodape, sem disputar com os cards.
             pt.setStyle(android.graphics.Paint.Style.STROKE);
-            pt.setStrokeWidth(3 * d);
-            pt.setColor(Color.argb(70, 200, 32, 48));
-            float cx = w - 6 * d;
-            float y = -4 * d;
-            boolean front = true;
-            while (y < h) {
-                if (front) {
-                    rc.set(cx - 9 * d, y, cx + 9 * d, y + 30 * d);
-                    c.drawOval(rc, pt);
-                    y += 22 * d;
-                } else {
-                    rc.set(cx - 2 * d, y, cx + 2 * d, y + 22 * d);
-                    c.drawRoundRect(rc, 2 * d, 2 * d, pt);
-                    y += 14 * d;
-                }
-                front = !front;
-            }
-            // faixa grega (meandro) no rodape
-            pt.setStrokeWidth(1.5f * d);
-            pt.setColor(Color.argb(80, 200, 32, 48));
-            float bh = 11 * d, y0 = h - 15 * d, step = 22 * d;
+            pt.setStrokeWidth(1.2f * d);
+            pt.setColor(Color.argb(46, 194, 151, 83));
+            float bh = 9 * d, y0 = h - 12 * d, step = 24 * d;
             for (float x = 4 * d; x < w; x += step) {
                 path.reset();
                 path.moveTo(x, y0 + bh);
@@ -841,6 +825,64 @@ public final class LauncherActivity extends Activity {
         return b;
     }
 
+    private String gameTitle(String id) {
+        return "gos".equals(id) ? "Ghost of Sparta" : "Chains of Olympus";
+    }
+
+    private String gameShortTitle(String id) {
+        return "gos".equals(id) ? "GHOST OF SPARTA" : "CHAINS OF OLYMPUS";
+    }
+
+    private boolean gameReady(String id) {
+        String old = prefs().getString("selected_game", "coo");
+        prefs().edit().putString("selected_game", id).apply();
+        File dir = gameDir();
+        boolean ready = new File(dir, "game.iso").isFile() && new File(dir, "game.iso").length() > 0
+                && new File(dir, "image.bin").isFile() && new File(dir, "image.bin").length() > 0;
+        prefs().edit().putString("selected_game", old).apply();
+        return ready;
+    }
+
+    private LinearLayout gameCard(String id, boolean selected) {
+        LinearLayout root = rowLayout();
+        root.setPadding(dp(14), dp(12), dp(14), dp(12));
+        root.setBackground(shape(selected ? CARD_ALT : CARD, selected ? ROSE : BRD, 16));
+        TextView emblem = tv("gos".equals(id) ? "GS" : "CO", 15, selected ? TEXT : GOLD, true);
+        emblem.setGravity(Gravity.CENTER);
+        emblem.setBackground(shape(selected ? RED : BG, selected ? 0 : BRD, 24));
+        root.addView(emblem, lp(dp(44), dp(44)));
+        LinearLayout names = column();
+        names.setPadding(dp(12), 0, 0, 0);
+        names.addView(tv(gameShortTitle(id), 12, selected ? ROSE : MUTED, true), matchWrap());
+        names.addView(tv(gameReady(id) ? "Pronto para jogar" : "ISO pendente", 13,
+                gameReady(id) ? GREEN : MUTED, false), matchWrap());
+        root.addView(names, weight(1f));
+        TextView arrow = tv(selected ? "✓" : "›", 20, selected ? ROSE : MUTED, true);
+        arrow.setGravity(Gravity.CENTER);
+        root.addView(arrow, lp(dp(28), dp(44)));
+        root.setOnClickListener(v -> {
+            prefs().edit().putString("selected_game", id).apply();
+            writeArgs();
+            showMain();
+        });
+        return root;
+    }
+
+    private LinearLayout sectionLabel(String eyebrow, String title, String subtitle) {
+        LinearLayout root = column();
+        if (eyebrow != null) root.addView(tv(eyebrow, 11, GOLD, true), withBottom(dp(4)));
+        root.addView(tv(title, 24, TEXT, true), withBottom(dp(3)));
+        if (subtitle != null) root.addView(tv(subtitle, 13, MUTED, false), matchWrap());
+        return root;
+    }
+
+    private TextView actionButton(String icon, String label, boolean primary, Runnable action) {
+        TextView b = button(label, primary, action);
+        b.setText(icon + "  " + localized(label));
+        b.setGravity(Gravity.CENTER_VERTICAL);
+        return b;
+    }
+
     // ------------------------------------------------------------------ 1. Entrada
 
     private void showMain() {
@@ -850,43 +892,42 @@ public final class LauncherActivity extends Activity {
         body.setOrientation(LinearLayout.HORIZONTAL);
         body.setPadding(pad, pad, pad, pad);
 
+        String selected = prefs().getString("selected_game", "coo");
         LinearLayout left = column();
-        left.setGravity(Gravity.CENTER_VERTICAL);
-        TextView crest = tv("G O D   O F   W A R", 12, MUTED, false);
-        crest.setLetterSpacing(0.1f);
-        left.addView(crest, wrapWrap());
-        SpannableStringBuilder name = new SpannableStringBuilder("Chains of Olympus");
-        name.setSpan(new ForegroundColorSpan(ROSE), 10, 17, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        TextView title = tv("", 27, TEXT, true);
-        title.setText(name);
-        left.addView(title, wrapWrap());
-        TextView plus = tv("+", 25, ROSE, true);
-        plus.setGravity(Gravity.CENTER);
-        plus.setPadding(0, dp(1), 0, dp(1));
-        left.addView(plus, wrapWrap());
-        TextView secondTitle = tv("Ghost of Sparta", 30, ROSE, true);
-        secondTitle.setPadding(0, dp(2), 0, dp(5));
-        left.addView(secondTitle, wrapWrap());
-        left.addView(tv("Launcher oficial \u00b7 " + VERSION, 14, MUTED, false), wrapWrap());
-        TextView by = tv("By: flavinxs0", 15, ROSE, true);
-        by.setPadding(0, dp(2), 0, dp(14));
-        left.addView(by, wrapWrap());
-        LinearLayout statusCard = card();
-        status = tv("", 12, MUTED, false);
-        statusCard.addView(status, matchWrap());
-        left.addView(statusCard, withBottom(dp(14)));
-        left.addView(tv("Android " + Build.VERSION.RELEASE + " \u00b7 " + abi(), 11, MUTED, false), wrapWrap());
+        left.setPadding(0, dp(4), 0, 0);
+        left.addView(sectionLabel("NATIVE RECOMP", "Sua biblioteca", "Escolha um jogo e entre direto na ação."), withBottom(dp(16)));
+        left.addView(gameCard("coo", "coo".equals(selected)), withBottom(dp(8)));
+        left.addView(gameCard("gos", "gos".equals(selected)), withBottom(dp(16)));
+
+        LinearLayout state = card();
+        state.setBackground(shape(Color.argb(210, 27, 24, 28), BRD, 16));
+        status = tv("", 13, MUTED, false);
+        status.setLineSpacing(0, 1.12f);
+        state.addView(tv("STATUS DO JOGO", 10, GOLD, true), withBottom(dp(7)));
+        state.addView(status, matchWrap());
+        left.addView(state, withBottom(dp(12)));
+        left.addView(tv("Android " + Build.VERSION.RELEASE + "  ·  " + abi() + "  ·  " + VERSION, 11, MUTED, false), wrapWrap());
         body.addView(left, weight(1f));
 
         LinearLayout right = column();
         right.setGravity(Gravity.CENTER_VERTICAL);
-        right.addView(button("Jogar", true, this::launchGame), withBottom(dp(8)));
-        right.addView(button("Instalar arquivos do jogo", false, this::showGameFiles), withBottom(dp(8)));
-        right.addView(button("Gr\u00e1ficos", false, this::showGraphics), withBottom(dp(8)));
-        right.addView(button("Desempenho / HUD", false, this::showHud), withBottom(dp(8)));
-        right.addView(button("Controles", false, this::showControls), withBottom(dp(8)));
-        right.addView(button("Extras", false, this::showExtras), withBottom(dp(8)));
-        right.addView(button("Sobre", false, this::showAbout), withBottom(0));
+        boolean ready = gameReady(selected);
+        right.addView(sectionLabel("CENTRAL DE JOGO", gameTitle(selected), ready ? "Tudo pronto para iniciar." : "Importe sua ISO original para continuar."), withBottom(dp(16)));
+        right.addView(actionButton("▶", ready ? "Jogar" : "Importar ISO", true,
+                ready ? this::launchGame : this::showGameFiles), withBottom(dp(10)));
+        LinearLayout config = card();
+        config.setPadding(dp(14), dp(10), dp(14), dp(10));
+        config.addView(tv("CONFIGURAÇÃO", 10, GOLD, true), withBottom(dp(5)));
+        config.addView(actionButton("▣", "Gráficos", false, this::showGraphics), withBottom(dp(6)));
+        config.addView(actionButton("◉", "Desempenho / HUD", false, this::showHud), withBottom(dp(6)));
+        config.addView(actionButton("⌘", "Controles", false, this::showControls), withBottom(0));
+        right.addView(config, withBottom(dp(10)));
+        LinearLayout utility = rowLayout();
+        utility.addView(button("Extras", false, this::showExtras), weight(1f));
+        LinearLayout.LayoutParams aboutLp = weight(1f);
+        aboutLp.leftMargin = dp(8);
+        utility.addView(button("Sobre", false, this::showAbout), aboutLp);
+        right.addView(utility, withBottom(0));
         LinearLayout.LayoutParams rp = weight(1.25f);
         rp.leftMargin = pad * 2;
         body.addView(right, rp);
@@ -942,11 +983,21 @@ public final class LauncherActivity extends Activity {
     }
 
     private void launchGame() {
-        final String[] games = { "Chains of Olympus", "Ghost of Sparta" };
-        dialog().setTitle(localized("Escolher jogo"))
-                .setItems(games, (d, which) -> launchGameFor(which == 0 ? "coo" : "gos"))
+        LinearLayout root = column();
+        root.setPadding(dp(8), dp(4), dp(8), dp(2));
+        root.addView(tv("Escolha o jogo que deseja iniciar", 14, MUTED, false), withBottom(dp(12)));
+        LinearLayout coo = gameCard("coo", false);
+        LinearLayout gos = gameCard("gos", false);
+        root.addView(coo, withBottom(dp(8)));
+        root.addView(gos, matchWrap());
+        AlertDialog picker = dialog().setTitle(localized("Escolher jogo"))
+                .setView(root)
                 .setNegativeButton(localized("Cancelar"), null)
-                .show();
+                .create();
+        coo.setOnClickListener(v -> { picker.dismiss(); launchGameFor("coo"); });
+        gos.setOnClickListener(v -> { picker.dismiss(); launchGameFor("gos"); });
+        picker.show();
+        if (picker.getWindow() != null) picker.getWindow().setBackgroundDrawable(shape(CARD, BRD, 22));
     }
 
     private void launchGameFor(String gameId) {
@@ -982,13 +1033,27 @@ public final class LauncherActivity extends Activity {
                 ? String.format(Locale.US, localized("Pronto (%.1f GB)"), iso.length() / 1073741824.0) : localized("Pendente");
         String imageState = image.isFile() && image.length() > 0
                 ? String.format(Locale.US, localized("Pronto (%.1f MB)"), image.length() / 1048576.0) : localized("Pendente");
-        dialog().setTitle(localized("Instalar arquivos do jogo"))
-                .setMessage(localized("game.iso — ") + isoState + "\n"
-                        + localized("image.bin — incluído no APK e instalado automaticamente")
-                        + "\n\n" + localized("Para jogar, importe somente a ISO do jogo escolhido. O image.bin correto já vem no APK."))
-                .setPositiveButton(localized("Selecionar game.iso"), (d, w) -> pickGameFile(PICK_GAME_ISO, "game.iso"))
-                .setNegativeButton(localized("Fechar"), null)
-                .show();
+        LinearLayout root = column();
+        root.setPadding(dp(8), dp(4), dp(8), 0);
+        root.addView(tv(gameTitle(prefs().getString("selected_game", "coo")), 20, TEXT, true), withBottom(dp(4)));
+        root.addView(tv("Use sua própria cópia do jogo. O image.bin correspondente já vem no APK.", 13, MUTED, false), withBottom(dp(14)));
+        LinearLayout isoRow = rowLayout();
+        isoRow.setPadding(dp(12), dp(11), dp(12), dp(11));
+        isoRow.setBackground(shape(CARD_ALT, BRD, 12));
+        isoRow.addView(tv("ISO", 14, TEXT, true), weight(1f));
+        isoRow.addView(tv(isoState, 13, iso.isFile() && iso.length() > 0 ? GREEN : ROSE, true), wrapWrap());
+        root.addView(isoRow, withBottom(dp(8)));
+        LinearLayout imageRow = rowLayout();
+        imageRow.setPadding(dp(12), dp(11), dp(12), dp(11));
+        imageRow.setBackground(shape(CARD, BRD, 12));
+        imageRow.addView(tv("IMAGE.BIN", 14, TEXT, true), weight(1f));
+        imageRow.addView(tv(imageState, 13, image.isFile() && image.length() > 0 ? GREEN : ROSE, true), wrapWrap());
+        root.addView(imageRow, withBottom(dp(14)));
+        root.addView(button("Selecionar game.iso", true, () -> pickGameFile(PICK_GAME_ISO, "game.iso")), matchWrap());
+        AlertDialog files = dialog().setTitle(localized("Instalar arquivos do jogo"))
+                .setView(root).setNegativeButton(localized("Fechar"), null).create();
+        files.show();
+        if (files.getWindow() != null) files.getWindow().setBackgroundDrawable(shape(CARD, BRD, 22));
     }
 
     private void pickGameFile(int requestCode, String expectedName) {

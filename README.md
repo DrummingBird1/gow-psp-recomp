@@ -33,6 +33,12 @@ Independent community Android ARM64 project combining the native recompilations 
 - HUD configurável com FPS, tempo de quadro, RAM e posição.
 - Interface em português e inglês.
 - Verificador de atualizações que consulta as releases publicadas no GitHub.
+- Launcher redesenhado com cards por jogo, status contextual da ISO e ações cinematográficas.
+- Menu durante o jogo compacto, com acesso rápido a controles, HUD e saída.
+
+### Redesign do launcher (v1.1.0)
+
+A tela inicial agora funciona como uma central de jogos: cada título tem um card próprio, o status de `game.iso` é exibido antes do início e a ação principal muda entre `Jogar` e `Importar ISO`. As telas continuam nativas e leves, sem exigir Compose ou uma biblioteca visual adicional. O redesign usa arte original desenhada por componentes Android, sem incluir imagens protegidas dos jogos.
 
 ### Instalação
 
@@ -77,6 +83,8 @@ Abra uma [Issue](https://github.com/flavinxs0/gow-psp-recomp-android/issues) com
 - Configurable HUD for FPS, frame time, RAM, and position.
 - Portuguese and English interface.
 - In-app update checker for published GitHub releases.
+- Redesigned launcher with per-game cards, contextual ISO status, and cinematic actions.
+- Compact in-game drawer with quick access to controls, HUD, and exit.
 
 ### Installation
 
