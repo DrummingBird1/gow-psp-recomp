@@ -720,7 +720,7 @@ def recomp_stamp(game):
     translation (recomp/runtime_funcs.json; v1.6.0 added one to Ghost of Sparta, so C recompiled before is made
     again). recomp.py rewrites only the files that change, so only those are compiled again."""
     digest = hashlib.sha256(eboot_path(game).read_bytes()).hexdigest()
-    funcs = json.loads((ROOT / "recomp" / "runtime_funcs.json").read_text(encoding="utf-8")).get(GAMES[game]["id"], {})
+    funcs = json.loads((ROOT / "recomp" / "runtime_funcs.json").read_text(encoding="utf-8")).get(game_id(game), {})
     return digest + "\n" + hashlib.sha256(json.dumps(funcs, sort_keys=True).encode()).hexdigest()
 
 
