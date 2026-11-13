@@ -526,20 +526,23 @@ static void upload_to_target(int ti, int x, int y, int w, int h, uint32_t addr, 
 /* --- render targets ----------------------------------------------------------------- */
 /* hash of the display area of a target's memory: shows whether the CPU changed it */
 static uint64_t display_hash(const Target *t) {
-    uint64_t h = 0x9E3779B97F4A7C15ull;
+    /* four independent lanes: the multiplications of one lane don't wait for the others (about 3x faster than one
+     * chain; it hashes up to half a megabyte a few times per frame). Only compared with its own earlier values. */
+    uint64_t h[4] = { 0x9E3779B97F4A7C15ull, 0xC2B2AE3D27D4EB4Full, 0x165667B19E3779F9ull, 0x27D4EB2F165667C5ull };
     int rows = imin(DISP_H, t->h), n = imin(DISP_W, t->w) * t->bpp;
     for (int y = 0; y < rows; y++) {
         const uint8_t *p = rt_ptr(t->addr + (uint32_t)y * t->pitch);
         int i = 0;
-        for (; i + 8 <= n; i += 8) {
-            uint64_t v;
-            memcpy(&v, p + i, 8);
-            h = (h ^ v) * 0x100000001B3ull;
-            h ^= h >> 29;
-        }
-        for (; i < n; i++) h = (h ^ p[i]) * 0x100000001B3ull;
+        for (; i + 32 <= n; i += 32)
+            for (int k = 0; k < 4; k++) {
+                uint64_t v;
+                memcpy(&v, p + i + 8 * k, 8);
+                h[k] = (h[k] ^ v) * 0x100000001B3ull;
+                h[k] ^= h[k] >> 29;
+            }
+        for (; i < n; i++) h[0] = (h[0] ^ p[i]) * 0x100000001B3ull;
     }
-    return h;
+    return h[0] ^ (h[1] * 0x9E3779B97F4A7C15ull) ^ (h[2] * 0xC2B2AE3D27D4EB4Full) ^ (h[3] * 0x165667B19E3779F9ull);
 }
 
 static int target_textures(Target *t) {
@@ -1117,9 +1120,6 @@ static PackEntry *pack_texture(uint64_t key) {
     return p;
 }
 
-/* --- textures -------------------------------------------------------------------- */
-static TexEntry *tex_slot(uint64_t key) {
-    size_t i = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 50) & (TEX_SLOTS - 1);
 /* --tex-upscale: level 0 scaled up with xBRZ, its mip chain made on the GPU (like a pack's picture). Textures
  * bigger than 256x256 (rare on the PSP, already detailed) and tiny ones stay as they are. 1 when done. */
 static int upscale_texture(TexEntry *e, uint64_t key, int w, int h, const uint32_t *rgba) {
@@ -1161,6 +1161,9 @@ static int upscale_texture(TexEntry *e, uint64_t key, int w, int h, const uint32
     return 1;
 }
 
+/* --- textures -------------------------------------------------------------------- */
+static TexEntry *tex_slot(uint64_t key) {
+    size_t i = (size_t)((key * 0x9E3779B97F4A7C15ull) >> 50) & (TEX_SLOTS - 1);
     while (g_tex[i].key && g_tex[i].key != key) i = (i + 1) & (TEX_SLOTS - 1);
     return &g_tex[i];
 }
@@ -1197,14 +1200,14 @@ void rt_gpu_texture_upload(uint64_t key, int w, int h, int levels, const uint32_
             return;
         }
     }
+    if (upscale_texture(e, key, w, h, rgba)) return;
     e->tex = make_texture(SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, w, h, nl, SDL_GPU_SAMPLECOUNT_1);
     if (!e->tex) return;
     e->key = key;
-    if (upscale_texture(e, key, w, h, rgba)) return;
+    e->scaled = 0;
     e->w = w;
     e->h = h;
     e->levels = nl;
-    e->scaled = 0;
     e->replaced = 0;
     e->used = g_frame;
     g_tex_count++;
@@ -2231,12 +2234,12 @@ void rt_gpu_report(void) {
                g_scale, (unsigned long long)g_st.blits, (unsigned long long)g_st.msaa_resolves, (unsigned long long)g_st.unresolves,
                tb / 1048576.0, g_st.snap_bytes / 1048576.0);
     }
-    if (g_dumped || g_pack)
-        printf("[gpu] texture pack: %llu pictures dumped, %llu replacements loaded, %llu textures replaced\n", (unsigned long long)g_st.dumped,
-               (unsigned long long)g_st.pack_loads, (unsigned long long)g_st.replaced);
     if (g_st.upscaled)
         printf("[gpu] texture upscaling %dx (xBRZ): %llu textures, %.1f ms each on average\n", rt_gpu_opt.tex_upscale,
                (unsigned long long)g_st.upscaled, g_st.upscale_ns / 1e6 / (double)g_st.upscaled);
+    if (g_dumped || g_pack)
+        printf("[gpu] texture pack: %llu pictures dumped, %llu replacements loaded, %llu textures replaced\n", (unsigned long long)g_st.dumped,
+               (unsigned long long)g_st.pack_loads, (unsigned long long)g_st.replaced);
     if (g_st.gpu_wait_ns)
         printf("[gpu] waiting for the GPU after each frame: %.2f ms on average, %.2f ms at most\n",
                g_st.gpu_wait_ns / 1e6 / (double)(g_st.frames ? g_st.frames : 1), g_st.gpu_wait_max / 1e6);
