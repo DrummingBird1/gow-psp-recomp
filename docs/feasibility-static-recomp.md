@@ -195,8 +195,8 @@ CHD/ISO של המשתמש ──► runtime (מקומפל, נייטיב ל-Windo
 | `re/out/psp_nids_ppsspp.json/.tsv` | טבלת NID מ-PPSSPP 1.20.4 |
 | `re/scripts/` | הסקריפטים: `ExportRecompMetrics`, `NamePspImports`, `DataPointersIntoText`, `SeedFunctionsFromRelocations`, `ProbeCoverage`, `SampleDecompile`, `FunctionFingerprints`, `build_nid_db.mjs` |
 
-**הרצה חוזרת של המדדים** (ממצב read-only):
+**הרצה חוזרת של המדדים** (ממצב read-only, מתיקיית הריפו, כש-`<ghidra>` היא תיקיית ההתקנה של Ghidra):
 
 ```bash
-"E:/AI/projects/gow-psp/tools/ghidra_12.1.3_PUBLIC/support/analyzeHeadless.bat" E:/AI/projects/gow-psp-recomp/re/ghidra GoW_PSP -process -noanalysis -readOnly -scriptPath E:/AI/projects/gow-psp-recomp/re/scripts -postScript ExportRecompMetrics.java E:/AI/projects/gow-psp-recomp/re/out
+"<ghidra>/support/analyzeHeadless.bat" re/ghidra GoW_PSP -process -noanalysis -readOnly -scriptPath re/scripts -postScript ExportRecompMetrics.java re/out
 ```

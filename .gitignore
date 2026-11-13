@@ -28,3 +28,9 @@ __pycache__/
 # Analysis logs
 re/out/*.log
 re/out/*.console.txt
+
+# Local instructions and notes for AI coding agents: kept on the developer's PC, not in the public repo
+AGENTS.md
+CLAUDE.md
+HANDOFF.md
+.claude/
