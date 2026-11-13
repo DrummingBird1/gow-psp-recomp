@@ -431,7 +431,7 @@ int main(int argc, char **argv) {
                         "              [--hdr [auto|scrgb|hdr10]] [--paper-white NITS] [--peak-nits NITS] [--vsync] [--fps HZ]\n"
                         "              [--aspect W:H [--hud-edges]] [--crt] [--show-fps] [--show-input] [--gpu-power low|high] [--texture-dump dir] [--texture-pack dir]\n"
                         "              [--wav out.wav] [--mute] [--music-volume 0-200] [--sfx-volume 0-200]\n"
-                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--rumble] [--level-log] [--load-level NAME@FRAME]\n"
+                        "              [--warp LEVEL[:SPAWN][@FRAME]] [--god] [--rumble] [--auto-qte] [--qte-log] [--level-log] [--load-level NAME@FRAME]\n"
                         "              [--dump-ram N,N,...|stop:prefix])\n"
                         "       %s --disc game.chd|.iso --extract disc0:/path out.file (a directory is listed)\n"
                         "       %s --movie-test movie.pmf out_prefix [audio channel]\n",

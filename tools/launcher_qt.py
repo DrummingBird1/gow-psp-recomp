@@ -1352,6 +1352,8 @@ class Window(QWidget):
                                 "can be skipped with Enter, Space, a click or Start)."),
                                ("god", "Infinite health (cheat)", "Kratos's health stays full. Falling into a pit still "
                                 "sends you back to the last checkpoint."),
+                               ("auto_qte", "Auto QTE (Chains of Olympus)", "The button, mash and stick prompts answer "
+                                "themselves, as Callisto's Armlet does in Ghost of Sparta."),
                                ("rumble", "Gamepad rumble when Kratos is hit", "The PSP has no rumble: the port adds it, "
                                 "stronger for a bigger hit."),
                                ("confirm_circle", "Circle confirms, Cross cancels (Japanese layout)",

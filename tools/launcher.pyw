@@ -51,7 +51,7 @@ DEFAULTS = {
     "game": "coo", "disc": {}, "renderer": "gpu", "res_scale": 2, "fx_scale": 0, "msaa": 1, "aniso": 1,
     "fxaa": False, "sharpen": 0.0, "hdr": False, "fps": 60, "vsync": False, "aspect": "native", "fullscreen": True,
     "window_scale": 2, "texture_pack": "", "texture_dump": False, "gpu_api": "", "gpu_power": "high", "show_fps": False, "show_input": False, "crt": False,
-    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
+    "language": "en", "ui_language": "en", "music_volume": 100, "sfx_volume": 100, "skip_movies": False, "god": False, "auto_qte": False, "rumble": True, "confirm_circle": False, "discord": False, "hud_edges": False, "check_updates": True, "skip_version": "", "mute": False, "game_folder": "", "preset": "", "geometry": "",
     "settings_version": 2,
 }
 KEYS = ("Keys: arrows = D-pad, Z = cross, X = circle, A = square, S = triangle, Q/W = L/R, Space/Enter = Start, "
@@ -131,7 +131,7 @@ ALLOWED = {"renderer": ("gpu", "soft"), "res_scale": (1, 2, 3, 4, 6, 8), "fx_sca
            "aniso": (1, 2, 4, 8, 16), "fps": (60, 120, 144, 165, 240, 1000), "aspect": ("native", "21:9", "32:9", "4:3"),
            "window_scale": (1, 2, 3, 4), "gpu_api": ("", "direct3d12", "vulkan"), "gpu_power": ("high", "low"), "language": ("en", "fr", "es"), "ui_language": ("en", "de", "es", "fr", "it", "pt", "ru", "tr", "he", "ar"),
            "music_volume": tuple(range(101)), "sfx_volume": tuple(range(101))}
-BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "rumble", "confirm_circle", "discord", "hud_edges")
+BOOLS = ("per_game", "fxaa", "hdr", "vsync", "fullscreen", "mute", "texture_dump", "reduce_motion", "check_updates", "stick_evade", "show_fps", "show_input", "crt", "skip_movies", "god", "auto_qte", "rumble", "confirm_circle", "discord", "hud_edges")
 
 
 # --- per-game graphics ------------------------------------------------------------------------------------------
@@ -400,6 +400,8 @@ def play_command(cfg, game):
         cmd.append("--skip-movies")
     if cfg.get("god"):
         cmd.append("--god")
+    if cfg.get("auto_qte") and game == "coo":  # Ghost of Sparta has Callisto's Armlet in the game
+        cmd.append("--auto-qte")
     if cfg.get("rumble", True):
         cmd.append("--rumble")
     if cfg.get("confirm_circle"):
