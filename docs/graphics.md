@@ -62,5 +62,3 @@ Textures come from your disc, so packs stay on your PC: don't share them.
 - Ghost of Sparta's busiest scenes are limited by the CPU, not the GPU: a lower preset helps less there. Improving this is
   [planned](roadmap.md).
 - More in [Troubleshooting and FAQ](troubleshooting.md).
-
-The technical notes behind these options (in Hebrew) are in [phase 13](dev-history/phase13-graphics.md).

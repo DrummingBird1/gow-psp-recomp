@@ -34,3 +34,6 @@ AGENTS.md
 CLAUDE.md
 HANDOFF.md
 .claude/
+
+# Internal development notes kept on the developer's PC only (not part of the public repo)
+docs-local/
